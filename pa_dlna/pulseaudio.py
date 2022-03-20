@@ -13,6 +13,6 @@ class Pulseaudio:
 
     async def run(self):
         try:
-            await asyncio.sleep(10)
+            await asyncio.sleep(100)
         finally:
-            pass
+            pass # cancel all tasks

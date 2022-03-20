@@ -16,8 +16,8 @@ class Upnp:
 
     async def run(self):
         try:
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
         finally:
-            pass
+            pass # cancel all tasks
 
         # XXX start one shot task: msearch_t

@@ -89,7 +89,6 @@ class PaDLNA:
 
     def __init__(self, options):
         self.options = options
-        self.closed = False
         self.logfile_hdler = None
         self.setup_logging()
 
@@ -119,18 +118,12 @@ class PaDLNA:
             logging.getLogger().removeHandler(self.logfile_hdler)
             self.logfile_hdler.close()
 
-    async def sig_handler(self, signal, done, pending):
-        try:
-            logger.info(f'got signal {strsignal(signal)}')
-            await self.cancel_tasks(done, pending)
-        except Exception:
-            logger.exception('exception raised in sig_handler()')
-            asyncio.get_running_loop().stop()
+    def sig_handler(self, signal, pending):
+        logger.info(f'got signal {strsignal(signal)}')
+        for t in pending:
+            t.cancel()
 
     async def cancel_tasks(self, done, pending):
-        if self.closed:
-            return
-        self.closed = True
         for t in pending:
             t.cancel()
         await asyncio.sleep(0)
@@ -155,9 +148,7 @@ class PaDLNA:
         loop = asyncio.get_running_loop()
         for s in (SIGINT, SIGTERM):
             loop.add_signal_handler(s,
-                    lambda s=s: asyncio.create_task(
-                        self.sig_handler(s, (), (upnp_t, pulseaudio_t)),
-                        name='sig_handler_t'))
+                lambda s=s: self.sig_handler(s, (upnp_t, pulseaudio_t)))
 
         done, pending = await asyncio.wait((upnp_t, pulseaudio_t),
                                            return_when=asyncio.FIRST_COMPLETED)
