@@ -10,6 +10,14 @@ class Pulseaudio:
 
     def __init__(self, upnp):
         self.upnp = upnp
+        self.devices = {}
+        upnp.register_cb(self.weakref_callback)
+
+    def weakref_callback(self, ref):
+        """Callback called by the Upnp instance when a device is finalized."""
+        for udn, device in list(self.devices.items()):
+            if device == ref:
+                del self.devices[udn]
 
     async def run(self):
         try:
