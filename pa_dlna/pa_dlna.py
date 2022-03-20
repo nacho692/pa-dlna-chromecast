@@ -17,6 +17,27 @@ from pa_dlna.pulseaudio import Pulseaudio
 
 logger = logging.getLogger('pa-dlna')
 
+def setup_logging(options):
+    logging.basicConfig(
+        level=getattr(logging, options['loglevel'].upper()),
+        format='%(name)-7s %(levelname)-7s %(message)s')
+
+    # Add a file handler set at the debug level.
+    if options['logfile'] is not None:
+        try:
+            logfile_hdler = logging.FileHandler(options['logfile'],
+                                                mode='w')
+        except IOError as e:
+            logging.error(f'cannot setup the log file: {e}')
+        else:
+            logfile_hdler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter(
+                fmt='%(asctime)s %(name)-7s %(levelname)-7s %(message)s',
+                datefmt='%m-%d %H:%M.%S')
+            logfile_hdler.setFormatter(formatter)
+            logging.getLogger().addHandler(logfile_hdler)
+            return logfile_hdler
+
 def networks_option(ip_list, parser):
     """Return a list of IPv4 addresses from a comma separated list.
 
@@ -89,34 +110,6 @@ class PaDLNA:
 
     def __init__(self, options):
         self.options = options
-        self.logfile_hdler = None
-        self.setup_logging()
-
-    def setup_logging(self):
-        logging.basicConfig(
-            level=getattr(logging, self.options['loglevel'].upper()),
-            format='%(name)-7s %(levelname)-7s %(message)s')
-
-        # Add a file handler set at the debug level.
-        if self.options['logfile'] is not None:
-            try:
-                logfile_hdler = logging.FileHandler(self.options['logfile'],
-                                                    mode='w')
-            except IOError as e:
-                logging.error(f'cannot setup the log file: {e}')
-            else:
-                logfile_hdler.setLevel(logging.DEBUG)
-                formatter = logging.Formatter(
-                    fmt='%(asctime)s %(name)-7s %(levelname)-7s %(message)s',
-                    datefmt='%m-%d %H:%M.%S')
-                logfile_hdler.setFormatter(formatter)
-                logging.getLogger().addHandler(logfile_hdler)
-                self.logfile_hdler = logfile_hdler
-
-    def shutdown_logging(self):
-        if self.logfile_hdler is not None:
-            logging.getLogger().removeHandler(self.logfile_hdler)
-            self.logfile_hdler.close()
 
     def sig_handler(self, signal, pending):
         logger.info(f'got signal {strsignal(signal)}')
@@ -131,7 +124,6 @@ class PaDLNA:
             state = ('cancelled' if t.cancelled()
                      else f'done, result: {t.result()}')
             logger.info(f'task {t.get_name()}: {state}')
-        self.shutdown_logging()
 
     async def run(self):
         """Start the upnp_t and pulseaudio_t asyncio tasks."""
@@ -141,7 +133,7 @@ class PaDLNA:
 
         upnp = Upnp(self.options['networks'], self.options['ttl'])
         upnp_t = asyncio.create_task(upnp.run(), name='upnp_t')
-        pulseaudio_t = asyncio.create_task(Pulseaudio(upnp.queue).run(),
+        pulseaudio_t = asyncio.create_task(Pulseaudio(upnp).run(),
                                                 name='pulseaudio_t')
 
         # Set up signal handlers.
@@ -161,11 +153,14 @@ def main():
         sys.exit(1)
 
     options = parse_args()
+    logfile_hdler = setup_logging(options)
+    padlna = PaDLNA(options)
     try:
-        padlna = PaDLNA(options)
         asyncio.run(padlna.run())
     finally:
-        padlna.shutdown_logging()
+        if logfile_hdler is not None:
+            logfile_hdler.flush()
+        logging.shutdown()
 
 if __name__ == '__main__':
     main()

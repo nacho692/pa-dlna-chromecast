@@ -8,8 +8,8 @@ logger = logging.getLogger('pulse')
 
 class Pulseaudio:
 
-    def __init__(self, queue):
-        self.upnp_queue = queue
+    def __init__(self, upnp):
+        self.upnp = upnp
 
     async def run(self):
         try:
