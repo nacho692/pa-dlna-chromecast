@@ -8,7 +8,8 @@ logger = logging.getLogger('pulse')
 
 class Pulseaudio:
 
-    def __init__(self, upnp):
+    def __init__(self, loop, upnp):
+        self.loop = loop
         self.upnp = upnp
         self.devices = {}
         upnp.register_cb(self.weakref_callback)
@@ -22,5 +23,7 @@ class Pulseaudio:
     async def run(self):
         try:
             await asyncio.sleep(100)
+        except Exception as e:
+            logger.exception(e)
         finally:
-            pass # cancel all tasks
+            logger.info('end of task pulseaudio')
