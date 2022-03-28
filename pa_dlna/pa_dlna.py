@@ -11,7 +11,7 @@ import logging
 import asyncio
 from signal import SIGINT, SIGTERM, strsignal
 from pa_dlna import __version__
-from pa_dlna.upnp import Upnp
+from pa_dlna.upnp import Upnp, AsyncioTasks
 from pa_dlna.pulseaudio import Pulseaudio
 
 logger = logging.getLogger('pa-dlna')
@@ -135,6 +135,7 @@ class PaDLNA:
 
     def __init__(self, options):
         self.options = options          # a dict
+        self.aio_tasks = AsyncioTasks()
 
     def sig_handler(self, signal, pending):
         logger.info(f'Got signal {strsignal(signal)}')
@@ -152,8 +153,8 @@ class PaDLNA:
         try:
             # Start the two main tasks.
             upnp = Upnp(self.options['networks'], self.options['ttl'])
-            upnp_t = asyncio.create_task(upnp.run(), name='upnp')
-            pulseaudio_t = asyncio.create_task(
+            upnp_t = self.aio_tasks.create_task(upnp.run(), name='upnp')
+            pulseaudio_t = self.aio_tasks.create_task(
                 Pulseaudio(upnp).run(), name='pulseaudio')
 
             # Set up signal handlers.

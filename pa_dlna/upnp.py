@@ -63,7 +63,7 @@ class AsyncioTasks:
     def __init__(self):
         self.tasks = set()              # references to tasks
 
-    def create(self, coro, name):
+    def create_task(self, coro, name):
         task = asyncio.create_task(coro, name=name)
         self.tasks.add(task)
         task.add_done_callback(lambda t: self.tasks.remove(t))
@@ -137,7 +137,7 @@ class Upnp:
 
                 # Instantiate the UpnpDevice and starts its task.
                 device = UpnpDevice(header, self)
-                self.aio_tasks.create(device.run(), name=str(device))
+                self.aio_tasks.create_task(device.run(), name=str(device))
                 self._devices[udn] = device
             else:
                 logger.debug(f'SSDP notify: ignoring duplicate {shorten(udn)}')
@@ -224,11 +224,11 @@ class Upnp:
 
     async def run(self):
         # Start the msearch task.
-        msearch_t = asyncio.create_task(self.ssdp_msearch(), name='msearch')
-
+        msearch_t = self.aio_tasks.create_task(self.ssdp_msearch(),
+                                               name='msearch')
         # Start the notify task.
-        notify_t = asyncio.create_task(self.ssdp_notify(self.ip_addresses),
-                                       name='notify')
+        notify_t = self.aio_tasks.create_task(
+            self.ssdp_notify(self.ip_addresses), name='notify')
 
         try:
             await asyncio.wait((msearch_t, notify_t),
