@@ -8,22 +8,14 @@ logger = logging.getLogger('pulse')
 
 class Pulseaudio:
 
-    def __init__(self, loop, upnp):
-        self.loop = loop
+    def __init__(self, upnp):
         self.upnp = upnp
-        self.devices = {}
-        upnp.register_cb(self.weakref_callback)
-
-    def weakref_callback(self, ref):
-        """Callback called by the Upnp instance when a device is finalized."""
-        for udn, device in list(self.devices.items()):
-            if device == ref:
-                del self.devices[udn]
+        self.devices = {}               # {pulseaudio index: UpnpDevice}
 
     async def run(self):
         try:
-            await asyncio.sleep(100)
+            await asyncio.sleep(3600)
         except Exception as e:
             logger.exception(e)
         finally:
-            logger.info('end of task pulseaudio')
+            logger.debug('end of pulseaudio task')

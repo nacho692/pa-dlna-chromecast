@@ -38,13 +38,15 @@ def setup_logging(options):
             logging.getLogger().addHandler(logfile_hdler)
             return logfile_hdler
 
+    return None
+
 def networks_option(ip_list, parser):
     """Return a list of IPv4 addresses from a comma separated list.
 
-    IP_LIST is a comma separated list of the local IPv4 addresses where DLNA
-    devices may be discovered; when this option is an empty string or the
-    '--networks' option string is missing, all local addresses are used
-    except 127.0.0.1
+    IP_LIST is a comma separated list of the local IPv4 addresses of the
+    network interfaces where DLNA devices may be discovered.
+    When this option is an empty string or the option is missing, the first
+    local address of each network interface is used, except 127.0.0.1.
     """
 
     if ip_list:
@@ -59,9 +61,9 @@ def networks_option(ip_list, parser):
                 parser.error(e)
     else:
         # Use the ip command to get the list of local IPv4 addresses.
+        cmd = 'ip -family inet -brief -json address show'
         try:
-            proc = subprocess.run(
-              ['ip', '-family', 'inet', '-brief', '-json', 'address', 'show'],
+            proc = subprocess.run(cmd.split(),
               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         except FileNotFoundError as e:
             parser.error('ip command not available, use the --networks option')
@@ -71,20 +73,21 @@ def networks_option(ip_list, parser):
             parser.error(f'json loads exception in {proc.stdout}: {e}')
 
         addresses = []
+        logger.debug(f'output of "{cmd}"\n:{json_out}')
         for item in json_out:
-            ip = item['addr_info'][0]['local']
-            if ip != '127.0.0.1':
-                addresses.append(ip)
+            for addr in item['addr_info']:
+                ip = addr['local']
+                if ip != '127.0.0.1':
+                    addresses.append(ip)
+                break                   # only one local address is needed per
+                                        # network interface
 
     if not addresses:
-        parser.error('no local IPv4 address')
+        parser.error('no network interface available')
     return addresses
 
 def parse_args():
     """Parse the command line."""
-
-    def _networks_option(ip_list):
-        return networks_option(ip_list, parser)
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', '-v', action='version',
@@ -97,66 +100,72 @@ def parse_args():
                         help='FILE is the pathname of a logging file '
                         'handler set at the debug log level')
     parser.add_argument('--networks', '-n', metavar="IP_LIST", default='',
-                        type=_networks_option,
                         help=' '.join(line.strip() for line in
                                      networks_option.__doc__.split('\n')[2:]))
     parser.add_argument('--ttl', type=int, default=2,
                         help='the IP packets time to live '
                         '(default: %(default)s)')
-    return vars(parser.parse_args())
+
+    # Options as a dict.
+    options = vars(parser.parse_args())
+
+    logfile_hdler = setup_logging(options)
+    logger.info(f'Starting pa-dlna')
+
+    # Run networks_option() once logging has been setup.
+    options['networks'] = networks_option(options['networks'], parser)
+
+    return options, logfile_hdler
 
 def cancel_all_tasks(done=None):
     """Cancel all tasks except the main task."""
+
     if done is not None:
         for t in done:
             state = ('cancelled' if t.cancelled()
                      else f'done, result: {t.result()}')
-            logger.debug(f'task {t.get_name()}: {state}')
+            logger.debug(f'cancel_all_tasks: task {t.get_name()}: {state}')
     for t in asyncio.all_tasks():
         if t.get_name() != main_task_name:
-            logger.info(f'cancelling task {t.get_name()}')
+            logger.debug(f'cancel_all_tasks: cancelling task {t.get_name()}')
             t.cancel()
 
 class PaDLNA:
     """Manage the upnp and pulseaudio asyncio tasks."""
 
     def __init__(self, options):
-        self.options = options
-        self.loop = None
+        self.options = options          # a dict
 
     def sig_handler(self, signal, pending):
-        logger.info(f'got signal {strsignal(signal)}')
+        logger.info(f'Got signal {strsignal(signal)}')
         for t in pending:
             t.cancel()
 
     async def run(self):
         """Start the upnp and pulseaudio asyncio tasks."""
 
-        logger.info(f'Starting pa-dlna')
-        logger.info(f'Options {self.options}')
-
-        self.loop = asyncio.get_running_loop()
-        main_t = asyncio.current_task(self.loop)
+        loop = asyncio.get_running_loop()
+        main_t = asyncio.current_task(loop)
         main_t.set_name(main_task_name)
 
         done = None
         try:
             # Start the two main tasks.
-            upnp = Upnp(self.loop, self.options['networks'],
-                        self.options['ttl'])
+            upnp = Upnp(self.options['networks'], self.options['ttl'])
             upnp_t = asyncio.create_task(upnp.run(), name='upnp')
             pulseaudio_t = asyncio.create_task(
-                Pulseaudio(self.loop, upnp).run(), name='pulseaudio')
+                Pulseaudio(upnp).run(), name='pulseaudio')
 
             # Set up signal handlers.
             for s in (SIGINT, SIGTERM):
-                self.loop.add_signal_handler(s,
+                loop.add_signal_handler(s,
                     lambda s=s: self.sig_handler(s, (upnp_t, pulseaudio_t)))
 
             done, pending = await asyncio.wait((upnp_t, pulseaudio_t),
                                         return_when=asyncio.FIRST_COMPLETED)
         finally:
             cancel_all_tasks(done)
+            logger.info('End of pa-dlna')
 
 def main():
     if sys.version_info.major != 3 or sys.version_info.minor < 7:
@@ -164,8 +173,9 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
-    options = parse_args()
-    logfile_hdler = setup_logging(options)
+    options, logfile_hdler = parse_args()
+    logger.info(f'Options {options}')
+
     padlna = PaDLNA(options)
     try:
         asyncio.run(padlna.run())

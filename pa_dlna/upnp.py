@@ -1,18 +1,14 @@
 """A simple asyncio upnp library.
 
 The library API is defined a follows:
-  - Instantiate an Upnp object and create the Upnp.run() asyncio task.
-  - Receive 'alive' notifications on the Upnp.queue asyncio queue,
-    the notification holds a weak reference to an UpnpDevice instance.
-    Weak references are used to avoid a race condition that occurs if the
-    Upnp.queue were used to signal a 'byebye' notification.
-  - One may register with Upnp.register_cb() a call back to be used by
-    the Upnp instance when creating the weak reference.
+
+  - Instantiate an Upnp object and run the Upnp.run() coroutine.
+  - Await on Upnp.get_notification() to get 'alive' or 'byebye' notifications
+    with the corresponding UpnpDevice instance.
 """
 
 import asyncio
 import logging
-import weakref
 import socket
 import struct
 
@@ -20,70 +16,222 @@ logger = logging.getLogger('upnp')
 mcast_group = '239.255.255.250'
 mcast_port = 1900
 
-class Upnp:
+def shorten(txt, head_len=10, tail_len=5):
+    if len(txt) <= head_len + 3 + tail_len:
+        return txt
+    return txt[:head_len] + '...' + txt[len(txt)-tail_len:]
 
-    def __init__(self, loop, ip_addresses, ttl):
-        self.loop = loop
+class InvalidSsdpError(Exception): pass
+
+def http_header_as_dict(header):
+
+    def normalize(args):
+        """Return a normalized (key, value) tuple."""
+        return args[0].strip().upper(), args[1].strip()
+
+    # RFC 2616 section 4.2: Header fields can be extended over multiple
+    # lines by preceding each extra line with at least one SP or HT.
+    compacted = ''
+    for line in header:
+        sep = '' if not compacted or line.startswith((' ', '\t')) else '\n'
+        compacted = sep.join((compacted, line))
+
+    try:
+        return dict(normalize(line.split(':', maxsplit=1))
+                    for line in compacted.splitlines()[1:])
+    except ValueError:
+        raise InvalidSsdpError(f'malformed HTTP header:\n{header}')
+
+def parse_notify_header(header):
+    """Return the SSDP notify header as a dict."""
+
+    header_dict = http_header_as_dict(header)
+    # Check the presence of some required keys.
+    for key in ('NTS', 'USN'):
+        if key not in header_dict:
+            raise InvalidSsdpError(
+                f'missing "{key}" field in SSDP notify:\n{header}')
+    return header_dict
+
+class AsyncioTasks:
+    """Save references to tasks, to avoid tasks being garbage collected.
+
+    See https://github.com/python/cpython/pull/29163 and the corresponding
+    Python issues.
+    """
+
+    def __init__(self):
+        self.tasks = set()              # references to tasks
+
+    def create(self, coro, name):
+        task = asyncio.create_task(coro, name=name)
+        self.tasks.add(task)
+        task.add_done_callback(lambda t: self.tasks.remove(t))
+        return task
+
+class UpnpDevice:
+    """An upnp device."""
+
+    def __init__(self, http_header, upnp):
+        self.header = http_header
+        self.upnp = upnp
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+    async def run(self):
+        try:
+            # XXX do all the main work
+            self.upnp.put_notification('alive', self)
+        finally:
+            logger.debug(f'end of the UpnpDevice task {self}')
+
+    def __str__(self):
+        """Return a short representation of udn."""
+        return shorten(self.header['USN'].split('::')[0])
+
+class Upnp:
+    """Manage the notify and msearch tasks."""
+
+    def __init__(self, ip_addresses, ttl):
         self.ip_addresses = ip_addresses
         self.ttl = ttl
-        self.queue = asyncio.Queue()
-        self.devices = {}
-        self.callback = None
+        self._queue = asyncio.Queue()
+        self._devices = {}              # {udn: (UpnpDevice, its task)}
+        self.aio_tasks = AsyncioTasks()
 
-    def register_cb(self, callback):
-        """Callback to be called when a device is about to be finalized."""
-        self.callback = callback
+    async def get_notification(self):
+        """Return the tuple ('alive' or 'byebye', UpnpDevice instance)."""
+        return await self._queue.get()
 
-    def new_device(self, udn):
-        device = None # XXX instantiate device
-        self.devices[udn] = device
-        return weakref.ref(device, self.callback)
+    def put_notification(self, kind, upnpdevice):
+        self._queue.put_nowait((kind, upnpdevice))
+        state = 'created' if kind == 'alive' else 'deleted'
+        logger.info(f'UpnpDevice {upnpdevice} has been {state}')
 
-    async def msearch(self):
+    def handle_notify(self, datagram):
+        # Ignore non SSDP notify datagrams.
+        try:
+           header = datagram.decode().splitlines()
+        except UnicodeError:
+            return
+        if not header or header[0].strip() != 'NOTIFY * HTTP/1.1':
+            if header:
+                logger.debug(f"SSDP notify: ignoring '{header[0].strip()}'")
+            return
+
+        # Parse the HTTP header as a dict.
+        try:
+            header = parse_notify_header(header)
+        except InvalidSsdpError as e:
+            logger.warning(f'SSDP notify: {e}')
+            return
+
+        nts = header['NTS']
+        udn = header['USN'].split('::')[0]
+
+        if nts == 'ssdp:alive':
+            if udn not in self._devices:
+                logger.info(f'SSDP notify: new UpnpDevice {shorten(udn)}')
+
+                # Instantiate the UpnpDevice and starts its task.
+                device = UpnpDevice(header, self)
+                self.aio_tasks.create(device.run(), name=str(device))
+                self._devices[udn] = device
+            else:
+                logger.debug(f'SSDP notify: ignoring duplicate {shorten(udn)}')
+
+        elif nts == 'ssdp:byebye':
+            device = self._devices.get(udn, None)
+            if device is not None:
+                device.close()
+                self.put_notification('byebye', device)
+                # XXX del self._devices[udn]
+                # a device is never deleted, it is closed until new notification
+
+        elif nts == 'ssdp:update':
+            logger.warning(f'SSDP notify: ignoring not supported'
+                           f' {nts} notification')
+
+        else:
+            logger.warning(f'SSDP notify: unknown NTS field "{nts}"'
+                           f' in SSDP notify')
+
+    async def ssdp_msearch(self):
+        # See https://tldp.org/HOWTO/Multicast-HOWTO-6.html.
         try:
             await asyncio.sleep(1)
         except Exception as e:
             logger.exception(e)
         finally:
-            logger.info('end of task msearch')
+            logger.debug('end of msearch task')
 
-    async def listen_notifications(self):
+    async def ssdp_notify(self, ip_addresses):
         """Listen on SSDP notifications."""
 
-        # See section 5.10.2 Receiving IP Multicast Datagrams
+        # See section 21.10 Sending and Receiving in
+        # "Network Programming Volume 1, Third Edition" Stevens et al.
+        # See also section 5.10.2 Receiving IP Multicast Datagrams
         # in "An Advanced 4.4BSD Interprocess Communication Tutorial".
-        # See also https://tldp.org/HOWTO/Multicast-HOWTO-6.html.
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.setblocking(False)
 
+        sock_list = []
+        sock = None
+        try:
             # Become a member of the IP multicast group.
-            mreq = struct.pack('4sL', socket.inet_aton(mcast_group),
-                               socket.INADDR_ANY)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            # This  tells the network interface to deliver multicast
+            # datagrams destined to this multicast group.
+            for ip in ip_addresses:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock_list.append(s)
+                mreq = struct.pack('4s4s', socket.inet_aton(mcast_group),
+                               socket.inet_aton(ip))
+                try:
+                    s.setsockopt(socket.IPPROTO_IP,
+                                socket.IP_ADD_MEMBERSHIP, mreq)
+                except OSError as e:
+                    logger.exception(f'SSDP notify: {ip}: {e}')
+                    return
+
+            # Use a different socket for receiving (could have used one from
+            # sock_list).
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setblocking(False)
 
             # Allow other processes to bind to the same multicast group
             # and port.
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            sock.bind(('', mcast_port))
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-            try:
-                datagram = await self.loop.sock_recv(sock, 8192)
+            # Bind to the multicast (group, port).
+            # Binding to (INADDR_ANY, port) would also work, except
+            # that in that case the socket would also receive the datagrams
+            # destined to any other address and the mcast_port.
+            sock.bind((mcast_group, mcast_port))
 
-                #XXX check that the sender is in ip_addresses
-                await asyncio.sleep(100)
-            except OSError as e:
-                logger.exception(e)
+            loop = asyncio.get_running_loop()
+            while True:
+                datagram = await loop.sock_recv(sock, 8192)
+                self.handle_notify(datagram)
+
+        except OSError as e:
+            logger.exception(f'SSDP notify: {e}')
         finally:
-            sock.close()
+            logger.debug('end of notify task')
+            if sock is not None:
+                sock.close()
+            for s in sock_list:
+                s.close()
 
     async def run(self):
         # Start the msearch task.
-        msearch_t = asyncio.create_task(self.msearch(), name='msearch')
+        msearch_t = asyncio.create_task(self.ssdp_msearch(), name='msearch')
+
+        # Start the notify task.
+        notify_t = asyncio.create_task(self.ssdp_notify(self.ip_addresses),
+                                       name='notify')
 
         try:
-            await self.listen_notifications()
-        except Exception as e:
-            logger.exception(e)
+            await asyncio.wait((msearch_t, notify_t),
+                                        return_when=asyncio.ALL_COMPLETED)
         finally:
-            logger.info('end of task upnp')
+            logger.debug('end of upnp task')
