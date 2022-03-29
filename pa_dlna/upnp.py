@@ -1,10 +1,12 @@
-"""A simple asyncio upnp library.
+"""A simple asyncio UPnP library.
 
 The library API is defined a follows:
 
-  - Instantiate an Upnp object and run the Upnp.run() coroutine.
+  - Instantiate an UPnP object and run the UPnP.run() coroutine.
   - Await on Upnp.get_notification() to get 'alive' or 'byebye' notifications
     with the corresponding UpnpDevice instance.
+
+See UPnP Device Architecture 2.0.
 """
 
 import asyncio
@@ -80,7 +82,7 @@ class RcvFromSocket(socket.socket):
             self.bufsize = kwargs['bufsize']
             del kwargs['bufsize']
         else:
-            self.bufsize = 8192
+            self.bufsize = 4096
         super(RcvFromSocket, self).__init__(*args, **kwargs)
         self.loop = asyncio.get_running_loop()
         self.queue = asyncio.Queue()
@@ -98,8 +100,8 @@ class RcvFromSocket(socket.socket):
         self.loop.remove_reader(self.fileno())
         super(RcvFromSocket, self).close()
 
-class UpnpDevice:
-    """An upnp device."""
+class UPnPDevice:
+    """An UPnP device."""
 
     def __init__(self, http_header, upnp):
         self.header = http_header
@@ -114,30 +116,30 @@ class UpnpDevice:
             # XXX do all the main work
             self.upnp.put_notification('alive', self)
         finally:
-            logger.debug(f'end of the UpnpDevice task {self}')
+            logger.debug(f'end of the UPnPDevice task {self}')
 
     def __str__(self):
         """Return a short representation of udn."""
         return shorten(self.header['USN'].split('::')[0])
 
-class Upnp:
-    """Manage the notify and msearch tasks."""
+class UPnPControlPoint:
+    """An UPnP control point."""
 
     def __init__(self, ip_addresses, ttl):
         self.ip_addresses = ip_addresses
         self.ttl = ttl
         self._queue = asyncio.Queue()
-        self._devices = {}              # {udn: (UpnpDevice, its task)}
+        self._devices = {}              # {udn: (UPnPDevice, its task)}
         self.aio_tasks = AsyncioTasks()
 
     async def get_notification(self):
-        """Return the tuple ('alive' or 'byebye', UpnpDevice instance)."""
+        """Return the tuple ('alive' or 'byebye', UPnPDevice instance)."""
         return await self._queue.get()
 
     def put_notification(self, kind, upnpdevice):
         self._queue.put_nowait((kind, upnpdevice))
         state = 'created' if kind == 'alive' else 'deleted'
-        logger.info(f'UpnpDevice {upnpdevice} has been {state}')
+        logger.info(f'UPnPDevice {upnpdevice} has been {state}')
 
     def handle_notify(self, datagram, ip_source):
         # Ignore non SSDP notify datagrams.
@@ -163,10 +165,10 @@ class Upnp:
 
         if nts == 'ssdp:alive':
             if udn not in self._devices:
-                logger.info(f'SSDP notify: new UpnpDevice {shorten(udn)}')
+                logger.info(f'SSDP notify: new UPnPDevice {shorten(udn)}')
 
-                # Instantiate the UpnpDevice and starts its task.
-                device = UpnpDevice(header, self)
+                # Instantiate the UPnPDevice and starts its task.
+                device = UPnPDevice(header, self)
                 self.aio_tasks.create_task(device.run(), name=str(device))
                 self._devices[udn] = device
             else:

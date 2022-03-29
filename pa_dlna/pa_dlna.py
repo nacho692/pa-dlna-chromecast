@@ -1,5 +1,5 @@
 #! /bin/env python
-"""An Upnp control point that forwards Pulseaudio streams to DLNA devices.
+"""An UPnP control point that forwards Pulseaudio streams to DLNA devices.
 """
 
 import sys
@@ -11,7 +11,7 @@ import logging
 import asyncio
 from signal import SIGINT, SIGTERM, strsignal
 from pa_dlna import __version__
-from pa_dlna.upnp import Upnp, AsyncioTasks
+from pa_dlna.upnp import UPnPControlPoint, AsyncioTasks
 from pa_dlna.pulseaudio import Pulseaudio
 
 logger = logging.getLogger('pa-dlna')
@@ -131,7 +131,7 @@ def cancel_all_tasks(done=None):
             t.cancel()
 
 class PaDLNA:
-    """Manage the upnp and pulseaudio asyncio tasks."""
+    """Manage the UPnP and pulseaudio asyncio tasks."""
 
     def __init__(self, options):
         self.options = options          # a dict
@@ -143,7 +143,7 @@ class PaDLNA:
             t.cancel()
 
     async def run(self):
-        """Start the upnp and pulseaudio asyncio tasks."""
+        """Start the UPnP and pulseaudio asyncio tasks."""
 
         loop = asyncio.get_running_loop()
         main_t = asyncio.current_task(loop)
@@ -152,7 +152,8 @@ class PaDLNA:
         done = None
         try:
             # Start the two main tasks.
-            upnp = Upnp(self.options['networks'], self.options['ttl'])
+            upnp = UPnPControlPoint(self.options['networks'],
+                                    self.options['ttl'])
             upnp_t = self.aio_tasks.create_task(upnp.run(), name='upnp')
             pulseaudio_t = self.aio_tasks.create_task(
                 Pulseaudio(upnp).run(), name='pulseaudio')
