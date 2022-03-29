@@ -1,12 +1,14 @@
-"""A simple asyncio UPnP library.
-
-The library API is defined a follows:
-
-  - Instantiate an UPnP object and run the UPnP.run() coroutine.
-  - Await on Upnp.get_notification() to get 'alive' or 'byebye' notifications
-    with the corresponding UpnpDevice instance.
+"""A simple UPnP Control Point asyncio library.
 
 See UPnP Device Architecture 2.0.
+
+A client example:
+
+    with UPnPControlPoint(ipaddr_list, ttl) as upnp:
+        notif_type, upnp_device = await upnp.get_notification()
+        ...
+
+Use the UPnPDevice instance methods to control the device.
 """
 
 import asyncio
@@ -63,13 +65,21 @@ class AsyncioTasks:
     """
 
     def __init__(self):
-        self.tasks = set()              # references to tasks
+        self._tasks = set()             # references to tasks
 
     def create_task(self, coro, name):
         task = asyncio.create_task(coro, name=name)
-        self.tasks.add(task)
-        task.add_done_callback(lambda t: self.tasks.remove(t))
+        self._tasks.add(task)
+        task.add_done_callback(lambda t: self._tasks.remove(t))
         return task
+
+    def cancel_all(self):
+        for task in self:
+            task.cancel()
+
+    def __iter__(self):
+        for t in self._tasks:
+            yield t
 
 class RcvFromSocket(socket.socket):
     """Implementation of socket.recvfrom() as a coroutine.
@@ -128,6 +138,7 @@ class UPnPControlPoint:
     def __init__(self, ip_addresses, ttl):
         self.ip_addresses = ip_addresses
         self.ttl = ttl
+        self.closed = False
         self._queue = asyncio.Queue()
         self._devices = {}              # {udn: (UPnPDevice, its task)}
         self.aio_tasks = AsyncioTasks()
@@ -150,7 +161,7 @@ class UPnPControlPoint:
         if not header or header[0].strip() != 'NOTIFY * HTTP/1.1':
             if header:
                 logger.debug(f"SSDP notify: ignoring '{header[0].strip()}'"
-                             f' from {ip_source}')
+                             f' start line from {ip_source}')
             return
 
         # Parse the HTTP header as a dict.
@@ -177,10 +188,10 @@ class UPnPControlPoint:
         elif nts == 'ssdp:byebye':
             device = self._devices.get(udn, None)
             if device is not None:
+                # A device is never deleted, it is closed until new
+                # notification.
                 device.close()
                 self.put_notification('byebye', device)
-                # XXX del self._devices[udn]
-                # a device is never deleted, it is closed until new notification
 
         elif nts == 'ssdp:update':
             logger.warning(f'SSDP notify: ignoring not supported'
@@ -247,22 +258,28 @@ class UPnPControlPoint:
         except OSError as e:
             logger.exception(f'SSDP notify: {e}')
         finally:
-            logger.debug('end of notify task')
+            logger.debug('end of ssdp notify task')
             if sock is not None:
                 sock.close()
             for s in sock_list:
                 s.close()
 
-    async def run(self):
+    def open(self):
         # Start the msearch task.
-        msearch_t = self.aio_tasks.create_task(self.ssdp_msearch(),
-                                               name='msearch')
+        self.aio_tasks.create_task(self.ssdp_msearch(), name='ssdp msearch')
         # Start the notify task.
-        notify_t = self.aio_tasks.create_task(
-            self.ssdp_notify(self.ip_addresses), name='notify')
+        self.aio_tasks.create_task(
+            self.ssdp_notify(self.ip_addresses), name='ssdp notify')
 
-        try:
-            await asyncio.wait((msearch_t, notify_t),
-                                        return_when=asyncio.ALL_COMPLETED)
-        finally:
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.aio_tasks.cancel_all()
             logger.debug('end of upnp task')
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()

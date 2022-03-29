@@ -11,11 +11,10 @@ import logging
 import asyncio
 from signal import SIGINT, SIGTERM, strsignal
 from pa_dlna import __version__
-from pa_dlna.upnp import UPnPControlPoint, AsyncioTasks
+from pa_dlna.upnp import AsyncioTasks
 from pa_dlna.pulseaudio import Pulseaudio
 
 logger = logging.getLogger('pa-dlna')
-main_task_name = 'main'
 
 def setup_logging(options):
     logging.basicConfig(
@@ -117,56 +116,40 @@ def parse_args():
 
     return options, logfile_hdler
 
-def cancel_all_tasks(done=None):
-    """Cancel all tasks except the main task."""
-
-    if done is not None:
-        for t in done:
-            state = ('cancelled' if t.cancelled()
-                     else f'done, result: {t.result()}')
-            logger.debug(f'cancel_all_tasks: task {t.get_name()}: {state}')
-    for t in asyncio.all_tasks():
-        if t.get_name() != main_task_name:
-            logger.debug(f'cancel_all_tasks: cancelling task {t.get_name()}')
-            t.cancel()
-
 class PaDLNA:
-    """Manage the UPnP and pulseaudio asyncio tasks."""
+    """Manage the pulseaudio task."""
 
     def __init__(self, options):
         self.options = options          # a dict
+        self.closed = False
         self.aio_tasks = AsyncioTasks()
 
-    def sig_handler(self, signal, pending):
+    def sig_handler(self, signal):
         logger.info(f'Got signal {strsignal(signal)}')
-        for t in pending:
-            t.cancel()
+        self.close()
 
     async def run(self):
-        """Start the UPnP and pulseaudio asyncio tasks."""
+        """Start the pulseaudio task."""
 
         loop = asyncio.get_running_loop()
-        main_t = asyncio.current_task(loop)
-        main_t.set_name(main_task_name)
-
-        done = None
         try:
-            # Start the two main tasks.
-            upnp = UPnPControlPoint(self.options['networks'],
-                                    self.options['ttl'])
-            upnp_t = self.aio_tasks.create_task(upnp.run(), name='upnp')
             pulseaudio_t = self.aio_tasks.create_task(
-                Pulseaudio(upnp).run(), name='pulseaudio')
+                Pulseaudio(self.options['networks'],
+                           self.options['ttl']).run(), name='pulseaudio')
 
             # Set up signal handlers.
             for s in (SIGINT, SIGTERM):
-                loop.add_signal_handler(s,
-                    lambda s=s: self.sig_handler(s, (upnp_t, pulseaudio_t)))
+                loop.add_signal_handler(s, lambda s=s: self.sig_handler(s))
 
-            done, pending = await asyncio.wait((upnp_t, pulseaudio_t),
+            await asyncio.wait((pulseaudio_t, ),
                                         return_when=asyncio.FIRST_COMPLETED)
         finally:
-            cancel_all_tasks(done)
+            self.close()
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.aio_tasks.cancel_all()
             logger.info('End of pa-dlna')
 
 def main():
