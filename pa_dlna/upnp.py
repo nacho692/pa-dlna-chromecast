@@ -69,6 +69,35 @@ class AsyncioTasks:
         task.add_done_callback(lambda t: self.tasks.remove(t))
         return task
 
+class RcvFromSocket(socket.socket):
+    """Implementation of socket.recvfrom() as a coroutine.
+
+    The buffer size is passed in the constructor as 'bufsize'.
+    """
+
+    def __init__(self, *args, **kwargs):
+        if 'bufsize' in kwargs:
+            self.bufsize = kwargs['bufsize']
+            del kwargs['bufsize']
+        else:
+            self.bufsize = 8192
+        super(RcvFromSocket, self).__init__(*args, **kwargs)
+        self.loop = asyncio.get_running_loop()
+        self.queue = asyncio.Queue()
+        self.loop.add_reader(self.fileno(), self.reader)
+
+    def reader(self):
+        data, src_addr = super(RcvFromSocket, self).recvfrom(self.bufsize)
+        self.queue.put_nowait((data, src_addr))
+
+    async def recvfrom(self):
+        # The size of the buffer is set in the constructor.
+        return await self.queue.get()
+
+    def close(self):
+        self.loop.remove_reader(self.fileno())
+        super(RcvFromSocket, self).close()
+
 class UpnpDevice:
     """An upnp device."""
 
@@ -110,7 +139,7 @@ class Upnp:
         state = 'created' if kind == 'alive' else 'deleted'
         logger.info(f'UpnpDevice {upnpdevice} has been {state}')
 
-    def handle_notify(self, datagram):
+    def handle_notify(self, datagram, ip_source):
         # Ignore non SSDP notify datagrams.
         try:
            header = datagram.decode().splitlines()
@@ -118,7 +147,8 @@ class Upnp:
             return
         if not header or header[0].strip() != 'NOTIFY * HTTP/1.1':
             if header:
-                logger.debug(f"SSDP notify: ignoring '{header[0].strip()}'")
+                logger.debug(f"SSDP notify: ignoring '{header[0].strip()}'"
+                             f' from {ip_source}')
             return
 
         # Parse the HTTP header as a dict.
@@ -193,9 +223,9 @@ class Upnp:
                     logger.exception(f'SSDP notify: {ip}: {e}')
                     return
 
-            # Use a different socket for receiving (could have used one from
-            # sock_list).
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Use a RcvFromSocket socket for receiving.
+            sock = RcvFromSocket(socket.AF_INET, socket.SOCK_DGRAM,
+                                 bufsize=8192)
             sock.setblocking(False)
 
             # Allow other processes to bind to the same multicast group
@@ -205,13 +235,12 @@ class Upnp:
             # Bind to the multicast (group, port).
             # Binding to (INADDR_ANY, port) would also work, except
             # that in that case the socket would also receive the datagrams
-            # destined to any other address and the mcast_port.
+            # destined to (any other address, mcast_port).
             sock.bind((mcast_group, mcast_port))
 
-            loop = asyncio.get_running_loop()
             while True:
-                datagram = await loop.sock_recv(sock, 8192)
-                self.handle_notify(datagram)
+                datagram, src_addr = await sock.recvfrom()
+                self.handle_notify(datagram, src_addr[0])
 
         except OSError as e:
             logger.exception(f'SSDP notify: {e}')
