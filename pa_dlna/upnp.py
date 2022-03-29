@@ -119,12 +119,13 @@ class UPnPDevice:
         self.closed = False
 
     def close(self):
+        """Close the UPnP device."""
         self.closed = True
 
-    async def run(self):
+    async def _run(self):
         try:
             # XXX do all the main work
-            self.upnp.put_notification('alive', self)
+            self.upnp._put_notification('alive', self)
         finally:
             logger.debug(f'end of the UPnPDevice task {self}')
 
@@ -136,6 +137,13 @@ class UPnPControlPoint:
     """An UPnP control point."""
 
     def __init__(self, ip_addresses, ttl):
+        """Constructor.
+
+        'ip_addresses' list of the local IPv4 addresses of the network
+            interfaces where DLNA devices may be discovered.
+        'ttl' IP packets time to live.
+        """
+
         self.ip_addresses = ip_addresses
         self.ttl = ttl
         self.closed = False
@@ -143,16 +151,33 @@ class UPnPControlPoint:
         self._devices = {}              # {udn: (UPnPDevice, its task)}
         self.aio_tasks = AsyncioTasks()
 
+    def open(self):
+        """Start the UPnP Control Point."""
+
+        # Start the msearch task.
+        self.aio_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
+        # Start the notify task.
+        self.aio_tasks.create_task(
+            self._ssdp_notify(self.ip_addresses), name='ssdp notify')
+
+    def close(self):
+        """Close the UPnP Control Point."""
+
+        if not self.closed:
+            self.closed = True
+            self.aio_tasks.cancel_all()
+            logger.debug('end of upnp task')
+
     async def get_notification(self):
         """Return the tuple ('alive' or 'byebye', UPnPDevice instance)."""
         return await self._queue.get()
 
-    def put_notification(self, kind, upnpdevice):
+    def _put_notification(self, kind, upnpdevice):
         self._queue.put_nowait((kind, upnpdevice))
         state = 'created' if kind == 'alive' else 'deleted'
         logger.info(f'UPnPDevice {upnpdevice} has been {state}')
 
-    def handle_notify(self, datagram, ip_source):
+    def _handle_notify(self, datagram, ip_source):
         # Ignore non SSDP notify datagrams.
         try:
            header = datagram.decode().splitlines()
@@ -180,7 +205,7 @@ class UPnPControlPoint:
 
                 # Instantiate the UPnPDevice and starts its task.
                 device = UPnPDevice(header, self)
-                self.aio_tasks.create_task(device.run(), name=str(device))
+                self.aio_tasks.create_task(device._run(), name=str(device))
                 self._devices[udn] = device
             else:
                 logger.debug(f'SSDP notify: ignoring duplicate {shorten(udn)}')
@@ -191,7 +216,7 @@ class UPnPControlPoint:
                 # A device is never deleted, it is closed until new
                 # notification.
                 device.close()
-                self.put_notification('byebye', device)
+                self._put_notification('byebye', device)
 
         elif nts == 'ssdp:update':
             logger.warning(f'SSDP notify: ignoring not supported'
@@ -201,7 +226,7 @@ class UPnPControlPoint:
             logger.warning(f'SSDP notify: unknown NTS field "{nts}"'
                            f' in SSDP notify')
 
-    async def ssdp_msearch(self):
+    async def _ssdp_msearch(self):
         # See https://tldp.org/HOWTO/Multicast-HOWTO-6.html.
         try:
             await asyncio.sleep(1)
@@ -210,7 +235,7 @@ class UPnPControlPoint:
         finally:
             logger.debug('end of msearch task')
 
-    async def ssdp_notify(self, ip_addresses):
+    async def _ssdp_notify(self, ip_addresses):
         """Listen on SSDP notifications."""
 
         # See section 21.10 Sending and Receiving in
@@ -253,7 +278,7 @@ class UPnPControlPoint:
 
             while True:
                 datagram, src_addr = await sock.recvfrom()
-                self.handle_notify(datagram, src_addr[0])
+                self._handle_notify(datagram, src_addr[0])
 
         except OSError as e:
             logger.exception(f'SSDP notify: {e}')
@@ -263,19 +288,6 @@ class UPnPControlPoint:
                 sock.close()
             for s in sock_list:
                 s.close()
-
-    def open(self):
-        # Start the msearch task.
-        self.aio_tasks.create_task(self.ssdp_msearch(), name='ssdp msearch')
-        # Start the notify task.
-        self.aio_tasks.create_task(
-            self.ssdp_notify(self.ip_addresses), name='ssdp notify')
-
-    def close(self):
-        if not self.closed:
-            self.closed = True
-            self.aio_tasks.cancel_all()
-            logger.debug('end of upnp task')
 
     def __enter__(self):
         self.open()
