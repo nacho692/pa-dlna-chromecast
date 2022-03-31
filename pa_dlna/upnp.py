@@ -4,17 +4,28 @@ See UPnP Device Architecture 2.0.
 
 A client example:
 
-    with UPnPControlPoint(ipaddr_list, ttl) as upnp:
-        notif_type, upnp_device = await upnp.get_notification()
+import asyncio
+from pa_dlna.upnp import UPnPControlPoint
+
+async def main(ipaddr_list, ttl, aging):
+    with UPnPControlPoint(ipaddr_list, ttl, aging) as upnp:
+        notification, root_device = await upnp.get_notification()
         ...
 
-Use the UPnPDevice instance methods to control the device.
+'notification' is one of the 'alive' or 'byebye' strings.
+'root_device' is the root device, an instance of UPnPDevice.
+
+Use the UPnPDevice instance methods of root_device to learn about its embedded
+devices and its services, and control each UPnP device with its service
+instances to send soap requests to the corresponding device.
 """
 
 import asyncio
 import logging
 import socket
 import struct
+import hashlib
+import time
 
 logger = logging.getLogger('upnp')
 mcast_group = '239.255.255.250'
@@ -49,19 +60,24 @@ def http_header_as_dict(header):
 def parse_notify_header(header):
     """Return the SSDP notify header as a dict."""
 
-    header_dict = http_header_as_dict(header)
-    # Check the presence of some required keys.
-    for key in ('NTS', 'USN'):
+    def is_key(key):
         if key not in header_dict:
             raise InvalidSsdpError(
                 f'missing "{key}" field in SSDP notify:\n{header}')
+
+    header_dict = http_header_as_dict(header)
+
+    # Check the presence of some required keys.
+    for key in ('NT', 'NTS', 'USN'):
+        is_key(key)
+    if header_dict['NTS'] in ('ssdp:alive', 'ssdp:update'):
+        is_key('LOCATION')
     return header_dict
 
 class AsyncioTasks:
     """Save references to tasks, to avoid tasks being garbage collected.
 
-    See https://github.com/python/cpython/pull/29163 and the corresponding
-    Python issues.
+    See Python github PR 29163 and the corresponding Python issues.
     """
 
     def __init__(self):
@@ -93,13 +109,13 @@ class RcvFromSocket(socket.socket):
             del kwargs['bufsize']
         else:
             self.bufsize = 4096
-        super(RcvFromSocket, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.loop = asyncio.get_running_loop()
         self.queue = asyncio.Queue()
         self.loop.add_reader(self.fileno(), self.reader)
 
     def reader(self):
-        data, src_addr = super(RcvFromSocket, self).recvfrom(self.bufsize)
+        data, src_addr = super().recvfrom(self.bufsize)
         self.queue.put_nowait((data, src_addr))
 
     async def recvfrom(self):
@@ -108,35 +124,148 @@ class RcvFromSocket(socket.socket):
 
     def close(self):
         self.loop.remove_reader(self.fileno())
-        super(RcvFromSocket, self).close()
+        super().close()
 
-class UPnPDevice:
-    """An UPnP device."""
+class UPnPElement:
+    """An UPnP device or a service."""
 
-    def __init__(self, http_header, upnp):
-        self.header = http_header
-        self.upnp = upnp
+    def __init__(self, root_device, name):
+        self.root_device = root_device
+        self.name = name
         self.closed = False
+        self.aio_tasks = AsyncioTasks()
 
     def close(self):
-        """Close the UPnP device."""
-        self.closed = True
+        if not self.closed:
+            self.closed = True
+            if self.root_device is not None:
+                self.root_device.close()
+            self.aio_tasks.cancel_all()
 
-    async def _run(self):
+    def __str__(self):
+        return self.name
+
+class UPnPService(UPnPElement):
+    """An UPnP service."""
+
+    def __init__(self, root_device, name):
+        super().__init__(root_device, name)
+        self.enabled = True
+
+    def close(self):
+        if not self.closed:
+            super().close()
+            self.enabled = False
+
+    def set_enable(self, state=True):
+        self.enabled = state
+
+class UPnPDevice(UPnPElement):
+    """An UPnP embedded device."""
+
+    def __init__(self, root_device, name):
+        super().__init__(root_device, name)
+        self.services = set()           # list of services
+        self.devices = set()            # list of embedded devices
+
+    def close(self):
+        """Close the UPnP device, its services and embedded devices."""
+
+        if not self.closed:
+            super().close()
+            for service in self.services:
+                self.services.remove(service)
+                service.close()
+            for device in self.devices:
+                self.devices.remove(device)
+                device.close()
+
+    def set_enable(self, state=True):
+        """Set the state of the services and embedded devices.
+
+        A service does not accept soap requests when its 'enabled' attribute
+        is False.
+        """
+
+        for service in self.services:
+            service.set_enable(state)
+        for device in self.devices:
+            device.set_enable(state)
+
+    async def run(self, descr_xml):
         try:
-            # XXX do all the main work
-            self.upnp._put_notification('alive', self)
+            # XXX parse descr_xml
+            # start services
+            # start embedded devices
+            pass
         finally:
-            logger.debug(f'end of the UPnPDevice task {self}')
+            if not isinstance(self, UPnPRootDevice):
+                logger.debug(f'end of {self} task')
+
+class UPnPRootDevice(UPnPDevice):
+    """An UPnP root device."""
+
+    def __init__(self, control_point, udn, location, max_age=None):
+        super().__init__(None, 'UPnPRootDevice')
+        self.control_point = control_point  # the UPnP instance
+        self.udn = udn
+        self.location = location
+        self.enabled = True
+        self.update(max_age)
+
+    def close(self):
+        if not self.closed:
+            super().close()
+            self.enabled = False
+
+    def update(self, max_age):
+        if max_age is not None:
+            self.max_age = time.monotonic() + max_age
+        else:
+            self.max_age = None
+
+    def set_enable(self, state=True):
+        # Only the root device may trigger a change in the 'enabled' state
+        # of its services and the services of the embedded devices.
+        super().set_enable(state)
+        self.enabled = state
+
+    async def run(self):
+        try:
+            # XXX get and parse description
+            # await super().run(descr_xml)
+            self.control_point._put_notification('alive', self)
+
+            # Aging is not implemented when 'max_age' is None.
+            if self.max_age is None:
+                return
+
+            # Age the root device using SSDP alive notifications.
+            while True:
+                t = time.monotonic()
+                if t <= self.max_age:
+                    if not self.enabled:
+                        self.set_enable()
+                        logger.info(f'{self} is up')
+                    await asyncio.sleep(self.max_age - t)
+                else:
+                    if self.enabled:
+                        self.set_enable(False)
+                        logger.info(f'{self} is down')
+
+                    # Wake up every second to check for a change in max_age.
+                    await asyncio.sleep(1)
+        finally:
+            logger.debug(f'end of {self} task')
 
     def __str__(self):
         """Return a short representation of udn."""
-        return shorten(self.header['USN'].split('::')[0])
+        return f'UPnPRootDevice {shorten(self.udn)}'
 
 class UPnPControlPoint:
     """An UPnP control point."""
 
-    def __init__(self, ip_addresses, ttl):
+    def __init__(self, ip_addresses, ttl=2, aging=True):
         """Constructor.
 
         'ip_addresses' list of the local IPv4 addresses of the network
@@ -146,10 +275,12 @@ class UPnPControlPoint:
 
         self.ip_addresses = ip_addresses
         self.ttl = ttl
+        self.aging = aging
         self.closed = False
         self._queue = asyncio.Queue()
-        self._devices = {}              # {udn: (UPnPDevice, its task)}
+        self._devices = {}              # {udn: UPnPRootDevice}
         self.aio_tasks = AsyncioTasks()
+        self.invalid_ssdp_set = set()
 
     def open(self):
         """Start the UPnP Control Point."""
@@ -172,10 +303,10 @@ class UPnPControlPoint:
         """Return the tuple ('alive' or 'byebye', UPnPDevice instance)."""
         return await self._queue.get()
 
-    def _put_notification(self, kind, upnpdevice):
-        self._queue.put_nowait((kind, upnpdevice))
+    def _put_notification(self, kind, root_device):
+        self._queue.put_nowait((kind, root_device))
         state = 'created' if kind == 'alive' else 'deleted'
-        logger.info(f'UPnPDevice {upnpdevice} has been {state}')
+        logger.info(f'{root_device} has been {state}')
 
     def _handle_notify(self, datagram, ip_source):
         # Ignore non SSDP notify datagrams.
@@ -185,49 +316,66 @@ class UPnPControlPoint:
             return
         if not header or header[0].strip() != 'NOTIFY * HTTP/1.1':
             if header:
-                logger.debug(f"SSDP notify: ignoring '{header[0].strip()}'"
-                             f' start line from {ip_source}')
+                logger.debug(f"ignore '{header[0].strip()}' start line"
+                             f' from {ip_source}')
             return
 
         # Parse the HTTP header as a dict.
         try:
             header = parse_notify_header(header)
-        except InvalidSsdpError as e:
-            logger.warning(f'SSDP notify: {e}')
-            return
+            nts = header['NTS']
+            udn = header['USN'].split('::')[0]
 
-        nts = header['NTS']
-        udn = header['USN'].split('::')[0]
+            # 'max_age' None means no aging.
+            max_age = None
+            if nts == 'ssdp:alive' and self.aging:
+                cache = header.get('CACHE-CONTROL', None)
+                if cache is not None:
+                    age = 'max-age='
+                    try:
+                        max_age = int(cache[cache.index(age)+len(age):])
+                    except ValueError:
+                        raise InvalidSsdpError(
+                            f'invalid CACHE-CONTROL field in'
+                            f' SSDP notify:\n{header}')
+        except InvalidSsdpError as e:
+            # Log invalid SSDP PDU only once.
+            hash = hashlib.sha1(datagram).digest()
+            if hash not in self.invalid_ssdp_set:
+                self.invalid_ssdp_set.add(hash)
+                logger.warning(f'{e}')
+            return
 
         if nts == 'ssdp:alive':
             if udn not in self._devices:
-                logger.info(f'SSDP notify: new UPnPDevice {shorten(udn)}')
-
-                # Instantiate the UPnPDevice and starts its task.
-                device = UPnPDevice(header, self)
-                self.aio_tasks.create_task(device._run(), name=str(device))
-                self._devices[udn] = device
+                # Instantiate the UPnPDevice and start its task.
+                root_device = UPnPRootDevice(self, udn, header['LOCATION'],
+                                             max_age)
+                self.aio_tasks.create_task(root_device.run(),
+                                           name=str(root_device))
+                self._devices[udn] = root_device
+                logger.info(f'New {root_device}')
             else:
-                logger.debug(f'SSDP notify: ignoring duplicate {shorten(udn)}')
+                root_device = self._devices[udn]
+                root_device.update(max_age)
+                logger.debug(f'refresh with max_age={max_age}'
+                             f' for {root_device}')
 
         elif nts == 'ssdp:byebye':
-            device = self._devices.get(udn, None)
-            if device is not None:
-                # A device is never deleted, it is closed until new
-                # notification.
-                device.close()
-                self._put_notification('byebye', device)
+            root_device = self._devices.get(udn, None)
+            if root_device is not None:
+                root_device.close()
+                self._put_notification('byebye', root_device)
+                del self._devices[udn]
 
         elif nts == 'ssdp:update':
-            logger.warning(f'SSDP notify: ignoring not supported'
-                           f' {nts} notification')
+            logger.warning(f'ignore not supported {nts} notification')
 
         else:
-            logger.warning(f'SSDP notify: unknown NTS field "{nts}"'
-                           f' in SSDP notify')
+            logger.warning(f"unknown NTS field '{nts}' in SSDP notify")
 
     async def _ssdp_msearch(self):
-        # See https://tldp.org/HOWTO/Multicast-HOWTO-6.html.
+        # XXX See https://tldp.org/HOWTO/Multicast-HOWTO-6.html.
         try:
             await asyncio.sleep(1)
         except Exception as e:
@@ -258,7 +406,7 @@ class UPnPControlPoint:
                     s.setsockopt(socket.IPPROTO_IP,
                                 socket.IP_ADD_MEMBERSHIP, mreq)
                 except OSError as e:
-                    logger.exception(f'SSDP notify: {ip}: {e}')
+                    logger.exception(f'{ip}: {e}')
                     return
 
             # Use a RcvFromSocket socket for receiving.
@@ -281,7 +429,7 @@ class UPnPControlPoint:
                 self._handle_notify(datagram, src_addr[0])
 
         except OSError as e:
-            logger.exception(f'SSDP notify: {e}')
+            logger.exception(f'{e}')
         finally:
             logger.debug('end of ssdp notify task')
             if sock is not None:

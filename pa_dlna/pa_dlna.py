@@ -104,6 +104,10 @@ def parse_args():
     parser.add_argument('--ttl', type=int, default=2,
                         help='the IP packets time to live '
                         '(default: %(default)s)')
+    parser.add_argument('--no-aging', '-a', dest='aging', action='store_false',
+                        help='disable aging control, aging control monitors'
+                        " 'alive' notifications sent by the DLNA device"
+                        ' at regular intervals (default: aging is enabled)')
 
     # Options as a dict.
     options = vars(parser.parse_args())
@@ -135,7 +139,8 @@ class PaDLNA:
         try:
             pulseaudio_t = self.aio_tasks.create_task(
                 Pulseaudio(self.options['networks'],
-                           self.options['ttl']).run(), name='pulseaudio')
+                           self.options['ttl'],
+                           self.options['aging']).run(), name='pulseaudio')
 
             # Set up signal handlers.
             for s in (SIGINT, SIGTERM):
