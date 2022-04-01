@@ -205,24 +205,31 @@ class UPnPDevice(UPnPElement):
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device."""
 
-    def __init__(self, control_point, udn, location, max_age=None):
+    def __init__(self, control_point, udn, location, max_age):
         super().__init__(None, 'UPnPRootDevice')
         self.control_point = control_point  # the UPnP instance
         self.udn = udn
         self.location = location
         self.enabled = True
-        self.update(max_age)
+        self.set_valid_until(max_age)
 
     def close(self):
         if not self.closed:
             super().close()
             self.enabled = False
 
-    def update(self, max_age):
+    def set_valid_until(self, max_age):
+        # The 'valid_until' attribute is the monotonic date when the root
+        # device and its services and embedded devices become disabled.
+        # 'valid_until' None means no aging is performed.
         if max_age is not None:
-            self.max_age = time.monotonic() + max_age
+            self.valid_until = time.monotonic() + max_age
         else:
-            self.max_age = None
+            self.valid_until = None
+
+    def get_timeleft(self):
+        if self.valid_until is not None:
+            return self.valid_until - time.monotonic()
 
     def set_enable(self, state=True):
         # Only the root device may trigger a change in the 'enabled' state
@@ -236,24 +243,25 @@ class UPnPRootDevice(UPnPDevice):
             # await super().run(descr_xml)
             self.control_point._put_notification('alive', self)
 
-            # Aging is not implemented when 'max_age' is None.
-            if self.max_age is None:
+            # Aging is not implemented when 'valid_until' is None.
+            if self.valid_until is None:
                 return
 
             # Age the root device using SSDP alive notifications.
             while True:
-                t = time.monotonic()
-                if t <= self.max_age:
+                timeleft = self.get_timeleft()
+                if timeleft > 0:
                     if not self.enabled:
                         self.set_enable()
                         logger.info(f'{self} is up')
-                    await asyncio.sleep(self.max_age - t)
+                    await asyncio.sleep(timeleft)
                 else:
                     if self.enabled:
                         self.set_enable(False)
                         logger.info(f'{self} is down')
 
-                    # Wake up every second to check for a change in max_age.
+                    # Wake up every second to check for a change in
+                    # valid_until.
                     await asyncio.sleep(1)
         finally:
             logger.debug(f'end of {self} task')
@@ -357,9 +365,12 @@ class UPnPControlPoint:
                 logger.info(f'New {root_device}')
             else:
                 root_device = self._devices[udn]
-                root_device.update(max_age)
-                logger.debug(f'refresh with max_age={max_age}'
-                             f' for {root_device}')
+
+                # Avoid cluttering the logs.
+                if max_age - root_device.get_timeleft() > 5:
+                    logger.debug(f'refresh with max_age={max_age}'
+                                 f' for {root_device}')
+                root_device.set_valid_until(max_age)
 
         elif nts == 'ssdp:byebye':
             root_device = self._devices.get(udn, None)
