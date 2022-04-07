@@ -522,7 +522,10 @@ class UPnPControlPoint:
     def sig_handler(self, signal):
         errmsg = f'Got signal {strsignal(signal)}'
         logger.info(errmsg)
-        self.close(exc=UPnPControlPointFatalError(errmsg))
+        if signal == SIGINT:
+            self.close(exc=KeyboardInterrupt())
+        else:
+            self.close(exc=SystemExit())
 
     def _create_root_device(self, header, ip_source):
 

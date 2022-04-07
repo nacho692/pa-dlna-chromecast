@@ -23,6 +23,8 @@ class Pulseaudio:
                     notification, root_device = await upnp.get_notification()
                     logger.info(f'Got notification'
                                 f' {(notification, root_device)}')
+        except (KeyboardInterrupt, SystemExit):
+            pass
         except Exception as e:
             logger.exception(f'{repr(e)}')
         finally:
