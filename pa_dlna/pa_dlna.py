@@ -1,6 +1,4 @@
-#! /bin/env python
-"""An UPnP control point that forwards Pulseaudio streams to DLNA devices.
-"""
+"""An UPnP control point that forwards Pulseaudio streams to DLNA devices."""
 
 import sys
 import argparse
@@ -9,9 +7,7 @@ import subprocess
 import json
 import logging
 import asyncio
-from signal import SIGINT, SIGTERM, strsignal
 from pa_dlna import __version__
-from pa_dlna.upnp import AsyncioTasks
 from pa_dlna.pulseaudio import Pulseaudio
 
 logger = logging.getLogger('pa-dlna')
@@ -120,43 +116,6 @@ def parse_args():
 
     return options, logfile_hdler
 
-class PaDLNA:
-    """Manage the pulseaudio task."""
-
-    def __init__(self, options):
-        self.options = options          # a dict
-        self.closed = False
-        self.aio_tasks = AsyncioTasks()
-
-    def sig_handler(self, signal):
-        logger.info(f'Got signal {strsignal(signal)}')
-        self.close()
-
-    async def run(self):
-        """Start the pulseaudio task."""
-
-        loop = asyncio.get_running_loop()
-        try:
-            pulseaudio_t = self.aio_tasks.create_task(
-                Pulseaudio(self.options['networks'],
-                           self.options['ttl'],
-                           self.options['aging']).run(), name='pulseaudio')
-
-            # Set up signal handlers.
-            for s in (SIGINT, SIGTERM):
-                loop.add_signal_handler(s, lambda s=s: self.sig_handler(s))
-
-            await asyncio.wait((pulseaudio_t, ),
-                                        return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            self.close()
-
-    def close(self):
-        if not self.closed:
-            self.closed = True
-            self.aio_tasks.cancel_all()
-            logger.info('End of pa-dlna')
-
 def main():
     if sys.version_info.major != 3 or sys.version_info.minor < 7:
         print('error: pa-dlna: the python version must be at least 3.7',
@@ -165,11 +124,12 @@ def main():
 
     options, logfile_hdler = parse_args()
     logger.info(f'Options {options}')
-
-    padlna = PaDLNA(options)
+    pulseaudio = Pulseaudio(options['networks'], options['ttl'],
+                            options['aging'])
     try:
-        asyncio.run(padlna.run())
+        asyncio.run(pulseaudio.run())
     finally:
+        logger.info('End of pa-dlna')
         if logfile_hdler is not None:
             logfile_hdler.flush()
         logging.shutdown()
