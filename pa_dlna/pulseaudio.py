@@ -8,17 +8,15 @@ logger = logging.getLogger('pulse')
 class Pulseaudio:
     """XXX."""
 
-    def __init__(self, ipaddr_list, ttl, aging):
+    def __init__(self, ipaddr_list, ttl):
         self.ipaddr_list = ipaddr_list
         self.ttl = ttl
-        self.aging = aging
         self.closed = False
         self.devices = {}               # {pulseaudio index: UpnpDevice}
 
     async def run(self):
         try:
-            with (UPnPControlPoint(self.ipaddr_list, self.ttl, self.aging)
-                  as upnp):
+            with UPnPControlPoint(self.ipaddr_list, self.ttl) as upnp:
                 while True:
                     notification, root_device = await upnp.get_notification()
                     logger.info(f'Got notification'

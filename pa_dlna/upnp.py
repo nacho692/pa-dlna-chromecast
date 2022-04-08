@@ -36,7 +36,7 @@ MCAST_PORT = 1900
 MCAST_ADDR = (MCAST_GROUP, MCAST_PORT)
 UPNP_ROOTDEVICE = 'upnp:rootdevice'
 
-MSEARCH_COUNT= 2                        # number of MSEARCH requests each time
+MSEARCH_COUNT= 3                        # number of MSEARCH requests each time
 MSEARCH_EVERY = 60                      # sent every seconds
 MSEARCH_INTERVAL = 0.2                  # sent at seconds intervals
 MX = 2                                  # seconds to delay response
@@ -425,6 +425,7 @@ class UPnPRootDevice(UPnPDevice):
     def get_timeleft(self):
         if self.valid_until is not None:
             return self.valid_until - time.monotonic()
+        return None
 
     async def age_root_device(self):
         # Age the root device using SSDP alive notifications.
@@ -436,7 +437,13 @@ class UPnPRootDevice(UPnPDevice):
                     logger.info(f'{self} is up')
                 await asyncio.sleep(timeleft)
             else:
-                if self.enabled:
+                # Missing 'CACHE-CONTROL' field in SSDP.
+                if timeleft is None:
+                    if not self.enabled:
+                        self.set_enable(True)
+                        logger.info(f'{self} is up')
+                elif self.enabled:
+                    assert timeleft <= 0
                     self.set_enable(False)
                     logger.info(f'{self} is down')
 
@@ -448,11 +455,9 @@ class UPnPRootDevice(UPnPDevice):
         try:
             # XXX get and parse description
             # await super().run(descr_xml)
-            self.control_point._put_notification('alive', self)
 
-            # Aging is not implemented when 'valid_until' is None.
-            if self.valid_until is not None:
-                await self.age_root_device()
+            self.control_point._put_notification('alive', self)
+            await self.age_root_device()
 
         except Exception as e:
             logger.exception(f'{repr(e)}')
@@ -468,7 +473,7 @@ class UPnPRootDevice(UPnPDevice):
 class UPnPControlPoint:
     """An UPnP control point."""
 
-    def __init__(self, ip_addresses, ttl=2, aging=True):
+    def __init__(self, ip_addresses, ttl=2):
         """Constructor.
 
         'ip_addresses' list of the local IPv4 addresses of the network
@@ -478,7 +483,6 @@ class UPnPControlPoint:
 
         self.ip_addresses = ip_addresses
         self.ttl = ttl
-        self.aging = aging
         self.closed = False
         self._upnp_queue = UPnPQueue()
         self._devices = {}              # {udn: UPnPRootDevice}
@@ -532,16 +536,15 @@ class UPnPControlPoint:
         # Get the max-age.
         # 'max_age' None means no aging.
         max_age = None
-        if self.aging:
-            cache = header.get('CACHE-CONTROL', None)
-            if cache is not None:
-                age = 'max-age='
-                try:
-                    max_age = int(cache[cache.index(age)+len(age):])
-                except ValueError:
-                    logger.warning(f'invalid CACHE-CONTROL field in'
-                                   f' SSDP notify from {ip_source}:\n{header}')
-                    return
+        cache = header.get('CACHE-CONTROL', None)
+        if cache is not None:
+            age = 'max-age='
+            try:
+                max_age = int(cache[cache.index(age)+len(age):])
+            except ValueError:
+                logger.warning(f'invalid CACHE-CONTROL field in'
+                               f' SSDP notify from {ip_source}:\n{header}')
+                return
 
         udn = header['USN'].split('::')[0]
         if udn not in self._devices:
@@ -558,8 +561,11 @@ class UPnPControlPoint:
 
             # Avoid cluttering the logs when the aging refresh occurs within 5
             # seconds of the last one, assuming all max ages are the same.
-            if max_age - root_device.get_timeleft() > 5:
-                logger.debug(f'refresh with max_age={max_age}'
+            timeleft = root_device.get_timeleft()
+            if (timeleft is not None and
+                    max_age is not None and
+                    max_age - timeleft > 5):
+                logger.debug(f'refresh with max-age={max_age}'
                              f' for {root_device}')
 
             # Refresh the aging time.

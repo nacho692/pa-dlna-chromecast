@@ -100,10 +100,6 @@ def parse_args():
     parser.add_argument('--ttl', type=int, default=2,
                         help='the IP packets time to live '
                         '(default: %(default)s)')
-    parser.add_argument('--no-aging', '-a', dest='aging', action='store_false',
-                        help='disable aging control, aging control monitors'
-                        " 'alive' notifications sent by the DLNA device"
-                        ' at regular intervals (default: aging is enabled)')
 
     # Options as a dict.
     options = vars(parser.parse_args())
@@ -124,8 +120,7 @@ def main():
 
     options, logfile_hdler = parse_args()
     logger.info(f'Options {options}')
-    pulseaudio = Pulseaudio(options['networks'], options['ttl'],
-                            options['aging'])
+    pulseaudio = Pulseaudio(options['networks'], options['ttl'])
     try:
         asyncio.run(pulseaudio.run())
     finally:
