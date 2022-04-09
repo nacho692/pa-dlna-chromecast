@@ -31,4 +31,4 @@ class Pulseaudio:
     def close(self):
         if not self.closed:
             self.closed = True
-            logger.debug('end of pulseaudio task')
+            logger.debug('End of pulseaudio task')

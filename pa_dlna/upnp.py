@@ -114,7 +114,7 @@ def parse_ssdp(datagram, ip_source, is_msearch):
         return None
     start_line = header[0].strip()
     if start_line!= req_line:
-        logger.debug(f"ignore '{start_line}' start line" f' from {ip_source}')
+        logger.debug(f"Ignore '{start_line}' start line" f' from {ip_source}')
         return None
 
     # Parse the HTTP header as a dict.
@@ -122,7 +122,7 @@ def parse_ssdp(datagram, ip_source, is_msearch):
         header = http_header_as_dict(header[1:])
         check_ssdp_header(header, is_msearch)
     except InvalidSsdpError as e:
-        logger.warning(f'error from {ip_source}: {e}')
+        logger.warning(f'Error from {ip_source}: {e}')
         return None
 
     # Ignore non root device responses.
@@ -317,7 +317,7 @@ class MsearchServerProtocol:
 
     def m_search(self, message, sock):
         try:
-            logger.debug(f'sending multicast M-SEARCH msg to {MCAST_ADDR}'
+            logger.debug(f'Sending multicast M-SEARCH msg to {MCAST_ADDR}'
                          f' from {self.ip}')
             self.transport.sendto(message.encode(), MCAST_ADDR)
         except Exception as e:
@@ -347,14 +347,14 @@ class NotifyServerProtocol:
             self.error_received(exc)
 
     def error_received(self, exc):
-        logger.error(f'error received by NotifyServerProtocol: {exc!r}')
+        logger.error(f'Error received by NotifyServerProtocol: {exc!r}')
         self.transport.abort()
 
     def connection_lost(self, exc):
         if not self.on_con_lost.done():
             self.on_con_lost.set_result(True)
         msg = f': {exc!r}' if exc is not None else ''
-        logger.info(f'connection lost by NotifyServerProtocol{msg}')
+        logger.info(f'Connection lost by NotifyServerProtocol{msg}')
 
 # The components of an UPnP root device.
 class UPnPElement:
@@ -424,7 +424,7 @@ class UPnPDevice(UPnPElement):
             logger.exception(f'{e!r}')
         finally:
             if not isinstance(self, UPnPRootDevice):
-                logger.debug(f'end of {self} task')
+                logger.debug(f'End of {self} task')
 
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device."""
@@ -499,7 +499,7 @@ class UPnPRootDevice(UPnPDevice):
             logger.exception(f'{e!r}')
             self.close()
         finally:
-            logger.debug(f'end of {self} task')
+            logger.debug(f'End of {self} task')
 
     def __str__(self):
         """Return a short representation of udn."""
@@ -551,10 +551,15 @@ class UPnPControlPoint:
             for root_device in self._devices.values():
                 root_device.close()
             self.aio_tasks.cancel_all()
-            logger.debug('end of upnp task')
+            logger.debug('End of upnp task')
 
     async def get_notification(self):
-        """Return the tuple ('alive' or 'byebye', UPnPDevice instance)."""
+        """Return the tuple ('alive' or 'byebye', UPnPDevice instance).
+
+        Raise unhandled exceptions occuring in the library, including
+        KeyboardInterrupt and SystemExit.
+        """
+
         return await self._upnp_queue.get()
 
     def _put_notification(self, kind, root_device):
@@ -581,7 +586,7 @@ class UPnPControlPoint:
             try:
                 max_age = int(cache[cache.index(age)+len(age):])
             except ValueError:
-                logger.warning(f'invalid CACHE-CONTROL field in'
+                logger.warning(f'Invalid CACHE-CONTROL field in'
                                f' SSDP notify from {ip_source}:\n{header}')
                 return
 
@@ -604,7 +609,7 @@ class UPnPControlPoint:
             if (timeleft is not None and
                     max_age is not None and
                     max_age - timeleft > 5):
-                logger.debug(f'refresh with max-age={max_age}'
+                logger.debug(f'Refresh with max-age={max_age}'
                              f' for {root_device}')
 
             # Refresh the aging time.
@@ -622,7 +627,7 @@ class UPnPControlPoint:
             return
 
         msg = 'msearch response' if is_msearch else 'notify advertisement'
-        logger.debug(f'got {msg} from {ip_source}')
+        logger.debug(f'Got {msg} from {ip_source}')
 
         if is_msearch or (header['NTS'] == 'ssdp:alive'):
             self._create_root_device(header, ip_source)
@@ -637,11 +642,11 @@ class UPnPControlPoint:
                     del self._devices[udn]
 
             elif nts == 'ssdp:update':
-                logger.warning(f'ignore not supported {nts} notification'
+                logger.warning(f'Ignore not supported {nts} notification'
                                f' from {ip_source}')
 
             else:
-                logger.warning(f"unknown NTS field '{nts}' in SSDP notify"
+                logger.warning(f"Unknown NTS field '{nts}' in SSDP notify"
                                ' from {ip_source}')
 
     async def _ssdp_msearch(self):
@@ -664,7 +669,7 @@ class UPnPControlPoint:
         """Listen to SSDP notifications."""
 
         await notify(self.ip_addresses, self._process_ssdp)
-        errmsg = 'unexpected end of the notify coroutine'
+        errmsg = 'Unexpected end of the notify coroutine'
         logger.error(errmsg)
         self.close(exc=UPnPControlPointFatalError(errmsg))
 

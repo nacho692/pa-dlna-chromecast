@@ -68,7 +68,7 @@ def networks_option(ip_list, parser):
             parser.error(f'json loads exception in {proc.stdout}: {e}')
 
         addresses = []
-        logger.debug(f'output of "{cmd}"\n:{json_out}')
+        logger.debug(f'Output of "{cmd}"\n:{json_out}')
         for item in json_out:
             for addr in item['addr_info']:
                 ip = addr['local']
