@@ -24,7 +24,7 @@ class Pulseaudio:
         except (KeyboardInterrupt, SystemExit):
             pass
         except Exception as e:
-            logger.exception(f'{repr(e)}')
+            logger.exception(f'{e!r}')
         finally:
             self.close()
 

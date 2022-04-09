@@ -139,7 +139,7 @@ async def msearch(ip, ttl):
     """
 
     # Create the socket.
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setblocking(False)
 
     # Prevent multicast datagrams to be looped back to ourself.
@@ -171,6 +171,45 @@ async def msearch(ip, ttl):
     finally:
         transport.close()
         return  protocol.get_result()
+
+async def notify(ip_addresses, process_datagram):
+    """Implement the SSDP advertisement protocol."""
+
+    # See section 21.10 Sending and Receiving in
+    # "Network Programming Volume 1, Third Edition" Stevens et al.
+    # See also section 5.10.2 Receiving IP Multicast Datagrams
+    # in "An Advanced 4.4BSD Interprocess Communication Tutorial".
+
+    # Create the socket.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setblocking(False)
+
+    for ip in ip_addresses:
+        # Become a member of the IP multicast group on this interface.
+        mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
+                           socket.inet_aton(ip))
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+
+    # Allow other processes to bind to the same multicast group and port.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # Bind to the multicast (group, port).
+    # Binding to (INADDR_ANY, port) would also work, except
+    # that in that case the socket would also receive the datagrams
+    # destined to (any other address, MCAST_PORT).
+    sock.bind(MCAST_ADDR)
+
+    # Start the server.
+    loop = asyncio.get_running_loop()
+    on_con_lost = loop.create_future()
+    transport, protocol = await loop.create_datagram_endpoint(
+        lambda: NotifyServerProtocol(process_datagram, on_con_lost),
+        sock=sock)
+
+    try:
+        await on_con_lost
+    finally:
+        transport.close()
 
 # Miscellaneous utilities.
 class AsyncioTasks:
@@ -273,7 +312,7 @@ class MsearchServerProtocol:
     def connection_lost(self, exc):
         if exc is not None:
             logger.warning(f'Connection lost on {self.ip} by'
-                           f' MsearchServerProtocol: {exc}')
+                           f' MsearchServerProtocol: {exc!r}')
         self._closed = True
 
     def m_search(self, message, sock):
@@ -290,35 +329,32 @@ class MsearchServerProtocol:
     def closed(self):
         return self._closed
 
-class RcvFromSocket(socket.socket):
-    """Implementation of socket.recvfrom() as a coroutine.
+class NotifyServerProtocol:
+    """The NOTIFY asyncio server."""
 
-    The buffer size is passed in the constructor as 'bufsize'.
-    """
+    def __init__(self ,process_datagram, on_con_lost):
+        self.process_datagram = process_datagram
+        self.on_con_lost = on_con_lost
+        self.transport = None
 
-    def __init__(self, *args, **kwargs):
-        if 'bufsize' in kwargs:
-            self.bufsize = kwargs['bufsize']
-            del kwargs['bufsize']
-        else:
-            self.bufsize = 4096
-        super().__init__(*args, **kwargs)
-        self.setblocking(False)
-        self.loop = asyncio.get_running_loop()
-        self.queue = asyncio.Queue()
-        self.loop.add_reader(self.fileno(), self.reader)
+    def connection_made(self, transport):
+        self.transport = transport
 
-    def reader(self):
-        data, src_addr = super().recvfrom(self.bufsize)
-        self.queue.put_nowait((data, src_addr))
+    def datagram_received(self, data, addr):
+        try:
+            self.process_datagram(data, addr[0], False)
+        except Exception as exc:
+            self.error_received(exc)
 
-    async def recvfrom(self):
-        # The size of the buffer is set in the constructor.
-        return await self.queue.get()
+    def error_received(self, exc):
+        logger.error(f'error received by NotifyServerProtocol: {exc!r}')
+        self.transport.abort()
 
-    def close(self):
-        self.loop.remove_reader(self.fileno())
-        super().close()
+    def connection_lost(self, exc):
+        if not self.on_con_lost.done():
+            self.on_con_lost.set_result(True)
+        msg = f': {exc!r}' if exc is not None else ''
+        logger.info(f'connection lost by NotifyServerProtocol{msg}')
 
 # The components of an UPnP root device.
 class UPnPElement:
@@ -385,7 +421,7 @@ class UPnPDevice(UPnPElement):
             # create and start services
             pass
         except Exception as e:
-            logger.exception(f'{repr(e)}')
+            logger.exception(f'{e!r}')
         finally:
             if not isinstance(self, UPnPRootDevice):
                 logger.debug(f'end of {self} task')
@@ -460,7 +496,7 @@ class UPnPRootDevice(UPnPDevice):
             await self.age_root_device()
 
         except Exception as e:
-            logger.exception(f'{repr(e)}')
+            logger.exception(f'{e!r}')
             self.close()
         finally:
             logger.debug(f'end of {self} task')
@@ -507,8 +543,11 @@ class UPnPControlPoint:
 
         if not self.closed:
             self.closed = True
+
+            # Raise the exception in the get_notification() method.
             if exc is not None:
                 self._upnp_queue.throw(exc)
+
             for root_device in self._devices.values():
                 root_device.close()
             self.aio_tasks.cancel_all()
@@ -617,59 +656,17 @@ class UPnPControlPoint:
                         self._process_ssdp(datagram, ip, is_msearch=True)
                 await asyncio.sleep(MSEARCH_EVERY)
         except Exception as e:
-            exc = f'{repr(e)}'
+            exc = f'{e!r}'
             logger.exception(exc)
             self.close(exc=UPnPControlPointFatalError(exc))
 
     async def _ssdp_notify(self):
-        """Listen on SSDP notifications."""
+        """Listen to SSDP notifications."""
 
-        # See section 21.10 Sending and Receiving in
-        # "Network Programming Volume 1, Third Edition" Stevens et al.
-        # See also section 5.10.2 Receiving IP Multicast Datagrams
-        # in "An Advanced 4.4BSD Interprocess Communication Tutorial".
-
-        sock_list = []
-        sock = None
-        try:
-            # Become a member of the IP multicast group.
-            # This  tells the network interface to deliver multicast
-            # datagrams destined to this multicast group.
-            for ip in self.ip_addresses:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock_list.append(s)
-                mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
-                               socket.inet_aton(ip))
-                s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-
-            # Use a RcvFromSocket socket for receiving.
-            sock = RcvFromSocket(socket.AF_INET, socket.SOCK_DGRAM,
-                                 bufsize=8192)
-
-            # Allow other processes to bind to the same multicast group
-            # and port.
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-            # Bind to the multicast (group, port).
-            # Binding to (INADDR_ANY, port) would also work, except
-            # that in that case the socket would also receive the datagrams
-            # destined to (any other address, MCAST_PORT).
-            sock.bind(MCAST_ADDR)
-
-            while True:
-                datagram, src_addr = await sock.recvfrom()
-                self._process_ssdp(datagram, src_addr[0], is_msearch=False)
-
-        except Exception as e:
-            exc = f'{repr(e)}'
-            logger.exception(exc)
-            self.close(exc=UPnPControlPointFatalError(exc))
-        finally:
-            logger.debug('end of SSDP notify task') # XXX OFF if no task
-            if sock is not None:
-                sock.close()
-            for s in sock_list:
-                s.close()
+        await notify(self.ip_addresses, self._process_ssdp)
+        errmsg = 'unexpected end of the notify coroutine'
+        logger.error(errmsg)
+        self.close(exc=UPnPControlPointFatalError(errmsg))
 
     def __enter__(self):
         self.open()
