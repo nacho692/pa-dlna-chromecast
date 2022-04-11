@@ -27,6 +27,8 @@ import socket
 import struct
 import time
 import collections
+import re
+import urllib.parse
 from signal import SIGINT, SIGTERM, strsignal
 
 logger = logging.getLogger('upnp')
@@ -57,6 +59,7 @@ class UPnPControlPointFatalError(UPnPFatalError): pass
 # Temporary error UPnP exceptions.
 class UPnPControlPointError(UPnPError): pass
 class InvalidSsdpError(UPnPError): pass
+class InvalidHttpError(UPnPError): pass
 
 def shorten(txt, head_len=10, tail_len=5):
     if len(txt) <= head_len + 3 + tail_len:
@@ -64,7 +67,7 @@ def shorten(txt, head_len=10, tail_len=5):
     return txt[:head_len] + '...' + txt[len(txt)-tail_len:]
 
 def http_header_as_dict(header):
-    """Return the SSDP header as a dict."""
+    """Return the http header as a dict."""
 
     def normalize(args):
         """Return a normalized (key, value) tuple."""
@@ -113,8 +116,8 @@ def parse_ssdp(datagram, ip_source, is_msearch):
     if not header:
         return None
     start_line = header[0].strip()
-    if start_line!= req_line:
-        logger.debug(f"Ignore '{start_line}' start line" f' from {ip_source}')
+    if start_line != req_line:
+        logger.debug(f"Ignore '{start_line}' request" f' from {ip_source}')
         return None
 
     # Parse the HTTP header as a dict.
@@ -210,6 +213,64 @@ async def notify(ip_addresses, process_datagram):
         await on_con_lost
     finally:
         transport.close()
+
+async def http_get(url, host=None, port=80):
+    """Return the body of the response to an HTTP 1.0 GET.
+
+    RFC 1945: Hypertext Transfer Protocol -- HTTP/1.0
+    """
+
+    writer = None
+    try:
+        url = urllib.parse.urlsplit(url)
+        host = url.hostname if url.hostname else host
+        port = url.port if url.port else port
+        reader, writer = await asyncio.open_connection(host, port)
+
+        # Send the request.
+        query = (
+            f"GET {url.path or '/'} HTTP/1.0\r\n"
+            f"Host: {host}:{port}\r\n"
+            f"\r\n"
+        )
+        writer.write(query.encode('latin-1'))
+
+        # Parse the http header.
+        header = []
+        while True:
+            line = await reader.readline()
+            if not line:
+                break
+
+            line = line.decode('latin1').rstrip()
+            if line:
+                if (not header and
+                        re.match('HTTP/1\.(0|1) 200 ', line) is None):
+                    raise InvalidHttpError(f'Got "{line}" from {host}')
+                header.append(line)
+            else:
+                break
+
+        if not header:
+            raise InvalidHttpError(f'Empty http header from {host}')
+        header_dict = http_header_as_dict(header[1:])
+
+        body = await reader.read()
+
+        # Check that we have received the whole body.
+        content_length = header_dict.get('CONTENT-LENGTH', None)
+        if content_length is not None:
+            content_length = int(content_length)
+            if len(body) != content_length:
+                raise InvalidHttpError(f'Content-Length and actual length'
+                                f' mismatch ({content_length}-{len(body)})'
+                                f' from {host}')
+        return body
+
+    finally:
+        if writer is not None:
+            writer.close()
+            await writer.wait_closed()
 
 # Miscellaneous utilities.
 class AsyncioTasks:
@@ -317,8 +378,8 @@ class MsearchServerProtocol:
 
     def m_search(self, message, sock):
         try:
-            logger.debug(f'Sending multicast M-SEARCH msg to {MCAST_ADDR}'
-                         f' from {self.ip}')
+            logger.debug(f'Send mcast M-SEARCH msg to {MCAST_ADDR}'
+                         f' on {self.ip} interface')
             self.transport.sendto(message.encode(), MCAST_ADDR)
         except Exception as e:
             self.error_received(e)
@@ -489,8 +550,11 @@ class UPnPRootDevice(UPnPDevice):
 
     async def run(self):
         try:
-            # XXX get and parse description
-            # await super().run(descr_xml)
+            description = await http_get(self.location)
+            description = description.decode()
+            # XXX logger.info(f'{description}')
+
+            # XXX await super().run(descr_xml)
 
             self.control_point._put_notification('alive', self)
             await self.age_root_device()
@@ -657,8 +721,8 @@ class UPnPControlPoint:
                 for ip in self.ip_addresses:
                     result = await msearch(ip, self.ttl)
                     for (datagram, src_addr) in result:
-                        ip = src_addr[0]
-                        self._process_ssdp(datagram, ip, is_msearch=True)
+                        self._process_ssdp(datagram, src_addr[0],
+                                           is_msearch=True)
                 await asyncio.sleep(MSEARCH_EVERY)
         except Exception as e:
             exc = f'{e!r}'
