@@ -2,23 +2,38 @@
 
 See "UPnP Device Architecture 2.0".
 
-A client example:
+Example of using the Control Point (there is no external dependency):
 
-    import asyncio
-    from pa_dlna.upnp import UPnPControlPoint
-
-    async def main(ipaddr_list):
-        with UPnPControlPoint(ipaddr_list) as upnp:
-            while True:
-                notification, root_device = await upnp.get_notification()
-                ...
+>>> import asyncio
+>>> from pa_dlna.upnp import UPnPControlPoint
+>>>
+>>> async def main(ipaddr_list):
+...   with UPnPControlPoint(ipaddr_list) as control_point:
+...     notification, root_device = await control_point.get_notification()
+...     print(f"  Got '{notification}' from {root_device.ip_source}")
+...     print(f'  deviceType: {root_device.deviceType}')
+...     print(f'  friendlyName: {root_device.friendlyName}')
+...     for service in root_device.services.values():
+...       print(f'    serviceType: {service.serviceType}')
+...
+>>>
+>>> asyncio.run(main(['192.168.0.254', '192.168.43.83']))
+  Got 'alive' from 192.168.0.212
+  deviceType: urn:schemas-upnp-org:device:MediaRenderer:1
+  friendlyName: Yamaha RN402D
+    serviceType: urn:schemas-upnp-org:service:AVTransport:1
+    serviceType: urn:schemas-upnp-org:service:RenderingControl:1
+    serviceType: urn:schemas-upnp-org:service:ConnectionManager:1
+>>>
 
 'notification' is one of the 'alive' or 'byebye' strings.
 'root_device' is an instance of UPnPDevice.
+'service' is an instance of UPnPService.
 
-Use the UPnPDevice instance methods of root_device to learn about its embedded
-devices and its services, and control each UPnP device with its service
-instances to send soap requests to the corresponding UPnP device.
+Use the UPnPDevice instance to learn about the embedded devices, services
+and attributes of 'root_device'. Use the UPnPService instances methods
+to manage control and eventing on the device. Set up the Python 'logging'
+package to trace the library.
 """
 
 import asyncio
@@ -29,6 +44,8 @@ import time
 import collections
 import re
 import urllib.parse
+import io
+import xml.etree.ElementTree as ET
 from signal import SIGINT, SIGTERM, strsignal
 
 logger = logging.getLogger('upnp')
@@ -51,16 +68,23 @@ MSEARCH = '\r\n'.join([
         f'MX: {MX}',
     ]) + '\r\n'
 
+UPNP_NAMESPACE_BEG = 'urn:schemas-upnp-org:'
+
 # UPnP exceptions.
 class UPnPError(Exception): pass
+
+# Fatal error exceptions.
 class UPnPFatalError(UPnPError): pass
 class UPnPControlPointFatalError(UPnPFatalError): pass
+class UPnPXMLFatalError(UPnPFatalError): pass
 
-# Temporary error UPnP exceptions.
+# Temporary error exceptions.
 class UPnPControlPointError(UPnPError): pass
-class InvalidSsdpError(UPnPError): pass
-class InvalidHttpError(UPnPError): pass
+class UPnPInvalidSsdpError(UPnPError): pass
+class UPnPInvalidHttpError(UPnPError): pass
+class UPnPClosedDevice(UPnPError): pass
 
+# Networking helper functions.
 def shorten(txt, head_len=10, tail_len=5):
     if len(txt) <= head_len + 3 + tail_len:
         return txt
@@ -84,7 +108,7 @@ def http_header_as_dict(header):
         return dict(normalize(line.split(':', maxsplit=1))
                     for line in compacted.splitlines())
     except ValueError:
-        raise InvalidSsdpError(f'malformed HTTP header:\n{header}')
+        raise UPnPInvalidSsdpError(f'malformed HTTP header:\n{header}')
 
 def check_ssdp_header(header, is_msearch):
     """Check the SSDP header."""
@@ -92,7 +116,7 @@ def check_ssdp_header(header, is_msearch):
     def exist(keys):
         for key in keys:
             if key not in header:
-                raise InvalidSsdpError(
+                raise UPnPInvalidSsdpError(
                     f'missing "{key}" field in SSDP notify:\n{header}')
 
     # Check the presence of some required keys.
@@ -124,7 +148,7 @@ def parse_ssdp(datagram, ip_source, is_msearch):
     try:
         header = http_header_as_dict(header[1:])
         check_ssdp_header(header, is_msearch)
-    except InvalidSsdpError as e:
+    except UPnPInvalidSsdpError as e:
         logger.warning(f'Error from {ip_source}: {e}')
         return None
 
@@ -245,14 +269,14 @@ async def http_get(url, host=None, port=80):
             line = line.decode('latin1').rstrip()
             if line:
                 if (not header and
-                        re.match('HTTP/1\.(0|1) 200 ', line) is None):
-                    raise InvalidHttpError(f'Got "{line}" from {host}')
+                        re.match(r'HTTP/1\.(0|1) 200 ', line) is None):
+                    raise UPnPInvalidHttpError(f'Got "{line}" from {host}')
                 header.append(line)
             else:
                 break
 
         if not header:
-            raise InvalidHttpError(f'Empty http header from {host}')
+            raise UPnPInvalidHttpError(f'Empty http header from {host}')
         header_dict = http_header_as_dict(header[1:])
 
         body = await reader.read()
@@ -262,7 +286,7 @@ async def http_get(url, host=None, port=80):
         if content_length is not None:
             content_length = int(content_length)
             if len(body) != content_length:
-                raise InvalidHttpError(f'Content-Length and actual length'
+                raise UPnPInvalidHttpError(f'Content-Length and actual length'
                                 f' mismatch ({content_length}-{len(body)})'
                                 f' from {host}')
         return body
@@ -272,7 +296,62 @@ async def http_get(url, host=None, port=80):
             writer.close()
             await writer.wait_closed()
 
-# Miscellaneous utilities.
+# XML helper functions.
+def build_etree(element):
+    """Build an element tree to a bytes sequence and return it as a string."""
+    etree = ET.ElementTree(element)
+    with io.BytesIO() as output:
+        etree.write(output, encoding='utf-8', xml_declaration=True)
+        return output.getvalue().decode()
+
+def xml_of_subelement(xml, tag):
+    """Return the first 'tag' subelement as an xml string."""
+
+    # Find the 'tag' subelement.
+    upnp_namespace = UPnPNamespace(xml, UPNP_NAMESPACE_BEG)
+    root = ET.fromstring(xml)
+    element = root.find(f'{upnp_namespace!r}{tag}')
+
+    if element is None:
+        return None
+    return build_etree(element)
+
+def findall_childless(etree, namespace):
+    """Return the dictionary {tag: text} of all chidless subelements."""
+    d = {}
+    ns_len = len(f'{namespace!r}')
+    for e in etree.findall(f'.{namespace!r}*'):
+        if e.tag and len(list(e)) == 0:
+            tag = e.tag[ns_len:]
+            d[tag] = e.text
+    return d
+
+# Helper class(es).
+class UPnPNamespace:
+    """A namespace value."""
+
+    def __init__(self, xml, value_beg):
+        """Use the namespace value starting with 'value_beg'."""
+
+        self.value = None
+        ns = dict(elem for event, elem in ET.iterparse(
+            io.StringIO(xml), events=['start-ns']))
+
+        # No namespaces.
+        if not ns:
+            self.value = ''
+
+        for v in ns.values():
+            if v.startswith(value_beg):
+                self.value = v
+                break
+
+        if self.value is None:
+            raise UPnPXMLFatalError(f'No namespace starting with {value_beg}')
+
+    def __repr__(self):
+        return f'{{{self.value}}}' if self.value else ''
+
 class AsyncioTasks:
     """Save references to tasks, to avoid tasks being garbage collected.
 
@@ -348,7 +427,7 @@ class UPnPQueue:
         else:
             return self.buffer.popleft()
 
-# Network utilities.
+# Network protocols.
 class MsearchServerProtocol:
     """The MSEARCH asyncio server."""
 
@@ -417,69 +496,114 @@ class NotifyServerProtocol:
         msg = f': {exc!r}' if exc is not None else ''
         logger.info(f'Connection lost by NotifyServerProtocol{msg}')
 
-# The components of an UPnP root device.
+# Components of an UPnP root device.
 class UPnPElement:
     """An UPnP device or service."""
 
-    def __init__(self, root_device, name):
-        self.root_device = root_device
-        self.name = name
-        self.closed = False
+    def __init__(self, root_device):
+        self._root_device = root_device
+        self._closed = False
 
     def close(self):
-        if not self.closed:
-            self.closed = True
-            if self.root_device is not None:
-                self.root_device.close()
-
-    def __str__(self):
-        return self.name
+        if not self._closed:
+            self._closed = True
+            if self._root_device is not None:
+                self._root_device.close()
 
 class UPnPService(UPnPElement):
     """An UPnP service."""
 
-    def __init__(self, root_device, name):
-        super().__init__(root_device, name)
-        self.enabled = True
-        self.aio_tasks = root_device.aio_tasks
+    def __init__(self, root_device, attributes):
+        super().__init__(root_device)
+        for k, v in attributes.items():
+            setattr(self, k, v)
+        self._enabled = True
+        self._aio_tasks = root_device._aio_tasks
 
     def close(self):
-        super().close()
-        self.enabled = False
+        if not self._closed:
+            super().close()
+            self._enabled = False
 
-    def set_enable(self, state=True):
-        # A service does not accept soap requests when its 'enabled' attribute
-        # is False.
-        self.enabled = state
+    def _set_enable(self, state=True):
+        # A service does not accept soap requests when its '_enabled'
+        # attribute is False.
+        self._enabled = state
 
 class UPnPDevice(UPnPElement):
     """An UPnP device."""
 
-    def __init__(self, root_device, name):
-        super().__init__(root_device, name)
-        self.services = set()           # list of services
-        self.devices = set()            # list of embedded devices
+    def __init__(self, root_device, description=None):
+        super().__init__(root_device)
+        self.services = {}              # {serviceType: UPnPService instance}
+        self.devices = {}               # {deviceType: UPnPDevice instance}
+        if description is not None:
+            self._parse_description(description)
+        else:
+            self.description = None
 
     def close(self):
-        super().close()
-        for service in self.services:
-            self.services.remove(service)
-            service.close()
-        for device in self.devices:
-            self.devices.remove(device)
-            device.close()
+        if not self._closed:
+            super().close()
+            for service in self.services.values():
+                service.close()
+            self.services = {}
+            for device in self.devices.values():
+                device.close()
+            self.devices = {}
 
-    def set_enable(self, state=True):
-        for service in self.services:
-            service.set_enable(state)
-        for device in self.devices:
-            device.set_enable(state)
+    def _parse_description(self, description):
+        """Parse the xml 'description'.
 
-    async def run(self, descr_xml):
+        Recursively instantiate the tree of embedded devices and their
+        services. Called directly by a root device or by the constructor of
+        an embedded device.
+        """
+
+        self.description = description
+
+        upnp_namespace = UPnPNamespace(description, UPNP_NAMESPACE_BEG)
+        device_etree = ET.fromstring(description)
+
+        # Add the childless elements of the device element as instance
+        # attributes of the UPnPDevice instance.
+        d = findall_childless(device_etree, upnp_namespace)
+        self.__dict__.update(d)
+
+        root_device = self if self._root_device is None else self._root_device
+
+        # Instantiate the UPnPService(s).
+        services = device_etree.find(f'{upnp_namespace!r}serviceList')
+        if services is not None:
+            for element in services:
+                d = findall_childless(element, upnp_namespace)
+                # Silently ignore an empty service element.
+                if d:
+                    self.services[d['serviceType']] = UPnPService(
+                                                            root_device, d)
+
+        # Instantiate the embedded UPnPDevice(s).
+        devices = device_etree.find(f'{upnp_namespace!r}deviceList')
+        if devices is not None:
+            for element in devices:
+                d = findall_childless(element, upnp_namespace)
+                if d:
+                    description = build_etree(element)
+                    # Recursion here: the constructor calls
+                    # _parse_description().
+                    self.devices[d['deviceType']] = UPnPDevice(
+                                        root_device, description=description)
+
+    def _set_enable(self, state=True):
+        for service in self.services.values():
+            service._set_enable(state)
+        for device in self.devices.values():
+            device._set_enable(state)
+
+    async def _run(self):
         try:
-            # XXX parse descr_xml
-            # create and start embedded devices
-            # create and start services
+            # XXX
+            # start services (or maybe it is the device that handles the soap requests)
             pass
         except Exception as e:
             logger.exception(f'{e!r}')
@@ -490,75 +614,85 @@ class UPnPDevice(UPnPElement):
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device."""
 
-    def __init__(self, control_point, udn, location, max_age):
-        super().__init__(None, 'UPnPRootDevice')
+    def __init__(self, control_point, udn, ip_source, location, max_age):
+        super().__init__(None)
         self.control_point = control_point  # UPnPControlPoint instance
         self.udn = udn
+        self.ip_source = ip_source
         self.location = location
-        self.set_valid_until(max_age)
-        self.enabled = True
-        self.aio_tasks = AsyncioTasks()
+        self._set_valid_until(max_age)
+        self._enabled = True
+        self._aio_tasks = AsyncioTasks()
 
     def close(self):
-        super().close()
-        self.set_enable(False)
-        self.aio_tasks.cancel_all()
+        if not self._closed:
+            super().close()
+            self._set_enable(False)
+            self._aio_tasks.cancel_all()
+            raise UPnPClosedDevice(f'{self} is closed')
 
-    def set_enable(self, state=True):
+    def _set_enable(self, state=True):
         # Used by the aging process to enable/disable all services and
         # embedded devices.
-        self.enabled = state
-        super().set_enable(state)
+        self._enabled = state
+        super()._set_enable(state)
 
-    def set_valid_until(self, max_age):
-        # The 'valid_until' attribute is the monotonic date when the root
+    def _set_valid_until(self, max_age):
+        # The '_valid_until' attribute is the monotonic date when the root
         # device and its services and embedded devices become disabled.
-        # 'valid_until' None means no aging is performed.
+        # '_valid_until' None means no aging is performed.
         if max_age is not None:
-            self.valid_until = time.monotonic() + max_age
+            self._valid_until = time.monotonic() + max_age
         else:
-            self.valid_until = None
+            self._valid_until = None
 
-    def get_timeleft(self):
-        if self.valid_until is not None:
-            return self.valid_until - time.monotonic()
+    def _get_timeleft(self):
+        if self._valid_until is not None:
+            return self._valid_until - time.monotonic()
         return None
 
-    async def age_root_device(self):
+    async def _age_root_device(self):
         # Age the root device using SSDP alive notifications.
         while True:
-            timeleft = self.get_timeleft()
+            timeleft = self._get_timeleft()
             if timeleft is not None and timeleft > 0:
-                if not self.enabled:
-                    self.set_enable(True)
+                if not self._enabled:
+                    self._set_enable(True)
                     logger.info(f'{self} is up')
                 await asyncio.sleep(timeleft)
             else:
                 # Missing 'CACHE-CONTROL' field in SSDP.
                 if timeleft is None:
-                    if not self.enabled:
-                        self.set_enable(True)
+                    if not self._enabled:
+                        self._set_enable(True)
                         logger.info(f'{self} is up')
-                elif self.enabled:
+                elif self._enabled:
                     assert timeleft <= 0
-                    self.set_enable(False)
+                    self._set_enable(False)
                     logger.info(f'{self} is down')
 
                 # Wake up every second to check for a change in
-                # valid_until.
+                # _valid_until.
                 await asyncio.sleep(1)
 
-    async def run(self):
+    async def _run(self):
         try:
             description = await http_get(self.location)
             description = description.decode()
-            # XXX logger.info(f'{description}')
+            device_description = xml_of_subelement(description, 'device')
+            if device_description is None:
+                raise UPnPXMLFatalError("Missing 'device' subelement in root"
+                                        ' device description')
+            logger.info(f'Parse description of {self}')
+            self._parse_description(device_description)
 
-            # XXX await super().run(descr_xml)
+            # XXX await super()._run()
 
             self.control_point._put_notification('alive', self)
-            await self.age_root_device()
+            await self._age_root_device()
 
+        except UPnPClosedDevice as e:
+            logger.warning(f'{e!r}')
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close()
@@ -569,7 +703,7 @@ class UPnPRootDevice(UPnPDevice):
         """Return a short representation of udn."""
         return f'UPnPRootDevice {shorten(self.udn)}'
 
-# The UPnP control point.
+# UPnP control point.
 class UPnPControlPoint:
     """An UPnP control point."""
 
@@ -581,12 +715,15 @@ class UPnPControlPoint:
         'ttl' IP packets time to live.
         """
 
+        if not ip_addresses:
+            raise UPnPControlPointFatalError('The list of ip addresses cannot'
+                                             ' be empty')
         self.ip_addresses = ip_addresses
         self.ttl = ttl
-        self.closed = False
+        self._closed = False
         self._upnp_queue = UPnPQueue()
         self._devices = {}              # {udn: UPnPRootDevice}
-        self.aio_tasks = AsyncioTasks()
+        self._aio_tasks = AsyncioTasks()
 
     def open(self):
         """Start the UPnP Control Point."""
@@ -594,27 +731,31 @@ class UPnPControlPoint:
         # Set up signal handlers.
         loop = asyncio.get_running_loop()
         for s in (SIGINT, SIGTERM):
-            loop.add_signal_handler(s, lambda s=s: self.sig_handler(s))
+            loop.add_signal_handler(s, lambda s=s: self._sig_handler(s))
 
         # Start the msearch task.
-        self.aio_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
+        self._aio_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
 
         # Start the notify task.
-        self.aio_tasks.create_task(self._ssdp_notify(), name='ssdp notify')
+        self._aio_tasks.create_task(self._ssdp_notify(), name='ssdp notify')
 
     def close(self, exc=None):
         """Close the UPnP Control Point."""
 
-        if not self.closed:
-            self.closed = True
+        if not self._closed:
+            self._closed = True
 
             # Raise the exception in the get_notification() method.
             if exc is not None:
                 self._upnp_queue.throw(exc)
 
             for root_device in self._devices.values():
-                root_device.close()
-            self.aio_tasks.cancel_all()
+                try:
+                    root_device.close()
+                except UPnPClosedDevice as e:
+                    logger.info(f'{e!r}')
+
+            self._aio_tasks.cancel_all()
             logger.debug('End of upnp task')
 
     async def get_notification(self):
@@ -631,13 +772,15 @@ class UPnPControlPoint:
         state = 'created' if kind == 'alive' else 'deleted'
         logger.info(f'{root_device} has been {state}')
 
-    def sig_handler(self, signal):
+    def _sig_handler(self, signal):
         errmsg = f'Got signal {strsignal(signal)}'
         logger.info(errmsg)
         if signal == SIGINT:
-            self.close(exc=KeyboardInterrupt())
+            self.close(exc=UPnPControlPointFatalError(
+                                                f'{KeyboardInterrupt()!r}'))
         else:
-            self.close(exc=SystemExit())
+            self.close(exc=UPnPControlPointFatalError(
+                                                f'{SystemExit()!r}'))
 
     def _create_root_device(self, header, ip_source):
 
@@ -657,9 +800,9 @@ class UPnPControlPoint:
         udn = header['USN'].split('::')[0]
         if udn not in self._devices:
             # Instantiate the UPnPDevice and start its task.
-            root_device = UPnPRootDevice(self, udn, header['LOCATION'],
-                                         max_age)
-            self.aio_tasks.create_task(root_device.run(),
+            root_device = UPnPRootDevice(self, udn, ip_source,
+                                         header['LOCATION'], max_age)
+            self._aio_tasks.create_task(root_device._run(),
                                        name=str(root_device))
             self._devices[udn] = root_device
             logger.info(f'New {root_device} at {ip_source}')
@@ -669,7 +812,7 @@ class UPnPControlPoint:
 
             # Avoid cluttering the logs when the aging refresh occurs within 5
             # seconds of the last one, assuming all max ages are the same.
-            timeleft = root_device.get_timeleft()
+            timeleft = root_device._get_timeleft()
             if (timeleft is not None and
                     max_age is not None and
                     max_age - timeleft > 5):
@@ -677,7 +820,7 @@ class UPnPControlPoint:
                              f' for {root_device}')
 
             # Refresh the aging time.
-            root_device.set_valid_until(max_age)
+            root_device._set_valid_until(max_age)
 
     def _process_ssdp(self, datagram, ip_source, is_msearch):
         """Process the received datagrams.
@@ -732,10 +875,12 @@ class UPnPControlPoint:
     async def _ssdp_notify(self):
         """Listen to SSDP notifications."""
 
-        await notify(self.ip_addresses, self._process_ssdp)
-        errmsg = 'Unexpected end of the notify coroutine'
-        logger.error(errmsg)
-        self.close(exc=UPnPControlPointFatalError(errmsg))
+        try:
+            await notify(self.ip_addresses, self._process_ssdp)
+        except Exception as e:
+            exc = f'{e!r}'
+            logger.exception(exc)
+            self.close(exc=UPnPControlPointFatalError(exc))
 
     def __enter__(self):
         self.open()
