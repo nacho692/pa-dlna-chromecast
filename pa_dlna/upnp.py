@@ -169,35 +169,43 @@ async def msearch(ip, ttl):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setblocking(False)
 
-    # Prevent multicast datagrams to be looped back to ourself.
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
-
-    # Let the operating system choose the port.
-    sock.bind((ip, 0))
-
-    # Start the server.
-    loop = asyncio.get_running_loop()
-    transport, protocol = await loop.create_datagram_endpoint(
-        lambda: MsearchServerProtocol(ip), sock=sock)
-
-    # Prepare the socket for sending from the network interface of 'ip'.
-    sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
-
-    expire = time.monotonic() + MX
     try:
-        for i in range(MSEARCH_COUNT):
-            await asyncio.sleep(MSEARCH_INTERVAL)
-            if not protocol.closed():
-                protocol.m_search(MSEARCH, sock)
+        # Prevent multicast datagrams to be looped back to ourself.
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
 
-        if not protocol.closed():
-            remain = expire - time.monotonic()
-            if remain > 0:
-                await asyncio.sleep(expire - time.monotonic())
+        # Let the operating system choose the port.
+        try:
+            sock.bind((ip, 0))
+        except OSError as e:
+            raise OSError(e.args[0], f'{ip}: {e.args[1]}') from None
+
+        # Start the server.
+        loop = asyncio.get_running_loop()
+        transport, protocol = await loop.create_datagram_endpoint(
+            lambda: MsearchServerProtocol(ip), sock=sock)
+
+        # Prepare the socket for sending from the network interface of 'ip'.
+        sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
+                        socket.inet_aton(ip))
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+
+        expire = time.monotonic() + MX
+        try:
+            for i in range(MSEARCH_COUNT):
+                await asyncio.sleep(MSEARCH_INTERVAL)
+                if not protocol.closed():
+                    protocol.m_search(MSEARCH, sock)
+
+            if not protocol.closed():
+                remain = expire - time.monotonic()
+                if remain > 0:
+                    await asyncio.sleep(expire - time.monotonic())
+        finally:
+            transport.close()
+            return  protocol.get_result()
     finally:
-        transport.close()
-        return  protocol.get_result()
+        # Needed when OSError is raised upon binding the socket.
+        sock.close()
 
 async def notify(ip_addresses, process_datagram):
     """Implement the SSDP advertisement protocol."""
@@ -211,32 +219,40 @@ async def notify(ip_addresses, process_datagram):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setblocking(False)
 
-    for ip in ip_addresses:
-        # Become a member of the IP multicast group on this interface.
-        mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
-                           socket.inet_aton(ip))
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-
-    # Allow other processes to bind to the same multicast group and port.
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    # Bind to the multicast (group, port).
-    # Binding to (INADDR_ANY, port) would also work, except
-    # that in that case the socket would also receive the datagrams
-    # destined to (any other address, MCAST_PORT).
-    sock.bind(MCAST_ADDR)
-
-    # Start the server.
-    loop = asyncio.get_running_loop()
-    on_con_lost = loop.create_future()
-    transport, protocol = await loop.create_datagram_endpoint(
-        lambda: NotifyServerProtocol(process_datagram, on_con_lost),
-        sock=sock)
-
     try:
-        await on_con_lost
+        for ip in ip_addresses:
+            # Become a member of the IP multicast group on this interface.
+            mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
+                               socket.inet_aton(ip))
+            try:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                                mreq)
+            except OSError as e:
+                raise OSError(e.args[0], f'{ip}: {e.args[1]}') from None
+
+        # Allow other processes to bind to the same multicast group and port.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # Bind to the multicast (group, port).
+        # Binding to (INADDR_ANY, port) would also work, except
+        # that in that case the socket would also receive the datagrams
+        # destined to (any other address, MCAST_PORT).
+        sock.bind(MCAST_ADDR)
+
+        # Start the server.
+        loop = asyncio.get_running_loop()
+        on_con_lost = loop.create_future()
+        transport, protocol = await loop.create_datagram_endpoint(
+            lambda: NotifyServerProtocol(process_datagram, on_con_lost),
+            sock=sock)
+
+        try:
+            await on_con_lost
+        finally:
+            transport.close()
     finally:
-        transport.close()
+        # Needed when OSError is raised upon setting IP_ADD_MEMBERSHIP.
+        sock.close()
 
 async def http_get(url, host=None, port=80):
     """Return the body of the response to an HTTP 1.0 GET.
