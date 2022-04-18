@@ -45,6 +45,7 @@ import collections
 import re
 import urllib.parse
 import io
+import sys
 import xml.etree.ElementTree as ET
 from signal import SIGINT, SIGTERM, strsignal
 
@@ -254,7 +255,7 @@ async def notify(ip_addresses, process_datagram):
         # Needed when OSError is raised upon setting IP_ADD_MEMBERSHIP.
         sock.close()
 
-async def http_get(url, host=None, port=80):
+async def http_get(url):
     """Return the body of the response to an HTTP 1.0 GET.
 
     RFC 1945: Hypertext Transfer Protocol -- HTTP/1.0
@@ -263,13 +264,14 @@ async def http_get(url, host=None, port=80):
     writer = None
     try:
         url = urllib.parse.urlsplit(url)
-        host = url.hostname if url.hostname else host
-        port = url.port if url.port else port
+        host = url.hostname
+        port = url.port if url.port is not None else 80
         reader, writer = await asyncio.open_connection(host, port)
 
         # Send the request.
+        request = url._replace(scheme='')._replace(netloc='').geturl()
         query = (
-            f"GET {url.path or '/'} HTTP/1.0\r\n"
+            f"GET {request or '/'} HTTP/1.0\r\n"
             f"Host: {host}:{port}\r\n"
             f"\r\n"
         )
@@ -313,6 +315,11 @@ async def http_get(url, host=None, port=80):
             await writer.wait_closed()
 
 # XML helper functions.
+def upnp_org_etree(xml):
+    """Return the element tree and UPnP namespace from an xml string."""
+    upnp_namespace = UPnPNamespace(xml, UPNP_NAMESPACE_BEG)
+    return ET.fromstring(xml), upnp_namespace
+
 def build_etree(element):
     """Build an element tree to a bytes sequence and return it as a string."""
     etree = ET.ElementTree(element)
@@ -324,9 +331,8 @@ def xml_of_subelement(xml, tag):
     """Return the first 'tag' subelement as an xml string."""
 
     # Find the 'tag' subelement.
-    upnp_namespace = UPnPNamespace(xml, UPNP_NAMESPACE_BEG)
-    root = ET.fromstring(xml)
-    element = root.find(f'{upnp_namespace!r}{tag}')
+    root, namespace = upnp_org_etree(xml)
+    element = root.find(f'{namespace!r}{tag}')
 
     if element is None:
         return None
@@ -533,6 +539,11 @@ class UPnPService(UPnPElement):
         super().__init__(root_device)
         for k, v in attributes.items():
             setattr(self, k, v)
+        urlbase = root_device.urlbase
+        self.SCPDURL = urllib.parse.urljoin(urlbase, self.SCPDURL)
+        self.controlURL = urllib.parse.urljoin(urlbase, self.controlURL)
+        self.eventSubURL = urllib.parse.urljoin(urlbase, self.eventSubURL)
+        self.description = None
         self._enabled = True
         self._aio_tasks = root_device._aio_tasks
 
@@ -540,6 +551,12 @@ class UPnPService(UPnPElement):
         if not self._closed:
             super().close()
             self._enabled = False
+
+    async def _run(self):
+        description = await http_get(self.SCPDURL)
+        self.description = description.decode()
+
+        return self
 
     def _set_enable(self, state=True):
         # A service does not accept soap requests when its '_enabled'
@@ -549,14 +566,10 @@ class UPnPService(UPnPElement):
 class UPnPDevice(UPnPElement):
     """An UPnP device."""
 
-    def __init__(self, root_device, description=None):
+    def __init__(self, root_device):
         super().__init__(root_device)
         self.services = {}              # {serviceType: UPnPService instance}
         self.devices = {}               # {deviceType: UPnPDevice instance}
-        if description is not None:
-            self._parse_description(description)
-        else:
-            self.description = None
 
     def close(self):
         if not self._closed:
@@ -568,64 +581,86 @@ class UPnPDevice(UPnPElement):
                 device.close()
             self.devices = {}
 
-    def _parse_description(self, description):
+    async def _create_services(self, services, namespace, root_device):
+        """Create each UPnPService instance with its attributes.
+
+        And await until its xml description has been parsed and the soap task
+        started. 'services' is an etree element.
+        """
+
+        if services is None:
+            return
+
+        for element in services:
+            if element.tag != f'{namespace!r}service':
+                raise UPnPXMLFatalError(f"Found '{element.tag}' instead"
+                                        f" of '{namespace!r}service'")
+
+            d = findall_childless(element, namespace)
+            if not d:
+                raise UPnPXMLFatalError("Empty 'service' element")
+            if 'serviceType' not in d:
+                raise UPnPXMLFatalError("Missing 'serviceType' element")
+
+            self.services[d['serviceType']] = await (
+                                    UPnPService(root_device, d)._run())
+
+    async def _create_devices(self, devices, namespace, root_device):
+        """Instantiate the embedded UPnPDevice(s)."""
+
+        if devices is None:
+            return
+
+        for element in devices:
+            if element.tag != f'{namespace!r}device':
+                raise UPnPXMLFatalError(f"Found '{element.tag}' instead"
+                                        f" of '{namespace!r}device'")
+
+            d = findall_childless(element, namespace)
+            if not d:
+                raise UPnPXMLFatalError("Empty 'device' element")
+            if 'deviceType' not in d:
+                raise UPnPXMLFatalError("Missing 'deviceType' element")
+
+            description = build_etree(element)
+            self.devices[d['deviceType']] = await (
+                  UPnPDevice(root_device)._parse_description(description))
+
+    async def _parse_description(self, description):
         """Parse the xml 'description'.
 
         Recursively instantiate the tree of embedded devices and their
-        services. Called directly by a root device or by the constructor of
-        an embedded device.
+        services. When this method returns, each UPnPService instance has
+        parsed its description and started a task to handle soap requests.
         """
 
         self.description = description
-
-        upnp_namespace = UPnPNamespace(description, UPNP_NAMESPACE_BEG)
-        device_etree = ET.fromstring(description)
+        device_etree, namespace = upnp_org_etree(description)
 
         # Add the childless elements of the device element as instance
         # attributes of the UPnPDevice instance.
-        d = findall_childless(device_etree, upnp_namespace)
+        d = findall_childless(device_etree, namespace)
         self.__dict__.update(d)
+        if not hasattr(self, 'deviceType'):
+            raise UPnPXMLFatalError("Missing 'deviceType' element")
+        logger.info(f'New device whose type is {self.deviceType}')
 
         root_device = self if self._root_device is None else self._root_device
 
-        # Instantiate the UPnPService(s).
-        services = device_etree.find(f'{upnp_namespace!r}serviceList')
-        if services is not None:
-            for element in services:
-                d = findall_childless(element, upnp_namespace)
-                # Silently ignore an empty service element.
-                if d:
-                    self.services[d['serviceType']] = UPnPService(
-                                                            root_device, d)
+        services = device_etree.find(f'{namespace!r}serviceList')
+        await self._create_services(services, namespace, root_device)
 
-        # Instantiate the embedded UPnPDevice(s).
-        devices = device_etree.find(f'{upnp_namespace!r}deviceList')
-        if devices is not None:
-            for element in devices:
-                d = findall_childless(element, upnp_namespace)
-                if d:
-                    description = build_etree(element)
-                    # Recursion here: the constructor calls
-                    # _parse_description().
-                    self.devices[d['deviceType']] = UPnPDevice(
-                                        root_device, description=description)
+        # Recursion here: _create_devices() calls _parse_description()
+        devices = device_etree.find(f'{namespace!r}deviceList')
+        await self._create_devices(devices, namespace, root_device)
+
+        return self
 
     def _set_enable(self, state=True):
         for service in self.services.values():
             service._set_enable(state)
         for device in self.devices.values():
             device._set_enable(state)
-
-    async def _run(self):
-        try:
-            # XXX
-            # start services (or maybe it is the device that handles the soap requests)
-            pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
-        finally:
-            if not isinstance(self, UPnPRootDevice):
-                logger.debug(f'End of {self} task')
 
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device."""
@@ -637,6 +672,7 @@ class UPnPRootDevice(UPnPDevice):
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
+        self.urlbase = None
         self._enabled = True
         self._aio_tasks = AsyncioTasks()
 
@@ -645,7 +681,13 @@ class UPnPRootDevice(UPnPDevice):
             super().close()
             self._set_enable(False)
             self._aio_tasks.cancel_all()
-            raise UPnPClosedDevice(f'{self} is closed')
+
+            # close() may be called within an exception handler.
+            errmsg = f'{self} is closed'
+            if sys.exc_info()[0] is None:
+                raise UPnPClosedDevice(errmsg)
+            else:
+                logger.warning(errmsg)
 
     def _set_enable(self, state=True):
         # Used by the aging process to enable/disable all services and
@@ -695,18 +737,20 @@ class UPnPRootDevice(UPnPDevice):
         try:
             description = await http_get(self.location)
             description = description.decode()
+
+            # Find the 'URLBase' subelement (UPnP version 1.1).
+            root, namespace = upnp_org_etree(description)
+            element = root.find(f'{namespace!r}URLBase')
+            self.urlbase = (element.text if element is not None else
+                            self.location)
+
             device_description = xml_of_subelement(description, 'device')
             if device_description is None:
                 raise UPnPXMLFatalError("Missing 'device' subelement in root"
                                         ' device description')
-            logger.info(f'Parse description of {self}')
-            self._parse_description(device_description)
-
-            # XXX await super()._run()
-
+            await self._parse_description(device_description)
             self.control_point._put_notification('alive', self)
             await self._age_root_device()
-
         except UPnPClosedDevice as e:
             logger.warning(f'{e!r}')
         except Exception as e:
