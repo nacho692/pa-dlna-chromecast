@@ -13,7 +13,7 @@ Example of using the Control Point (there is no external dependency):
 ...     print(f"  Got '{notification}' from {root_device.ip_source}")
 ...     print(f'  deviceType: {root_device.deviceType}')
 ...     print(f'  friendlyName: {root_device.friendlyName}')
-...     for service in root_device.services.values():
+...     for service in root_device.serviceList.values():
 ...       print(f'    serviceType: {service.serviceType}')
 ...
 >>>
@@ -30,10 +30,13 @@ Example of using the Control Point (there is no external dependency):
 'root_device' is an instance of UPnPDevice.
 'service' is an instance of UPnPService.
 
-Use the UPnPDevice instance to learn about the embedded devices, services
-and attributes of 'root_device'. Use the UPnPService instances methods
-to manage control and eventing on the device. Set up the Python 'logging'
-package to trace the library.
+XML elements of the 'description' attribute of an UPnPDevice (resp.
+UPnPService) instance are attributes of the UPnPDevice (resp. UPnPService)
+instance. When the element is a list, the attribute is a Python dictionary
+whose keys are the value of the type (for example the value of the
+'serviceType' element) or the value of the 'name' element.
+
+Set up the Python 'logging' package to trace the library.
 """
 
 import asyncio
@@ -568,18 +571,18 @@ class UPnPDevice(UPnPElement):
 
     def __init__(self, root_device):
         super().__init__(root_device)
-        self.services = {}              # {serviceType: UPnPService instance}
-        self.devices = {}               # {deviceType: UPnPDevice instance}
+        self.serviceList = {}       # dict {serviceType: UPnPService instance}
+        self.deviceList = {}        # dict {deviceType: UPnPDevice instance}
 
     def close(self):
         if not self._closed:
             super().close()
-            for service in self.services.values():
+            for service in self.serviceList.values():
                 service.close()
-            self.services = {}
-            for device in self.devices.values():
+            self.serviceList = {}
+            for device in self.deviceList.values():
                 device.close()
-            self.devices = {}
+            self.deviceList = {}
 
     async def _create_services(self, services, namespace, root_device):
         """Create each UPnPService instance with its attributes.
@@ -603,7 +606,7 @@ class UPnPDevice(UPnPElement):
                 raise UPnPXMLFatalError("Missing 'serviceType' element")
 
             serviceType = d['serviceType']
-            self.services[serviceType] = await (
+            self.serviceList[serviceType] = await (
                                     UPnPService(root_device, d)._run())
             logger.info(f'New service whose type is {serviceType}')
 
@@ -625,7 +628,7 @@ class UPnPDevice(UPnPElement):
                 raise UPnPXMLFatalError("Missing 'deviceType' element")
 
             description = build_etree(element)
-            self.devices[d['deviceType']] = await (
+            self.deviceList[d['deviceType']] = await (
                   UPnPDevice(root_device)._parse_description(description))
 
     async def _parse_description(self, description):
@@ -659,9 +662,9 @@ class UPnPDevice(UPnPElement):
         return self
 
     def _set_enable(self, state=True):
-        for service in self.services.values():
+        for service in self.serviceList.values():
             service._set_enable(state)
-        for device in self.devices.values():
+        for device in self.deviceList.values():
             device._set_enable(state)
 
 class UPnPRootDevice(UPnPDevice):
