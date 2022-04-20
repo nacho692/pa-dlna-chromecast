@@ -14,29 +14,17 @@ Example of using the Control Point (there is no external dependency):
 ...     print(f'  deviceType: {root_device.deviceType}')
 ...     print(f'  friendlyName: {root_device.friendlyName}')
 ...     for service in root_device.serviceList.values():
-...       print(f'    serviceType: {service.serviceType}')
+...       print(f'    serviceId: {service.serviceId}')
 ...
 >>>
 >>> asyncio.run(main(['192.168.0.254', '192.168.43.83']))
   Got 'alive' from 192.168.0.212
   deviceType: urn:schemas-upnp-org:device:MediaRenderer:1
   friendlyName: Yamaha RN402D
-    serviceType: urn:schemas-upnp-org:service:AVTransport:1
-    serviceType: urn:schemas-upnp-org:service:RenderingControl:1
-    serviceType: urn:schemas-upnp-org:service:ConnectionManager:1
+    serviceId: urn:upnp-org:serviceId:AVTransport
+    serviceId: urn:upnp-org:serviceId:RenderingControl
+    serviceId: urn:upnp-org:serviceId:ConnectionManager
 >>>
-
-'notification' is one of the 'alive' or 'byebye' strings.
-'root_device' is an instance of UPnPDevice.
-'service' is an instance of UPnPService.
-
-XML elements of the 'description' attribute of an UPnPDevice (resp.
-UPnPService) instance are attributes of the UPnPDevice (resp. UPnPService)
-instance. When the element is a list, the attribute is a Python dictionary
-whose keys are the value of the type (for example the value of the
-'serviceType' element) or the value of the 'name' element.
-
-Set up the Python 'logging' package to trace the library.
 """
 
 import asyncio
@@ -351,6 +339,72 @@ def findall_childless(etree, namespace):
             d[tag] = e.text
     return d
 
+def scpd_actionlist(scpd, namespace):
+    """Parse the scpd element for 'actionList'."""
+
+    result = {}
+    actionList = scpd.find(f'{namespace!r}actionList')
+    if actionList is not None:
+        for action in actionList:
+            action_name = args = None
+            for e in action:
+                if e.tag == f'{namespace!r}name':
+                    action_name = e.text
+                elif e.tag == f'{namespace!r}argumentList':
+                    args = {}
+                    for argument in e:
+                        d = findall_childless(argument, namespace)
+                        name = d['name']
+                        args[name] = d
+            # Silently ignore malformed actions.
+            if action_name is not None and args is not None:
+                result[action_name] = args
+    return result
+
+def scpd_servicestatetable(scpd, namespace):
+    """Parse the scpd element for 'serviceStateTable'."""
+
+    result = {}
+    table = scpd.find(f'{namespace!r}serviceStateTable')
+    if table is not None:
+        for variable in table:
+            varname = None
+            params = {}
+            has_type_attr = False
+            for attr in ('sendEvents', 'multicast'):
+                val = variable.attrib.get(attr, None)
+                if val is not None:
+                    params[attr] = val
+            for e in variable:
+                if e.tag == f'{namespace!r}name':
+                    varname = e.text
+                elif e.tag == f'{namespace!r}dataType':
+                    if 'type' in e.attrib:
+                        has_type_attr = True
+                    params['dataType'] = e.text
+                elif e.tag == f'{namespace!r}defaultValue':
+                    params['defaultValue'] = e.text
+                elif e.tag == f'{namespace!r}allowedValueList':
+                    allowed_list = []
+                    for allowed in e:
+                        allowed_list.append(allowed.text)
+                    params['allowedValueList'] = allowed_list
+                elif e.tag == f'{namespace!r}allowedValueRange':
+                    ns_len = len(f'{namespace!r}')
+                    val_range = {}
+                    for limit in e:
+                        if limit.tag in (f'{namespace!r}{x}' for
+                                     x in ('minimum', 'maximum', 'step')):
+                            tag = limit.tag[ns_len:]
+                            val_range[tag] = limit.text
+                    params['allowedValueRange'] = val_range
+            if varname is not None:
+                if has_type_attr:
+                    logger.warning(f"<stateVariable> '{varname}': 'type'"
+                                   ' attribute of <dataType> not supported')
+                result[varname] = params
+    return result
+
 # Helper class(es).
 class UPnPNamespace:
     """A namespace value."""
@@ -536,16 +590,49 @@ class UPnPElement:
                 self._root_device.close()
 
 class UPnPService(UPnPElement):
-    """An UPnP service."""
+    """An UPnP service.
+
+    Attributes:
+      serviceType:  UPnP service type
+      serviceId:    Service identifier
+      descripion:   the device xml descrition as a string
+
+      actionList:   dict {action name: arguments} where arguments is a dict
+                    indexed by the argument name with a value that is another
+                    dict whose keys are in.
+                    ('name', 'direction', 'relatedStateVariable')
+
+      serviceStateTable: dict {variable name: params} where params is a dict
+                    with keys in ('sendEvents', 'multicast', 'dataType',
+                    'defaultValue', 'allowedValueList',
+                    'allowedValueRange').
+                    The value of 'allowedValueList' is a list.
+                    The value of 'allowedValueRange' is a dict with keys in
+                    ('minimum', 'maximum', 'step').
+
+    Notes:
+    Not implemented: Extended data types defined by UPnP Device Architecture
+    2.0 are not supported (the 'type' attribute of the 'dataType' subelement
+    of a 'stateVariable' element is ignored).
+
+    Not implemented: Unicast and multicast eventing.
+    """
 
     def __init__(self, root_device, attributes):
         super().__init__(root_device)
+
+        # Set the attributes found in the 'service' element of the device
+        # description.
         for k, v in attributes.items():
             setattr(self, k, v)
         urlbase = root_device.urlbase
         self.SCPDURL = urllib.parse.urljoin(urlbase, self.SCPDURL)
         self.controlURL = urllib.parse.urljoin(urlbase, self.controlURL)
-        self.eventSubURL = urllib.parse.urljoin(urlbase, self.eventSubURL)
+        if self.eventSubURL is not None:
+            self.eventSubURL = urllib.parse.urljoin(urlbase, self.eventSubURL)
+
+        self.actionList = {}
+        self.serviceStateTable = {}
         self.description = None
         self._enabled = True
         self._aio_tasks = root_device._aio_tasks
@@ -559,6 +646,21 @@ class UPnPService(UPnPElement):
         description = await http_get(self.SCPDURL)
         self.description = description.decode()
 
+        # Parse the actionList.
+        scpd, namespace = upnp_org_etree(self.description)
+        self.actionList = scpd_actionlist(scpd, namespace)
+
+        # Parse the serviceStateTable.
+        self.serviceStateTable = scpd_servicestatetable(scpd, namespace)
+
+        # Start the control task.
+        # XXX
+        if self.serviceId == 'urn:upnp-org:serviceId:AVTransport':
+            logger.info(f'XXX {self.serviceId}\n {self.serviceStateTable}')
+
+        # Start the eventing task.
+        # Not implemented.
+
         return self
 
     def _set_enable(self, state=True):
@@ -567,12 +669,24 @@ class UPnPService(UPnPElement):
         self._enabled = state
 
 class UPnPDevice(UPnPElement):
-    """An UPnP device."""
+    """An UPnP device.
+
+    Attributes:
+      descripion:   the device xml description as a string
+
+      All the elements of the 'device' element in the xml description are
+      attributes of the UPnPDevice instance. Their value is the value (text)
+      of the element except for:
+
+      serviceList:  dict {serviceId value: UPnPService instance}
+      deviceList:   dict {deviceType value: UPnPDevice instance}
+      iconList:     Not implemented (ignored)
+    """
 
     def __init__(self, root_device):
         super().__init__(root_device)
-        self.serviceList = {}       # dict {serviceType: UPnPService instance}
-        self.deviceList = {}        # dict {deviceType: UPnPDevice instance}
+        self.serviceList = {}
+        self.deviceList = {}
 
     def close(self):
         if not self._closed:
@@ -602,13 +716,13 @@ class UPnPDevice(UPnPElement):
             d = findall_childless(element, namespace)
             if not d:
                 raise UPnPXMLFatalError("Empty 'service' element")
-            if 'serviceType' not in d:
-                raise UPnPXMLFatalError("Missing 'serviceType' element")
+            if 'serviceId' not in d:
+                raise UPnPXMLFatalError("Missing 'serviceId' element")
 
-            serviceType = d['serviceType']
-            self.serviceList[serviceType] = await (
+            serviceId = d['serviceId']
+            self.serviceList[serviceId] = await (
                                     UPnPService(root_device, d)._run())
-            logger.info(f'New service whose type is {serviceType}')
+            logger.info(f'New service - serviceId: {serviceId}')
 
     async def _create_devices(self, devices, namespace, root_device):
         """Instantiate the embedded UPnPDevice(s)."""
@@ -648,7 +762,7 @@ class UPnPDevice(UPnPElement):
         self.__dict__.update(d)
         if not hasattr(self, 'deviceType'):
             raise UPnPXMLFatalError("Missing 'deviceType' element")
-        logger.info(f'New device whose type is {self.deviceType}')
+        logger.info(f'New device - deviceType: {self.deviceType}')
 
         root_device = self if self._root_device is None else self._root_device
 
@@ -826,8 +940,10 @@ class UPnPControlPoint:
     async def get_notification(self):
         """Return the tuple ('alive' or 'byebye', UPnPDevice instance).
 
-        Raise unhandled exceptions occuring in the library, including
-        KeyboardInterrupt and SystemExit.
+        Raise exceptions occuring in the library, including those triggered by
+        a KeyboardInterrupt or a SystemExit.
+        When the exception is an instance of UPnPFatalError a new call to
+        get_notification() will raise the same exception.
         """
 
         return await self._upnp_queue.get()
