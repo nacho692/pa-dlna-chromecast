@@ -602,8 +602,10 @@ class UPnPDevice(UPnPElement):
             if 'serviceType' not in d:
                 raise UPnPXMLFatalError("Missing 'serviceType' element")
 
-            self.services[d['serviceType']] = await (
+            serviceType = d['serviceType']
+            self.services[serviceType] = await (
                                     UPnPService(root_device, d)._run())
+            logger.info(f'New service whose type is {serviceType}')
 
     async def _create_devices(self, devices, namespace, root_device):
         """Instantiate the embedded UPnPDevice(s)."""

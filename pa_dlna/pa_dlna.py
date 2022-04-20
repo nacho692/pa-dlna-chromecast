@@ -12,10 +12,20 @@ from pa_dlna.pulseaudio import Pulseaudio
 
 logger = logging.getLogger('pa-dlna')
 
+class FilterDebug:
+
+    def filter(self, record):
+        """Ignore DEBUG logging messages."""
+        if record.levelno != logging.DEBUG:
+            return True
+
 def setup_logging(options):
     logging.basicConfig(
         level=getattr(logging, options['loglevel'].upper()),
         format='%(name)-7s %(levelname)-7s %(message)s')
+
+    if not options['logaio']:
+        logging.getLogger('asyncio').addFilter(FilterDebug())
 
     # Add a file handler set at the debug level.
     if options['logfile'] is not None:
@@ -87,19 +97,23 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
-    parser.add_argument('--loglevel', '-l', default='warning',
-                        choices=('debug', 'info', 'warning', 'error'),
-                        help='set the log level of the logging console on '
-                        'stderr (default: %(default)s)')
-    parser.add_argument('--logfile', '-f', metavar='FILE',
-                        help='FILE is the pathname of a logging file '
-                        'handler set at the debug log level')
     parser.add_argument('--networks', '-n', metavar="IP_LIST", default='',
                         help=' '.join(line.strip() for line in
                                      networks_option.__doc__.split('\n')[2:]))
     parser.add_argument('--ttl', type=int, default=2,
                         help='the IP packets time to live '
                         '(default: %(default)s)')
+    parser.add_argument('--loglevel', '-l', default='warning',
+                        choices=('debug', 'info', 'warning', 'error'),
+                        help='set the log level of the logging console on '
+                        'stderr (default: %(default)s)')
+    parser.add_argument('--logfile', '-f', metavar='FILE',
+                        help='FILE is the pathname of a logging file '
+                        "handler set at the 'debug' log level")
+    parser.add_argument('--logaio', '-a', action='store_true',
+                        help='do not ignore asyncio log entries at the'
+                        " 'debug' log level. The default is to ignore those"
+                        ' verbose logs.')
 
     # Options as a dict.
     options = vars(parser.parse_args())
