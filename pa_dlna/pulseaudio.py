@@ -1,7 +1,7 @@
 """Redirect pulseaudio streams to DLNA MediaRenderers."""
 
 import logging
-from pa_dlna.upnp import UPnPControlPoint
+from pa_dlna.upnp.upnp import UPnPControlPoint
 
 logger = logging.getLogger('pulse')
 
