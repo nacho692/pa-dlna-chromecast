@@ -1,7 +1,5 @@
 """A basic UPnP Control Point asyncio library.
 
-See "UPnP Device Architecture 2.0".
-
 Example of using the Control Point (there is no external dependency):
 
 >>> import asyncio
@@ -25,6 +23,15 @@ Example of using the Control Point (there is no external dependency):
     serviceId: urn:upnp-org:serviceId:RenderingControl
     serviceId: urn:upnp-org:serviceId:ConnectionManager
 >>>
+
+See "UPnP Device Architecture 2.0".
+
+Not implemented:
+
+- The extended data types in the service xml description - see
+  "2.5.1 Defining and processing extended data types" in UPnP 2.0.
+
+- Unicast and multicast eventing.
 """
 
 import asyncio
@@ -44,6 +51,7 @@ from .xml import (UPnPXMLFatalError, upnp_org_etree, build_etree,
 logger = logging.getLogger('upnp')
 
 MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
+ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 
 # Fatal error exceptions.
 class UPnPControlPointFatalError(UPnPFatalError): pass
@@ -134,6 +142,7 @@ class UPnPQueue:
             return self.buffer.popleft()
 
 # Components of an UPnP root device.
+Icon = collections.namedtuple('Icon', ICON_ELEMENTS)
 class UPnPElement:
     """An UPnP device or service."""
 
@@ -153,7 +162,7 @@ class UPnPService(UPnPElement):
     Attributes:
       serviceType:  UPnP service type
       serviceId:    Service identifier
-      descripion:   the device xml descrition as a string
+      description:  the device xml descrition as a string
 
       actionList:   dict {action name: arguments} where arguments is a dict
                     indexed by the argument name with a value that is another
@@ -167,13 +176,6 @@ class UPnPService(UPnPElement):
                     The value of 'allowedValueList' is a list.
                     The value of 'allowedValueRange' is a dict with keys in
                     ('minimum', 'maximum', 'step').
-
-    Notes:
-    Not implemented: Extended data types defined by UPnP Device Architecture
-    2.0 are not supported (the 'type' attribute of the 'dataType' subelement
-    of a 'stateVariable' element is ignored).
-
-    Not implemented: Unicast and multicast eventing.
     """
 
     def __init__(self, root_device, attributes):
@@ -230,7 +232,8 @@ class UPnPDevice(UPnPElement):
     """An UPnP device.
 
     Attributes:
-      descripion:   the device xml description as a string
+      description:  the device xml description as a string
+      urlbase:      the url used to retrieve the description
 
       All the elements of the 'device' element in the xml description are
       attributes of the UPnPDevice instance. Their value is the value (text)
@@ -238,13 +241,21 @@ class UPnPDevice(UPnPElement):
 
       serviceList:  dict {serviceId value: UPnPService instance}
       deviceList:   dict {deviceType value: UPnPDevice instance}
-      iconList:     Not implemented (ignored)
+      iconList:     list of instances of the Icon namedtuple; use 'urlbase'
+                    and the (relative) 'url' attribute of the namedtuple to
+                    retrieve the icon.
     """
 
     def __init__(self, root_device):
         super().__init__(root_device)
+        self.description = None
+        self.urlbase = None
+        if root_device is not None:
+            self.urlbase = root_device.urlbase
+
         self.serviceList = {}
         self.deviceList = {}
+        self.iconList = []
 
     def close(self):
         if not self._closed:
@@ -255,6 +266,24 @@ class UPnPDevice(UPnPElement):
             for device in self.deviceList.values():
                 device.close()
             self.deviceList = {}
+
+    def _create_icons(self, icons, namespace):
+        if icons is None:
+            return
+
+        for element in icons:
+            if element.tag != f'{namespace!r}icon':
+                raise UPnPXMLFatalError(f"Found '{element.tag}' instead"
+                                        f" of '{namespace!r}icon'")
+
+            d = findall_childless(element, namespace)
+            if not d:
+                raise UPnPXMLFatalError("Empty 'icon' element")
+            if all(d.get(tag) for tag in ICON_ELEMENTS):
+                self.iconList.append(Icon(**d))
+            else:
+                logger.warning("Missing required subelement of 'icon' in"
+                               ' device description')
 
     async def _create_services(self, services, namespace, root_device):
         """Create each UPnPService instance with its attributes.
@@ -324,6 +353,9 @@ class UPnPDevice(UPnPElement):
 
         root_device = self if self._root_device is None else self._root_device
 
+        icons = device_etree.find(f'{namespace!r}iconList')
+        self._create_icons(icons, namespace)
+
         services = device_etree.find(f'{namespace!r}serviceList')
         await self._create_services(services, namespace, root_device)
 
@@ -349,7 +381,6 @@ class UPnPRootDevice(UPnPDevice):
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
-        self.urlbase = None
         self._enabled = True
         self._aio_tasks = AsyncioTasks()
 
@@ -526,7 +557,7 @@ class UPnPControlPoint:
         # Get the max-age.
         # 'max_age' None means no aging.
         max_age = None
-        cache = header.get('CACHE-CONTROL', None)
+        cache = header.get('CACHE-CONTROL')
         if cache is not None:
             age = 'max-age='
             try:
@@ -581,7 +612,7 @@ class UPnPControlPoint:
             nts = header['NTS']
             if nts == 'ssdp:byebye':
                 udn = header['USN'].split('::')[0]
-                root_device = self._devices.get(udn, None)
+                root_device = self._devices.get(udn)
                 if root_device is not None:
                     root_device.close()
                     self._put_notification('byebye', root_device)

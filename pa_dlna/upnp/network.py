@@ -242,7 +242,7 @@ async def http_get(url):
         body = await reader.read()
 
         # Check that we have received the whole body.
-        content_length = header_dict.get('CONTENT-LENGTH', None)
+        content_length = header_dict.get('CONTENT-LENGTH')
         if content_length is not None:
             content_length = int(content_length)
             if len(body) != content_length:

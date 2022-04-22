@@ -78,7 +78,7 @@ def scpd_servicestatetable(scpd, namespace):
             params = {}
             has_type_attr = False
             for attr in ('sendEvents', 'multicast'):
-                val = variable.attrib.get(attr, None)
+                val = variable.attrib.get(attr)
                 if val is not None:
                     params[attr] = val
             for e in variable:
