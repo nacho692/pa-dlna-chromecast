@@ -1,5 +1,10 @@
 """A basic UPnP Control Point asyncio library.
 
+The API is made of the methods and attibutes of the UPnPControlPoint,
+UPnPDevice and UPnPService classes. The close() method of UPnPRootDevice
+closes the root device, its services and recursively all its embedded devices
+and their services.
+
 Example of using the Control Point (there is no external dependency):
 
 >>> import asyncio
@@ -31,7 +36,9 @@ Not implemented:
 - The extended data types in the service xml description - see
   "2.5.1 Defining and processing extended data types" in UPnP 2.0.
 
-- Unicast and multicast eventing.
+- SOAP <Header> elements are ignored - see "3.1.1 SOAP Profile" in UPnP 2.0.
+
+- Unicast and multicast eventing are not implemented.
 """
 
 import asyncio
@@ -39,7 +46,6 @@ import logging
 import time
 import collections
 import urllib.parse
-import sys
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError, UPnPFatalError
@@ -58,7 +64,6 @@ class UPnPControlPointFatalError(UPnPFatalError): pass
 
 # Temporary error exceptions.
 class UPnPControlPointError(UPnPError): pass
-class UPnPClosedDevice(UPnPError): pass
 
 def shorten(txt, head_len=10, tail_len=5):
     if len(txt) <= head_len + 3 + tail_len:
@@ -150,7 +155,7 @@ class UPnPElement:
         self._root_device = root_device
         self._closed = False
 
-    def close(self):
+    def _close(self):
         if not self._closed:
             self._closed = True
             if self._root_device is not None:
@@ -176,6 +181,9 @@ class UPnPService(UPnPElement):
                     The value of 'allowedValueList' is a list.
                     The value of 'allowedValueRange' is a dict with keys in
                     ('minimum', 'maximum', 'step').
+
+    Methods:
+      soap_action:  XXX
     """
 
     def __init__(self, root_device, attributes):
@@ -194,13 +202,11 @@ class UPnPService(UPnPElement):
         self.actionList = {}
         self.serviceStateTable = {}
         self.description = None
-        self._enabled = True
         self._aio_tasks = root_device._aio_tasks
 
-    def close(self):
+    def _close(self):
         if not self._closed:
-            super().close()
-            self._enabled = False
+            super()._close()
 
     async def _run(self):
         description = await http_get(self.SCPDURL)
@@ -213,37 +219,33 @@ class UPnPService(UPnPElement):
         # Parse the serviceStateTable.
         self.serviceStateTable = scpd_servicestatetable(scpd, namespace)
 
-        # Start the control task.
-        # XXX
-        if self.serviceId == 'urn:upnp-org:serviceId:AVTransport':
-            logger.info(f'XXX {self.serviceId}\n {self.serviceStateTable}')
-
         # Start the eventing task.
         # Not implemented.
 
         return self
-
-    def _set_enable(self, state=True):
-        # A service does not accept soap requests when its '_enabled'
-        # attribute is False.
-        self._enabled = state
 
 class UPnPDevice(UPnPElement):
     """An UPnP device.
 
     Attributes:
       description:  the device xml description as a string
-      urlbase:      the url used to retrieve the description
+      urlbase:      the url used to retrieve the description of the root
+                    device or the 'URLBase' element (deprecated from UPnP 1.1
+                    onwards)
 
-      All the elements of the 'device' element in the xml description are
-      attributes of the UPnPDevice instance. Their value is the value (text)
-      of the element except for:
+      All the subelements of the 'device' element in the xml description are
+      attributes of the UPnPDevice instance: 'deviceType', 'friendlyName',
+      'manufacturer', etc... (see the specification).
+      Their value is the value (text) of the element except for:
 
       serviceList:  dict {serviceId value: UPnPService instance}
       deviceList:   dict {deviceType value: UPnPDevice instance}
       iconList:     list of instances of the Icon namedtuple; use 'urlbase'
                     and the (relative) 'url' attribute of the namedtuple to
                     retrieve the icon.
+
+    Methods:
+      None
     """
 
     def __init__(self, root_device):
@@ -257,14 +259,14 @@ class UPnPDevice(UPnPElement):
         self.deviceList = {}
         self.iconList = []
 
-    def close(self):
+    def _close(self):
         if not self._closed:
-            super().close()
+            super()._close()
             for service in self.serviceList.values():
-                service.close()
+                service._close()
             self.serviceList = {}
             for device in self.deviceList.values():
-                device.close()
+                device._close()
             self.deviceList = {}
 
     def _create_icons(self, icons, namespace):
@@ -365,14 +367,12 @@ class UPnPDevice(UPnPElement):
 
         return self
 
-    def _set_enable(self, state=True):
-        for service in self.serviceList.values():
-            service._set_enable(state)
-        for device in self.deviceList.values():
-            device._set_enable(state)
-
 class UPnPRootDevice(UPnPDevice):
-    """An UPnP root device."""
+    """An UPnP root device.
+
+    Methods:
+      close         close the root device
+    """
 
     def __init__(self, control_point, udn, ip_source, location, max_age):
         super().__init__(None)
@@ -381,27 +381,20 @@ class UPnPRootDevice(UPnPDevice):
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
-        self._enabled = True
         self._aio_tasks = AsyncioTasks()
 
     def close(self):
+        """Close the root device.
+
+        Close the root device its services and recursively all its embedded
+        devices and their services.
+        """
+
         if not self._closed:
-            super().close()
-            self._set_enable(False)
+            super()._close()
             self._aio_tasks.cancel_all()
-
-            # close() may be called within an exception handler.
-            errmsg = f'{self} is closed'
-            if sys.exc_info()[0] is None:
-                raise UPnPClosedDevice(errmsg)
-            else:
-                logger.warning(errmsg)
-
-    def _set_enable(self, state=True):
-        # Used by the aging process to enable/disable all services and
-        # embedded devices.
-        self._enabled = state
-        super()._set_enable(state)
+            logger.warning(f'{self} is closed')
+            self.control_point._remove_root_device(self.udn)
 
     def _set_valid_until(self, max_age):
         # The '_valid_until' attribute is the monotonic date when the root
@@ -421,25 +414,16 @@ class UPnPRootDevice(UPnPDevice):
         # Age the root device using SSDP alive notifications.
         while True:
             timeleft = self._get_timeleft()
-            if timeleft is not None and timeleft > 0:
-                if not self._enabled:
-                    self._set_enable(True)
-                    logger.info(f'{self} is up')
+            # Missing or invalid 'CACHE-CONTROL' field in SSDP.
+            # Wait for a change in _valid_until.
+            if timeleft is None:
+                await asyncio.sleep(60)
+            elif timeleft > 0:
                 await asyncio.sleep(timeleft)
             else:
-                # Missing 'CACHE-CONTROL' field in SSDP.
-                if timeleft is None:
-                    if not self._enabled:
-                        self._set_enable(True)
-                        logger.info(f'{self} is up')
-                elif self._enabled:
-                    assert timeleft <= 0
-                    self._set_enable(False)
-                    logger.info(f'{self} is down')
-
-                # Wake up every second to check for a change in
-                # _valid_until.
-                await asyncio.sleep(1)
+                self.close()
+                break
+        logger.warning(f'Aging expired on {self}')
 
     async def _run(self):
         try:
@@ -459,8 +443,6 @@ class UPnPRootDevice(UPnPDevice):
             await self._parse_description(device_description)
             self.control_point._put_notification('alive', self)
             await self._age_root_device()
-        except UPnPClosedDevice as e:
-            logger.warning(f'{e!r}')
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close()
@@ -473,7 +455,16 @@ class UPnPRootDevice(UPnPDevice):
 
 # UPnP control point.
 class UPnPControlPoint:
-    """An UPnP control point."""
+    """An UPnP control point.
+
+    Methods:
+      open:         start the UPnP Control Point
+      close:        close the UPnP Control Point
+      get_notification: return a notification and the corresponding UPnPDevice
+                    instance (the root device)
+      __enter__:    UPnPControlPoint is also a context manager
+      __close__
+    """
 
     def __init__(self, ip_addresses, ttl=2):
         """Constructor.
@@ -517,11 +508,8 @@ class UPnPControlPoint:
             if exc is not None:
                 self._upnp_queue.throw(exc)
 
-            for root_device in self._devices.values():
-                try:
-                    root_device.close()
-                except UPnPClosedDevice as e:
-                    logger.info(f'{e!r}')
+            for root_device in list(self._devices.values()):
+                root_device.close()
 
             self._aio_tasks.cancel_all()
             logger.debug('End of upnp task')
@@ -532,7 +520,7 @@ class UPnPControlPoint:
         Raise exceptions occuring in the library, including those triggered by
         a KeyboardInterrupt or a SystemExit.
         When the exception is an instance of UPnPFatalError a new call to
-        get_notification() will raise the same exception.
+        get_notification() will raise again the same exception over and over.
         """
 
         return await self._upnp_queue.get()
@@ -592,6 +580,13 @@ class UPnPControlPoint:
             # Refresh the aging time.
             root_device._set_valid_until(max_age)
 
+    def _remove_root_device(self, udn):
+        root_device = self._devices.get(udn)
+        if root_device is not None:
+            root_device.close()
+            self._put_notification('byebye', root_device)
+            del self._devices[udn]
+
     def _process_ssdp(self, datagram, ip_source, is_msearch):
         """Process the received datagrams.
 
@@ -612,11 +607,7 @@ class UPnPControlPoint:
             nts = header['NTS']
             if nts == 'ssdp:byebye':
                 udn = header['USN'].split('::')[0]
-                root_device = self._devices.get(udn)
-                if root_device is not None:
-                    root_device.close()
-                    self._put_notification('byebye', root_device)
-                    del self._devices[udn]
+                self._remove_root_device(udn)
 
             elif nts == 'ssdp:update':
                 logger.warning(f'Ignore not supported {nts} notification'

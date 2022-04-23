@@ -1,6 +1,7 @@
 """Redirect pulseaudio streams to DLNA MediaRenderers."""
 
 import logging
+import asyncio
 from pa_dlna.upnp.upnp import UPnPControlPoint
 
 logger = logging.getLogger('pulse')
@@ -21,6 +22,8 @@ class Pulseaudio:
                     notification, root_device = await upnp.get_notification()
                     logger.info(f'Got notification'
                                 f' {(notification, root_device)}')
+                    await asyncio.sleep(10)
+                    root_device.close()
         except (KeyboardInterrupt, SystemExit):
             pass
         except Exception as e:
