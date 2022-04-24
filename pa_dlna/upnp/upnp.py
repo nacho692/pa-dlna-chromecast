@@ -335,6 +335,7 @@ class UPnPRootDevice(UPnPDevice):
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
+        self._task = None
         self._aio_tasks = AsyncioTasks()
 
     def close(self):
@@ -346,6 +347,8 @@ class UPnPRootDevice(UPnPDevice):
 
         if not self._closed:
             super()._close()
+            if self._task is not None:
+                self._task.cancel()
             self._aio_tasks.cancel_all()
             logger.warning(f'{self} is closed')
             self.control_point._remove_root_device(self._udn)
@@ -375,9 +378,9 @@ class UPnPRootDevice(UPnPDevice):
             elif timeleft > 0:
                 await asyncio.sleep(timeleft)
             else:
+                logger.warning(f'Aging expired on {self}')
                 self.close()
                 break
-        logger.warning(f'Aging expired on {self}')
 
     async def _run(self):
         try:
@@ -490,7 +493,7 @@ class UPnPControlPoint:
                 self._curtask = None
 
             self._aio_tasks.cancel_all()
-            logger.debug('End of upnp task')
+            logger.debug('UPnPControlPoint is closed')
 
     async def get_notification(self):
         """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance)."""
@@ -531,8 +534,9 @@ class UPnPControlPoint:
             # Instantiate the UPnPDevice and start its task.
             root_device = UPnPRootDevice(self, udn, ip_source,
                                          header['LOCATION'], max_age)
-            self._aio_tasks.create_task(root_device._run(),
-                                       name=str(root_device))
+            task = self._aio_tasks.create_task(root_device._run(),
+                                               name=str(root_device))
+            root_device._task = task
             self._devices[udn] = root_device
             logger.info(f'New {root_device} at {ip_source}')
 
