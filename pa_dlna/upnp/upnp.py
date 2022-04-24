@@ -92,17 +92,20 @@ Icon = collections.namedtuple('Icon', ICON_ELEMENTS)
 class UPnPElement:
     """An UPnP device or service."""
 
-    def __init__(self, root_device):
-        self._root_device = root_device
+    def __init__(self, parent_device, root_device):
+        self.parent_device = parent_device
+        self.root_device = root_device
 
     def closed(self):
-        root_device = self if self._root_device is None else self._root_device
-        return root_device._closed
+        return self.root_device._closed
 
 class UPnPService(UPnPElement):
     """An UPnP service.
 
     Attributes:
+      parent_device the UPnPDevice instance providing this service
+      root_device   the UPnPRootDevice instance
+
       serviceType   UPnP service type
       serviceId     Service identifier
       description   the device xml descrition as a string
@@ -125,8 +128,8 @@ class UPnPService(UPnPElement):
       soap_action   coroutine - XXX
     """
 
-    def __init__(self, root_device, attributes):
-        super().__init__(root_device)
+    def __init__(self, parent_device, root_device, attributes):
+        super().__init__(parent_device, root_device)
 
         # Set the attributes found in the 'service' element of the device
         # description.
@@ -163,6 +166,9 @@ class UPnPDevice(UPnPElement):
     """An UPnP device.
 
     Attributes:
+      parent_device the parent UPnPDevice instance or the root device
+      root_device   the UPnPRootDevice instance
+
       description   the device xml description as a string
       urlbase       the url used to retrieve the description of the root
                     device or the 'URLBase' element (deprecated from UPnP 1.1
@@ -183,8 +189,8 @@ class UPnPDevice(UPnPElement):
       closed        return True if the root device is closed
     """
 
-    def __init__(self, root_device):
-        super().__init__(root_device)
+    def __init__(self, parent_device, root_device):
+        super().__init__(parent_device, root_device)
         self.description = None
         self.urlbase = None
         if root_device is not None:
@@ -212,7 +218,7 @@ class UPnPDevice(UPnPElement):
                 logger.warning("Missing required subelement of 'icon' in"
                                ' device description')
 
-    async def _create_services(self, services, namespace, root_device):
+    async def _create_services(self, services, namespace):
         """Create each UPnPService instance with its attributes.
 
         And await until its xml description has been parsed and the soap task
@@ -235,10 +241,10 @@ class UPnPDevice(UPnPElement):
 
             serviceId = d['serviceId']
             self.serviceList[serviceId] = await (
-                                    UPnPService(root_device, d)._run())
+                                UPnPService(self, self.root_device, d)._run())
             logger.info(f'New service - serviceId: {serviceId}')
 
-    async def _create_devices(self, devices, namespace, root_device):
+    async def _create_devices(self, devices, namespace):
         """Instantiate the embedded UPnPDevice(s)."""
 
         if devices is None:
@@ -257,7 +263,8 @@ class UPnPDevice(UPnPElement):
 
             description = build_etree(element)
             self.deviceList[d['deviceType']] = await (
-                  UPnPDevice(root_device)._parse_description(description))
+                  UPnPDevice(self, self.root_device)._parse_description(
+                                                                description))
 
     async def _parse_description(self, description):
         """Parse the xml 'description'.
@@ -278,17 +285,15 @@ class UPnPDevice(UPnPElement):
             raise UPnPXMLFatalError("Missing 'deviceType' element")
         logger.info(f'New device - deviceType: {self.deviceType}')
 
-        root_device = self if self._root_device is None else self._root_device
-
         icons = device_etree.find(f'{namespace!r}iconList')
         self._create_icons(icons, namespace)
 
         services = device_etree.find(f'{namespace!r}serviceList')
-        await self._create_services(services, namespace, root_device)
+        await self._create_services(services, namespace)
 
         # Recursion here: _create_devices() calls _parse_description()
         devices = device_etree.find(f'{namespace!r}deviceList')
-        await self._create_devices(devices, namespace, root_device)
+        await self._create_devices(devices, namespace)
 
         return self
 
@@ -299,17 +304,17 @@ class UPnPRootDevice(UPnPDevice):
     the other attributes and methods available.
 
     Attributes:
-      control_point  UPnPControlPoint instance
+      control_point the UPnPControlPoint instance
       ip_source     IP source address of the UPnP device
-      location      'Location' field value in the header of the SSDP notify
-                    or msearch
+      location      'Location' field value in the header of the notify or
+                    msearch SSDP
 
     Methods:
       close         close the root device
     """
 
     def __init__(self, control_point, udn, ip_source, location, max_age):
-        super().__init__(None)
+        super().__init__(self, self)
         self.control_point = control_point  # UPnPControlPoint instance
         self._udn = udn
         self.ip_source = ip_source
