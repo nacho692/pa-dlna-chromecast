@@ -1,10 +1,5 @@
 """A basic UPnP Control Point asyncio library.
 
-The API is made of the methods and attibutes of the UPnPControlPoint,
-UPnPDevice and UPnPService classes. The close() method of UPnPRootDevice
-closes the root device, its services and recursively all its embedded devices
-and their services.
-
 Example of using the Control Point (there is no external dependency):
 
 >>> import asyncio
@@ -29,6 +24,8 @@ Example of using the Control Point (there is no external dependency):
     serviceId: urn:upnp-org:serviceId:ConnectionManager
 >>>
 
+The API is made of the methods and attibutes of the UPnPControlPoint,
+UPnPRootDevice, UPnPDevice and UPnPService classes.
 See "UPnP Device Architecture 2.0".
 
 Not implemented:
@@ -94,58 +91,6 @@ class AsyncioTasks:
         for t in self._tasks:
             yield t
 
-class UPnPQueue:
-    """An interruptible asyncio queue.
-
-    UPnPQueue.get() keeps raising the UPnPFatalError exception once an
-    instance of this exception has been thrown, whatever the fill state
-    of the UPnPQueue.
-    Other kinds of exceptions will only be raised once, when the exception is
-    thrown while there is a pending call to get().
-    """
-
-    def __init__(self):
-        self.loop = asyncio.get_running_loop()
-        self.waiter = None
-        self.exception = None
-        self.buffer = collections.deque()
-
-    def throw(self, exc):
-        self.exception = exc
-        if self.waiter is not None and not self.waiter.done():
-            self.waiter.set_exception(exc)
-        elif not isinstance(exc, UPnPFatalError):
-            self.exception = None
-
-    def put_nowait(self, item):
-        self.buffer.append(item)
-        if self.waiter is not None and not self.waiter.done():
-            self.waiter.set_result(None)
-
-    async def get(self):
-        if self.exception is not None:
-            assert isinstance(self.exception, UPnPFatalError)
-            raise self.exception
-
-        # Wait for the buffer to be filled.
-        if not len(self.buffer):
-            if self.waiter is not None:
-                raise UPnPControlPointError('Cannot have two tasks'
-                                ' simultaneously waiting on an UPnPQueue')
-            self.waiter = self.loop.create_future()
-            try:
-                await self.waiter
-            finally:
-                self.waiter = None
-
-        if self.exception is not None:
-            exc = self.exception
-            if not isinstance(exc, UPnPFatalError):
-                self.exception = None
-            raise exc
-        else:
-            return self.buffer.popleft()
-
 # Components of an UPnP root device.
 Icon = collections.namedtuple('Icon', ICON_ELEMENTS)
 class UPnPElement:
@@ -165,16 +110,16 @@ class UPnPService(UPnPElement):
     """An UPnP service.
 
     Attributes:
-      serviceType:  UPnP service type
-      serviceId:    Service identifier
-      description:  the device xml descrition as a string
+      serviceType   UPnP service type
+      serviceId     Service identifier
+      description   the device xml descrition as a string
 
-      actionList:   dict {action name: arguments} where arguments is a dict
+      actionList    dict {action name: arguments} where arguments is a dict
                     indexed by the argument name with a value that is another
                     dict whose keys are in.
                     ('name', 'direction', 'relatedStateVariable')
 
-      serviceStateTable: dict {variable name: params} where params is a dict
+      serviceStateTable  dict {variable name: params} where params is a dict
                     with keys in ('sendEvents', 'multicast', 'dataType',
                     'defaultValue', 'allowedValueList',
                     'allowedValueRange').
@@ -183,7 +128,7 @@ class UPnPService(UPnPElement):
                     ('minimum', 'maximum', 'step').
 
     Methods:
-      soap_action:  XXX
+      soap_action   coroutine - XXX
     """
 
     def __init__(self, root_device, attributes):
@@ -228,19 +173,19 @@ class UPnPDevice(UPnPElement):
     """An UPnP device.
 
     Attributes:
-      description:  the device xml description as a string
-      urlbase:      the url used to retrieve the description of the root
+      description   the device xml description as a string
+      urlbase       the url used to retrieve the description of the root
                     device or the 'URLBase' element (deprecated from UPnP 1.1
                     onwards)
 
       All the subelements of the 'device' element in the xml description are
       attributes of the UPnPDevice instance: 'deviceType', 'friendlyName',
-      'manufacturer', etc... (see the specification).
+      'manufacturer', 'UDN', etc... (see the specification).
       Their value is the value (text) of the element except for:
 
-      serviceList:  dict {serviceId value: UPnPService instance}
-      deviceList:   dict {deviceType value: UPnPDevice instance}
-      iconList:     list of instances of the Icon namedtuple; use 'urlbase'
+      serviceList   dict {serviceId value: UPnPService instance}
+      deviceList    dict {deviceType value: UPnPDevice instance}
+      iconList      list of instances of the Icon namedtuple; use 'urlbase'
                     and the (relative) 'url' attribute of the namedtuple to
                     retrieve the icon.
 
@@ -370,6 +315,15 @@ class UPnPDevice(UPnPElement):
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device.
 
+    An UpNP root device is also an UPnPDevice, see the UPnPDevice __doc__ for
+    the other attributes and methods available.
+
+    Attributes:
+      control_point  UPnPControlPoint instance
+      ip_source     IP source address of the UPnP device
+      location      'Location' field value in the header of the SSDP notify
+                    or msearch
+
     Methods:
       close         close the root device
     """
@@ -377,7 +331,7 @@ class UPnPRootDevice(UPnPDevice):
     def __init__(self, control_point, udn, ip_source, location, max_age):
         super().__init__(None)
         self.control_point = control_point  # UPnPControlPoint instance
-        self.udn = udn
+        self._udn = udn
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
@@ -394,7 +348,7 @@ class UPnPRootDevice(UPnPDevice):
             super()._close()
             self._aio_tasks.cancel_all()
             logger.warning(f'{self} is closed')
-            self.control_point._remove_root_device(self.udn)
+            self.control_point._remove_root_device(self._udn)
 
     def _set_valid_until(self, max_age):
         # The '_valid_until' attribute is the monotonic date when the root
@@ -450,20 +404,32 @@ class UPnPRootDevice(UPnPDevice):
             logger.debug(f'End of {self} task')
 
     def __str__(self):
-        """Return a short representation of udn."""
-        return f'UPnPRootDevice {shorten(self.udn)}'
+        """Return a short representation of _udn."""
+
+        return f'UPnPRootDevice {shorten(self._udn)}'
 
 # UPnP control point.
 class UPnPControlPoint:
     """An UPnP control point.
 
+    Once an UPnPControlPoint has been opened, either with the open() method or
+    as a context manager, the coroutine that has opened the control point must
+    be ready to handle asyncio.CancelledError until the control point is
+    closed. The CancelledError message contains the exception that had been
+    raised in the library, it may be for example a KeyboardInterrupt.
+
+    Attributes:
+      ip_addresses  list of local IPv4 addresses of the network interfaces
+                    where UPnP devices may be discovered
+      ttl           the IP packets time to live
+
     Methods:
-      open:         start the UPnP Control Point
-      close:        close the UPnP Control Point
-      get_notification: return a notification and the corresponding UPnPDevice
-                    instance (the root device)
-      __enter__:    UPnPControlPoint is also a context manager
-      __close__
+      open          coroutine - start the UPnP Control Point
+      close         close the UPnP Control Point
+      get_notification: coroutine - return a notification and the
+                    corresponding UPnPRootDevice instance
+      __aenter__    UPnPControlPoint is also an asynchronous context manager
+      __aclose__
     """
 
     def __init__(self, ip_addresses, ttl=2):
@@ -480,12 +446,18 @@ class UPnPControlPoint:
         self.ip_addresses = ip_addresses
         self.ttl = ttl
         self._closed = False
-        self._upnp_queue = UPnPQueue()
+        self._upnp_queue = asyncio.Queue()
         self._devices = {}              # {udn: UPnPRootDevice}
+        self._curtask = None            # task running UPnPControlPoint.open()
         self._aio_tasks = AsyncioTasks()
 
-    def open(self):
+    async def open(self):
         """Start the UPnP Control Point."""
+
+        # Get the caller's task.
+        # open() being a coroutine ensures that it is run by a task or a
+        # coroutine with a task.
+        self._curtask = asyncio.current_task()
 
         # Set up signal handlers.
         loop = asyncio.get_running_loop()
@@ -504,24 +476,24 @@ class UPnPControlPoint:
         if not self._closed:
             self._closed = True
 
-            # Raise the exception in the get_notification() method.
-            if exc is not None:
-                self._upnp_queue.throw(exc)
+            # Remove the signal handlers.
+            loop = asyncio.get_running_loop()
+            for s in (SIGINT, SIGTERM):
+                loop.remove_signal_handler(s)
 
             for root_device in list(self._devices.values()):
                 root_device.close()
+
+            if self._curtask is not None:
+                errmsg = f'{exc!r}' if exc else None
+                self._curtask.cancel(msg=errmsg)
+                self._curtask = None
 
             self._aio_tasks.cancel_all()
             logger.debug('End of upnp task')
 
     async def get_notification(self):
-        """Return the tuple ('alive' or 'byebye', UPnPDevice instance).
-
-        Raise exceptions occuring in the library, including those triggered by
-        a KeyboardInterrupt or a SystemExit.
-        When the exception is an instance of UPnPFatalError a new call to
-        get_notification() will raise again the same exception over and over.
-        """
+        """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance)."""
 
         return await self._upnp_queue.get()
 
@@ -541,7 +513,6 @@ class UPnPControlPoint:
                                                 f'{SystemExit()!r}'))
 
     def _create_root_device(self, header, ip_source):
-
         # Get the max-age.
         # 'max_age' None means no aging.
         max_age = None
@@ -643,9 +614,9 @@ class UPnPControlPoint:
             logger.exception(exc)
             self.close(exc=UPnPControlPointFatalError(exc))
 
-    def __enter__(self):
-        self.open()
+    async def __aenter__(self):
+        await self.open()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    async def __aexit__(self, exc_type, exc_value, traceback):
         self.close()

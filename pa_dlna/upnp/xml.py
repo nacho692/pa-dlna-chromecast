@@ -14,11 +14,13 @@ class UPnPXMLFatalError(UPnPFatalError): pass
 # XML helper functions.
 def upnp_org_etree(xml):
     """Return the element tree and UPnP namespace from an xml string."""
+
     upnp_namespace = UPnPNamespace(xml, UPNP_NAMESPACE_BEG)
     return ET.fromstring(xml), upnp_namespace
 
 def build_etree(element):
     """Build an element tree to a bytes sequence and return it as a string."""
+
     etree = ET.ElementTree(element)
     with io.BytesIO() as output:
         etree.write(output, encoding='utf-8', xml_declaration=True)
@@ -37,6 +39,7 @@ def xml_of_subelement(xml, tag):
 
 def findall_childless(etree, namespace):
     """Return the dictionary {tag: text} of all chidless subelements."""
+
     d = {}
     ns_len = len(f'{namespace!r}')
     for e in etree.findall(f'.{namespace!r}*'):
