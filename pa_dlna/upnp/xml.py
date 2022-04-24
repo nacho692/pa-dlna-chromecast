@@ -3,13 +3,13 @@
 import io
 import logging
 import xml.etree.ElementTree as ET
-from . import UPnPFatalError
+from . import UPnPError
 
 logger = logging.getLogger('xml')
 
 UPNP_NAMESPACE_BEG = 'urn:schemas-upnp-org:'
 
-class UPnPXMLFatalError(UPnPFatalError): pass
+class UPnPXMLFatalError(UPnPError): pass
 
 # XML helper functions.
 def upnp_org_etree(xml):

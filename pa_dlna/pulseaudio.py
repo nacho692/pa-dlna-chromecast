@@ -26,9 +26,9 @@ class Pulseaudio:
                     await asyncio.sleep(10)
                     root_device.close()
         except Exception as e:
-            logger.exception(f'{e!r}')
+            logger.exception(f'Got exception {e!r}')
         except asyncio.CancelledError as e:
-            logger.error(f'{e!r}')
+            logger.error(f'Got exception {e!r}')
         finally:
             self.close()
 
@@ -36,4 +36,4 @@ class Pulseaudio:
         if not self.closed:
             self.closed = True
             self.aio_tasks.cancel_all()
-            logger.debug('End of pulseaudio task')
+            logger.debug('End of pulseaudio')

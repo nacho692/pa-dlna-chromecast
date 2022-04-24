@@ -45,7 +45,7 @@ import collections
 import urllib.parse
 from signal import SIGINT, SIGTERM, strsignal
 
-from . import UPnPError, UPnPFatalError
+from . import UPnPError
 from .network import parse_ssdp, msearch, notify, http_get
 from .xml import (UPnPXMLFatalError, upnp_org_etree, build_etree,
                   xml_of_subelement, findall_childless, scpd_actionlist,
@@ -56,10 +56,6 @@ logger = logging.getLogger('upnp')
 MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 
-# Fatal error exceptions.
-class UPnPControlPointFatalError(UPnPFatalError): pass
-
-# Temporary error exceptions.
 class UPnPControlPointError(UPnPError): pass
 
 def shorten(txt, head_len=10, tail_len=5):
@@ -444,7 +440,7 @@ class UPnPControlPoint:
         """
 
         if not ip_addresses:
-            raise UPnPControlPointFatalError('The list of ip addresses cannot'
+            raise UPnPControlPointError('The list of ip addresses cannot'
                                              ' be empty')
         self.ip_addresses = ip_addresses
         self.ttl = ttl
@@ -509,11 +505,9 @@ class UPnPControlPoint:
         errmsg = f'Got signal {strsignal(signal)}'
         logger.info(errmsg)
         if signal == SIGINT:
-            self.close(exc=UPnPControlPointFatalError(
-                                                f'{KeyboardInterrupt()!r}'))
+            self.close(exc=KeyboardInterrupt())
         else:
-            self.close(exc=UPnPControlPointFatalError(
-                                                f'{SystemExit()!r}'))
+            self.close(exc=SystemExit())
 
     def _create_root_device(self, header, ip_source):
         # Get the max-age.
@@ -604,9 +598,8 @@ class UPnPControlPoint:
                                            is_msearch=True)
                 await asyncio.sleep(MSEARCH_EVERY)
         except Exception as e:
-            exc = f'{e!r}'
-            logger.exception(exc)
-            self.close(exc=UPnPControlPointFatalError(exc))
+            logger.exception(f'{e!r}')
+            self.close(exc=e)
 
     async def _ssdp_notify(self):
         """Listen to SSDP notifications."""
@@ -614,9 +607,8 @@ class UPnPControlPoint:
         try:
             await notify(self.ip_addresses, self._process_ssdp)
         except Exception as e:
-            exc = f'{e!r}'
-            logger.exception(exc)
-            self.close(exc=UPnPControlPointFatalError(exc))
+            logger.exception(f'{e!r}')
+            self.close(exc=e)
 
     async def __aenter__(self):
         await self.open()
