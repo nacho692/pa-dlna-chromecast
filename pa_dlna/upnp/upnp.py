@@ -94,13 +94,10 @@ class UPnPElement:
 
     def __init__(self, root_device):
         self._root_device = root_device
-        self._closed = False
 
-    def _close(self):
-        if not self._closed:
-            self._closed = True
-            if self._root_device is not None:
-                self._root_device.close()
+    def closed(self):
+        root_device = self if self._root_device is None else self._root_device
+        return root_device._closed
 
 class UPnPService(UPnPElement):
     """An UPnP service.
@@ -124,6 +121,7 @@ class UPnPService(UPnPElement):
                     ('minimum', 'maximum', 'step').
 
     Methods:
+      closed        return True if the root device is closed
       soap_action   coroutine - XXX
     """
 
@@ -144,10 +142,6 @@ class UPnPService(UPnPElement):
         self.serviceStateTable = {}
         self.description = None
         self._aio_tasks = root_device._aio_tasks
-
-    def _close(self):
-        if not self._closed:
-            super()._close()
 
     async def _run(self):
         description = await http_get(self.SCPDURL)
@@ -186,7 +180,7 @@ class UPnPDevice(UPnPElement):
                     retrieve the icon.
 
     Methods:
-      None
+      closed        return True if the root device is closed
     """
 
     def __init__(self, root_device):
@@ -199,16 +193,6 @@ class UPnPDevice(UPnPElement):
         self.serviceList = {}
         self.deviceList = {}
         self.iconList = []
-
-    def _close(self):
-        if not self._closed:
-            super()._close()
-            for service in self.serviceList.values():
-                service._close()
-            self.serviceList = {}
-            for device in self.deviceList.values():
-                device._close()
-            self.deviceList = {}
 
     def _create_icons(self, icons, namespace):
         if icons is None:
@@ -331,6 +315,8 @@ class UPnPRootDevice(UPnPDevice):
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
+
+        self._closed = True
         self._task = None
         self._aio_tasks = AsyncioTasks()
 
@@ -342,7 +328,7 @@ class UPnPRootDevice(UPnPDevice):
         """
 
         if not self._closed:
-            super()._close()
+            self._closed = True
             if self._task is not None:
                 self._task.cancel()
             self._aio_tasks.cancel_all()
@@ -394,6 +380,7 @@ class UPnPRootDevice(UPnPDevice):
                 raise UPnPXMLFatalError("Missing 'device' subelement in root"
                                         ' device description')
             await self._parse_description(device_description)
+            self._closed = False
             self.control_point._put_notification('alive', self)
             await self._age_root_device()
         except Exception as e:
