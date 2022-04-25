@@ -1,4 +1,4 @@
-"""An UPnP control point that forwards Pulseaudio streams to DLNA devices."""
+"""Redirect pulseaudio streams to DLNA MediaRenderers."""
 
 import sys
 import argparse
@@ -7,11 +7,21 @@ import subprocess
 import json
 import logging
 import asyncio
-from pa_dlna import __version__
-from pa_dlna.pulseaudio import Pulseaudio
+import re
+from . import __version__
+
+from .upnp.upnp import (UPnPControlPoint, UPnPClosedDeviceError,
+                               AsyncioTasks)
 
 logger = logging.getLogger('pa-dlna')
 
+MIN_PYTHON_VERSION = (3, 7)
+MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
+AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
+RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
+CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
+
+# Parsing arguments utilities.
 class FilterDebug:
 
     def filter(self, record):
@@ -126,17 +136,111 @@ def parse_args():
 
     return options, logfile_hdler
 
+# Class(es).
+class MediaRenderer:
+    """A DLNA MediaRenderer.
+
+    See the Standardized DCP (SDCP):
+      UPnP AV Architecture:2
+      AVTransport:3 Service
+      RenderingControl:3 Service
+      ConnectionManager:3 Service
+    """
+
+    def __init__(self, upnp_device, pulse):
+        self.upnp_device = upnp_device
+
+    def close(self):
+        pass # XXX stop the streaming if any
+
+    async def soap_action(self, serviceId, action, args):
+        """XXX."""
+
+        service = self.upnp_device.serviceList.get(serviceId)
+        try:
+            res =  await service.soap_action(action, args)
+            logger.debug(f"soap_action('{action}') = {res}")
+            return res
+        except UPnPClosedDeviceError:
+            logger.warning(f'soap_action() failed: {service.root_device}'
+                           f' is closed')
+
+    async def run(self):
+        """Set up the MediaRenderer."""
+
+        res = await self.soap_action(AVTRANSPORT, 'GetMediaInfo',
+                                     {'InstanceID': 0})
+        # XXX if res is None:
+
+class PaDlna:
+    """Manage the DLNA MediaRenderer devices and Pulseaudio."""
+
+    def __init__(self, ipaddr_list, ttl):
+        self.ipaddr_list = ipaddr_list
+        self.ttl = ttl
+        self.closed = False
+        self.devices = {}               # dict {UpnpDevice: MediaRenderer}
+        self.aio_tasks = AsyncioTasks()
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            for renderer in self.devices.values():
+                renderer.close()
+            self.devices = {}
+            self.aio_tasks.cancel_all()
+
+    def remove_device(self, device):
+        if device in self.devices:
+            del self.devices[device]
+
+    async def run(self):
+        try:
+            # Start the Pulseaudio task. XXX
+
+            # Run the UPnP control point.
+            async with UPnPControlPoint(self.ipaddr_list, self.ttl) as upnp:
+                while True:
+                    notification, root_device = await upnp.get_notification()
+                    logger.info(f'Got notification'
+                                f' {(notification, root_device)}')
+
+                    # Ignore non MediaRenderer devices.
+                    if re.match(rf'{MEDIARENDERER}(1|2)',
+                                root_device.deviceType) is None:
+                        continue
+
+                    if notification == 'alive':
+                        if root_device not in self.devices:
+                            renderer = MediaRenderer(root_device, self)
+                            await renderer.run()
+                            self.devices[root_device] = renderer
+                    else:
+                        self.remove_device(root_device)
+
+        except Exception as e:
+            logger.exception(f'Got exception {e!r}')
+        except asyncio.CancelledError as e:
+            logger.error(f'Got exception {e!r}')
+        finally:
+            self.close()
+
+# The main function.
 def main():
-    if sys.version_info.major != 3 or sys.version_info.minor < 7:
-        print('error: pa-dlna: the python version must be at least 3.7',
-              file=sys.stderr)
+    ver = sys.version_info
+    if ver[0] != MIN_PYTHON_VERSION[0] or ver < MIN_PYTHON_VERSION:
+        print(f'error: pa-dlna: the python version must be at least'
+              f' {MIN_PYTHON_VERSION}', file=sys.stderr)
         sys.exit(1)
 
+    # Parse options.
     options, logfile_hdler = parse_args()
     logger.info(f'Options {options}')
-    pulseaudio = Pulseaudio(options['networks'], options['ttl'])
+
+    # Run the PaDlna instance.
+    pa_dlna = PaDlna(options['networks'], options['ttl'])
     try:
-        asyncio.run(pulseaudio.run())
+        asyncio.run(pa_dlna.run())
     except asyncio.CancelledError as e:
         logger.error(f'Got exception {e!r}')
     finally:

@@ -3,6 +3,7 @@
 import io
 import logging
 import xml.etree.ElementTree as ET
+
 from . import UPnPError
 
 logger = logging.getLogger('xml')
