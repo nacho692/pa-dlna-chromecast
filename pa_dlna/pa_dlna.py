@@ -137,6 +137,8 @@ def main():
     pulseaudio = Pulseaudio(options['networks'], options['ttl'])
     try:
         asyncio.run(pulseaudio.run())
+    except asyncio.CancelledError as e:
+        logger.error(f'Got exception {e!r}')
     finally:
         logger.info('End of pa-dlna')
         if logfile_hdler is not None:

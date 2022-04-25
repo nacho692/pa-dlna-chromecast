@@ -9,7 +9,7 @@ logger = logging.getLogger('xml')
 
 UPNP_NAMESPACE_BEG = 'urn:schemas-upnp-org:'
 
-class UPnPXMLFatalError(UPnPError): pass
+class UPnPXMLError(UPnPError): pass
 
 # XML helper functions.
 def upnp_org_etree(xml):
@@ -114,6 +114,11 @@ def scpd_servicestatetable(scpd, namespace):
                 result[varname] = params
     return result
 
+def dict_to_xml(arguments):
+    """Build an xml string from a dict."""
+
+    return '\n'.join(f'<{arg}>{arguments[arg]}</{arg}>' for arg in arguments)
+
 # Helper class.
 class UPnPNamespace:
     """A namespace value."""
@@ -135,7 +140,7 @@ class UPnPNamespace:
                 break
 
         if self.value is None:
-            raise UPnPXMLFatalError(f'No namespace starting with {value_beg}')
+            raise UPnPXMLError(f'No namespace starting with {value_beg}')
 
     def __repr__(self):
         return f'{{{self.value}}}' if self.value else ''

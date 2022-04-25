@@ -256,6 +256,38 @@ async def http_get(url):
             writer.close()
             await writer.wait_closed()
 
+async def http_post(url, header, body):
+    """XXX."""
+
+    writer = None
+    try:
+        url = urllib.parse.urlsplit(url)
+        host = url.hostname
+        port = url.port if url.port is not None else 80
+        reader, writer = await asyncio.open_connection(host, port)
+
+        # Send the request.
+        request = url._replace(scheme='')._replace(netloc='').geturl()
+        query = (
+            f"POST {request or '/'} HTTP/1.0\r\n"
+            f"Host: {host}:{port}\r\n"
+        )
+        query = query + header + '\r\n' + body
+        writer.write(query.encode('latin-1'))
+
+        resp = []
+        while True:
+            line = await reader.readline()
+            if not line:
+                break
+            resp.append(line)
+        return resp
+
+    finally:
+        if writer is not None:
+            writer.close()
+            await writer.wait_closed()
+
 # Network protocols.
 class MsearchServerProtocol:
     """The MSEARCH asyncio server."""
@@ -279,9 +311,9 @@ class MsearchServerProtocol:
         self.transport.abort()
 
     def connection_lost(self, exc):
-        if exc is not None:
-            logger.warning(f'Connection lost on {self.ip} by'
-                           f' MsearchServerProtocol: {exc!r}')
+        msg = f': {exc!r}' if exc is not None else ''
+        logger.debug(f'Connection lost on {self.ip} by'
+                           f' MsearchServerProtocol{msg}')
         self._closed = True
 
     def m_search(self, message, sock):
@@ -323,4 +355,4 @@ class NotifyServerProtocol:
         if not self.on_con_lost.done():
             self.on_con_lost.set_result(True)
         msg = f': {exc!r}' if exc is not None else ''
-        logger.info(f'Connection lost by NotifyServerProtocol{msg}')
+        logger.debug(f'Connection lost by NotifyServerProtocol{msg}')

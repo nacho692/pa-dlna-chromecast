@@ -46,10 +46,10 @@ import urllib.parse
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError
-from .network import parse_ssdp, msearch, notify, http_get
-from .xml import (UPnPXMLFatalError, upnp_org_etree, build_etree,
-                  xml_of_subelement, findall_childless, scpd_actionlist,
-                  scpd_servicestatetable)
+from .network import parse_ssdp, msearch, notify, http_get, http_post
+from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
+                  findall_childless, scpd_actionlist, scpd_servicestatetable,
+                  dict_to_xml)
 
 logger = logging.getLogger('upnp')
 
@@ -57,13 +57,15 @@ MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 
 class UPnPControlPointError(UPnPError): pass
+class UPnPClosedDeviceError(UPnPError): pass
+class UPnPInvalidSoapError(UPnPError): pass
 
 def shorten(txt, head_len=10, tail_len=5):
     if len(txt) <= head_len + 3 + tail_len:
         return txt
     return txt[:head_len] + '...' + txt[len(txt)-tail_len:]
 
-# Helper class(es).
+# Helper class.
 class AsyncioTasks:
     """Save references to tasks, to avoid tasks being garbage collected.
 
@@ -145,6 +147,51 @@ class UPnPService(UPnPElement):
         self.serviceStateTable = {}
         self.description = None
         self._aio_tasks = root_device._aio_tasks
+
+    async def soap_action(self, action, args):
+        """XXX."""
+
+        if self.closed():
+            raise UPnPClosedDeviceError
+
+        # Validate action and args.
+        if action not in self.actionList:
+            raise UPnPInvalidSoapError(f"action '{action}' not in actionList"
+                                       f" of '{self.serviceId}'")
+        arguments = self.actionList[action]
+        if sorted(args) != sorted(name for name in arguments if
+                                  arguments[name]['direction'] == 'in'):
+            raise UPnPInvalidSoapError(f'argument mismatch in action'
+                                       f" '{action}' of '{self.serviceId}'")
+
+        # Build header and body.
+        body = (
+            f'<?xml version="1.0"?>\n'
+            f'<s:Envelope'
+            f' xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"'
+            f' s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n'
+            f'  <s:Body>\n'
+            f'   <u:{action} xmlns:u="{self.serviceType}">\n'
+            f'    {dict_to_xml(args)}\n'
+            f'   </u:{action}>\n'
+            f'  </s:Body>\n'
+            f'</s:Envelope>'
+        )
+        body = ''.join(line.strip() for line in body.splitlines())
+
+        header = (
+            f'Content-length: {len(body)}\r\n'
+            f'Content-type: text/xml; charset="utf-8"\r\n'
+            f'Soapaction: "{self.serviceType}#{action}"\r\n'
+        )
+
+        # Send the soap action.
+        resp =  await http_post(self.controlURL, header, body)
+        logger.debug(f'XXX {resp}')
+
+        # Handle fault XXX
+
+        return resp
 
     async def _run(self):
         description = await http_get(self.SCPDURL)
