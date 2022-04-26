@@ -1,7 +1,9 @@
 """XML utilities."""
 
 import io
+import functools
 import logging
+import collections
 import xml.etree.ElementTree as ET
 
 from . import UPnPError
@@ -9,10 +11,18 @@ from . import UPnPError
 logger = logging.getLogger('xml')
 
 UPNP_NAMESPACE_BEG = 'urn:schemas-upnp-org:'
+ENVELOPE_NAMESPACE_BEG = "http://schemas.xmlsoap.org/soap/envelope"
+RESP_NAMESPACE_BEG = "urn:schemas-upnp-org:service:"
+CTRL_NAMESPACE_BEG = "urn:schemas-upnp-org:control"
 
 class UPnPXMLError(UPnPError): pass
 
 # XML helper functions.
+@functools.cache
+def namespace_as_dict(xml):
+    return dict(elem for (event, elem) in ET.iterparse(
+            io.StringIO(xml), events=['start-ns']))
+
 def upnp_org_etree(xml):
     """Return the element tree and UPnP namespace from an xml string."""
 
@@ -120,7 +130,51 @@ def dict_to_xml(arguments):
 
     return '\n'.join(f'<{arg}>{arguments[arg]}</{arg}>' for arg in arguments)
 
-# Helper class.
+def parse_soap_response(xml, action):
+    try:
+        # Find the 'Body' subelement.
+        env_namespace = UPnPNamespace(xml, ENVELOPE_NAMESPACE_BEG)
+        root = ET.fromstring(xml)
+        body = root.find(f'{env_namespace!r}Body')
+        if body is None:
+            raise UPnPXMLError("No 'Body' element in SOAP response")
+
+        # Find the response subelement.
+        resp_namespace = UPnPNamespace(xml, RESP_NAMESPACE_BEG)
+        resp = body.find(f'{resp_namespace!r}{action}Response')
+        if resp is None:
+            raise UPnPXMLError(f"No '{action}Response' element in"
+                               f' SOAP response')
+        return dict((e.tag, e.text) for e in resp)
+
+    except ET.ParseError as e:
+        print(f'{e!r}')
+
+def parse_soap_fault(xml):
+    try:
+        # Find the 'Fault' subelement.
+        env_namespace = UPnPNamespace(xml, ENVELOPE_NAMESPACE_BEG)
+        root = ET.fromstring(xml)
+        fault = root.find(f'.//{env_namespace!r}Fault')
+        if fault is None:
+            raise UPnPXMLError("No 'Fault' element in SOAP fault response")
+
+        # Find the 'UPnPError' subelement.
+        ctrl_namespace = UPnPNamespace(xml, CTRL_NAMESPACE_BEG)
+        error = fault.find(f'.//{ctrl_namespace!r}UPnPError')
+        if error is None:
+            raise UPnPXMLError("No 'UPnPError' element in SOAP fault response")
+
+        ns_len = len(f'{ctrl_namespace!r}')
+        d = dict((e.tag[ns_len:], e.text) for e in error)
+        return SoapFault(**d)
+
+    except ET.ParseError as e:
+        print(f'{e!r}')
+
+# Helper classes.
+SoapFault = collections.namedtuple('SoapFault', 'errorCode errorDescription',
+                                   defaults=['Not specified'])
 class UPnPNamespace:
     """A namespace value."""
 
@@ -128,8 +182,7 @@ class UPnPNamespace:
         """Use the namespace value starting with 'value_beg'."""
 
         self.value = None
-        ns = dict(elem for event, elem in ET.iterparse(
-            io.StringIO(xml), events=['start-ns']))
+        ns = namespace_as_dict(xml)
 
         # No namespaces.
         if not ns:

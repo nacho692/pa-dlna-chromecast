@@ -46,10 +46,10 @@ import urllib.parse
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError
-from .network import parse_ssdp, msearch, notify, http_get, http_post
+from .network import parse_ssdp, msearch, notify, http_get, http_soap
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
-                  dict_to_xml)
+                  dict_to_xml, parse_soap_response, parse_soap_fault)
 
 logger = logging.getLogger('upnp')
 
@@ -59,6 +59,7 @@ ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 class UPnPControlPointError(UPnPError): pass
 class UPnPClosedDeviceError(UPnPError): pass
 class UPnPInvalidSoapError(UPnPError): pass
+class UPnPSoapFaultError(UPnPError): pass
 
 def shorten(txt, head_len=10, tail_len=5):
     if len(txt) <= head_len + 3 + tail_len:
@@ -127,7 +128,7 @@ class UPnPService(UPnPElement):
 
     Methods:
       closed        return True if the root device is closed
-      soap_action   coroutine - XXX
+      soap_action   coroutine - send a SOAP action
     """
 
     def __init__(self, parent_device, root_device, attributes):
@@ -149,7 +150,19 @@ class UPnPService(UPnPElement):
         self._aio_tasks = root_device._aio_tasks
 
     async def soap_action(self, action, args):
-        """XXX."""
+        """Send a SOAP action.
+
+        'action'    action name
+        'args'      dict {argument name: value}
+                    the dict keys MUST be in the same order as specified in
+                    the service description (SCPD) that is available from the
+                    device (UPnP 2.0), raises UPnPInvalidSoapError otherwise
+
+        Return the dict {argumentName: out arg value} if successfull,
+        otherwise raise an UPnPSoapFaultError exception with the instance of
+        the upnp.xml.SoapFault namedtuple defined by field names in
+        ('errorCode', 'errorDescription').
+        """
 
         if self.closed():
             raise UPnPClosedDeviceError
@@ -159,7 +172,7 @@ class UPnPService(UPnPElement):
             raise UPnPInvalidSoapError(f"action '{action}' not in actionList"
                                        f" of '{self.serviceId}'")
         arguments = self.actionList[action]
-        if sorted(args) != sorted(name for name in arguments if
+        if list(args) != list(name for name in arguments if
                                   arguments[name]['direction'] == 'in'):
             raise UPnPInvalidSoapError(f'argument mismatch in action'
                                        f" '{action}' of '{self.serviceId}'")
@@ -186,12 +199,20 @@ class UPnPService(UPnPElement):
         )
 
         # Send the soap action.
-        resp =  await http_post(self.controlURL, header, body)
-        logger.debug(f'XXX {resp}')
+        is_fault, body =  await http_soap(self.controlURL, header, body)
 
-        # Handle fault XXX
+        # Handle the response.
+        body = body.decode()
+        if is_fault:
+            fault = parse_soap_fault(body)
+            logger.warning(f"soap_action('{action}', '{self.serviceType}') ="
+                           f' {fault}')
+            raise UPnPSoapFaultError(fault)
 
-        return resp
+        response = parse_soap_response(body, action)
+        logger.debug(f"soap_action('{action}', '{self.serviceType}') ="
+                     f' {response}')
+        return response
 
     async def _run(self):
         description = await http_get(self.SCPDURL)
@@ -418,6 +439,7 @@ class UPnPRootDevice(UPnPDevice):
 
     async def _run(self):
         try:
+            self._task = asyncio.current_task()
             description = await http_get(self.location)
             description = description.decode()
 
@@ -569,7 +591,6 @@ class UPnPControlPoint:
                                          header['LOCATION'], max_age)
             task = self._aio_tasks.create_task(root_device._run(),
                                                name=str(root_device))
-            root_device._task = task
             self._devices[udn] = root_device
             logger.info(f'New {root_device} at {ip_source}')
 

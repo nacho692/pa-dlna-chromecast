@@ -10,8 +10,9 @@ import asyncio
 import re
 from . import __version__
 
-from .upnp.upnp import (UPnPControlPoint, UPnPClosedDeviceError,
-                               AsyncioTasks)
+from .upnp.upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
+                        UPnPSoapFaultError)
+from .upnp.xml import SoapFault
 
 logger = logging.getLogger('pa-dlna')
 
@@ -140,37 +141,42 @@ def parse_args():
 class MediaRenderer:
     """A DLNA MediaRenderer.
 
-    See the Standardized DCP (SDCP):
+    See the Standardized DCP (SDCP) specifications:
       UPnP AV Architecture:2
       AVTransport:3 Service
       RenderingControl:3 Service
       ConnectionManager:3 Service
     """
 
-    def __init__(self, upnp_device, pulse):
-        self.upnp_device = upnp_device
+    def __init__(self, root_device, padlna):
+        self.root_device = root_device
+        self.padlna = padlna
 
     def close(self):
-        pass # XXX stop the streaming if any
+        self.root_device.close()
 
     async def soap_action(self, serviceId, action, args):
-        """XXX."""
+        """Send a SOAP action.
 
-        service = self.upnp_device.serviceList.get(serviceId)
+        Return the dict {argumentName: out arg value} if successfull,
+        otherwise an instance of the upnp.xml.SoapFault namedtuple defined by
+        field names in ('errorCode', 'errorDescription').
+        """
+
         try:
-            res =  await service.soap_action(action, args)
-            logger.debug(f"soap_action('{action}') = {res}")
-            return res
-        except UPnPClosedDeviceError:
-            logger.warning(f'soap_action() failed: {service.root_device}'
-                           f' is closed')
+            service = self.root_device.serviceList[serviceId]
+            return await service.soap_action(action, args)
+        except UPnPSoapFaultError as e:
+            return e.args[0]
+        except Exception as e:
+            logger.exception(f'{e!r}')
+            self.close()
 
     async def run(self):
         """Set up the MediaRenderer."""
 
-        res = await self.soap_action(AVTRANSPORT, 'GetMediaInfo',
-                                     {'InstanceID': 0})
-        # XXX if res is None:
+        resp = await self.soap_action(AVTRANSPORT, 'GetMediaInfo',
+                                      {'InstanceID': 0})
 
 class PaDlna:
     """Manage the DLNA MediaRenderer devices and Pulseaudio."""
@@ -196,8 +202,6 @@ class PaDlna:
 
     async def run(self):
         try:
-            # Start the Pulseaudio task. XXX
-
             # Run the UPnP control point.
             async with UPnPControlPoint(self.ipaddr_list, self.ttl) as upnp:
                 while True:

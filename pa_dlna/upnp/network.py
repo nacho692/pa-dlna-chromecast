@@ -197,12 +197,10 @@ async def notify(ip_addresses, process_datagram):
         # Needed when OSError is raised upon setting IP_ADD_MEMBERSHIP.
         sock.close()
 
-async def http_get(url):
-    """Return the body of the response to an HTTP 1.0 GET.
+async def http_query(method, url, header='', body=''):
+    """An HTTP 1.0 GET or POST request."""
 
-    RFC 1945: Hypertext Transfer Protocol -- HTTP/1.0
-    """
-
+    assert method in ('GET', 'POST')
     writer = None
     try:
         url = urllib.parse.urlsplit(url)
@@ -213,10 +211,10 @@ async def http_get(url):
         # Send the request.
         request = url._replace(scheme='')._replace(netloc='').geturl()
         query = (
-            f"GET {request or '/'} HTTP/1.0\r\n"
+            f"{method} {request or '/'} HTTP/1.0\r\n"
             f"Host: {host}:{port}\r\n"
-            f"\r\n"
         )
+        query = query + header + '\r\n' + body
         writer.write(query.encode('latin-1'))
 
         # Parse the http header.
@@ -228,9 +226,6 @@ async def http_get(url):
 
             line = line.decode('latin1').rstrip()
             if line:
-                if (not header and
-                        re.match(r'HTTP/1\.(0|1) 200 ', line) is None):
-                    raise UPnPInvalidHttpError(f'Got "{line}" from {host}')
                 header.append(line)
             else:
                 break
@@ -249,44 +244,34 @@ async def http_get(url):
                 raise UPnPInvalidHttpError(f'Content-Length and actual length'
                                 f' mismatch ({content_length}-{len(body)})'
                                 f' from {host}')
-        return body
+        return header, body
 
     finally:
         if writer is not None:
             writer.close()
             await writer.wait_closed()
 
-async def http_post(url, header, body):
-    """XXX."""
+async def http_get(url):
+    """An HTTP 1.0 GET request."""
 
-    writer = None
-    try:
-        url = urllib.parse.urlsplit(url)
-        host = url.hostname
-        port = url.port if url.port is not None else 80
-        reader, writer = await asyncio.open_connection(host, port)
+    header, body = await http_query('GET', url)
+    line = header[0]
+    if re.match(r'HTTP/1\.(0|1) 200 ', line) is None:
+        raise UPnPInvalidHttpError(f'Got "{line}" from {host}')
+    return body
 
-        # Send the request.
-        request = url._replace(scheme='')._replace(netloc='').geturl()
-        query = (
-            f"POST {request or '/'} HTTP/1.0\r\n"
-            f"Host: {host}:{port}\r\n"
-        )
-        query = query + header + '\r\n' + body
-        writer.write(query.encode('latin-1'))
+async def http_soap(url, header, body):
+    """HTTP 1.0 POST request used to submit a SOAP action."""
 
-        resp = []
-        while True:
-            line = await reader.readline()
-            if not line:
-                break
-            resp.append(line)
-        return resp
-
-    finally:
-        if writer is not None:
-            writer.close()
-            await writer.wait_closed()
+    header, body = await http_query('POST', url, header, body)
+    line = header[0]
+    if re.match(r'HTTP/1\.(0|1) 200 ', line) is not None:
+        is_fault = False
+    elif re.match(r'HTTP/1\.(0|1) 500 ', line) is not None:
+        is_fault = True
+    else:
+        raise UPnPInvalidHttpError(f'Got "{line}" from {host}')
+    return is_fault, body
 
 # Network protocols.
 class MsearchServerProtocol:
@@ -311,9 +296,9 @@ class MsearchServerProtocol:
         self.transport.abort()
 
     def connection_lost(self, exc):
-        msg = f': {exc!r}' if exc is not None else ''
-        logger.debug(f'Connection lost on {self.ip} by'
-                           f' MsearchServerProtocol{msg}')
+        if exc:
+            logger.debug(f'Connection lost on {self.ip} by'
+                         f' MsearchServerProtocol: {exc!r}')
         self._closed = True
 
     def m_search(self, message, sock):
