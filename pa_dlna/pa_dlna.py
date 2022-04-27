@@ -10,9 +10,8 @@ import asyncio
 import re
 from . import __version__
 
-from .upnp.upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
-                        UPnPSoapFaultError)
-from .upnp.xml import SoapFault
+from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
+                   UPnPSoapFaultError)
 
 logger = logging.getLogger('pa-dlna')
 

@@ -3,10 +3,10 @@
 Example of using the Control Point (there is no external dependency):
 
 >>> import asyncio
->>> from pa_dlna.upnp import upnp
+>>> import upnp
 >>>
 >>> async def main(ipaddr_list):
-...   with upnp.UPnPControlPoint(ipaddr_list) as control_point:
+...   async with upnp.UPnPControlPoint(ipaddr_list) as control_point:
 ...     notification, root_device = await control_point.get_notification()
 ...     print(f"  Got '{notification}' from {root_device.ip_source}")
 ...     print(f'  deviceType: {root_device.deviceType}')
@@ -14,14 +14,18 @@ Example of using the Control Point (there is no external dependency):
 ...     for service in root_device.serviceList.values():
 ...       print(f'    serviceId: {service.serviceId}')
 ...
->>>
->>> asyncio.run(main(['192.168.0.254', '192.168.43.83']))
+>>> try:
+...   asyncio.run(main(['192.168.0.254', '192.168.43.83']))
+... except asyncio.CancelledError as e:
+...   pass
+...
   Got 'alive' from 192.168.0.212
   deviceType: urn:schemas-upnp-org:device:MediaRenderer:1
   friendlyName: Yamaha RN402D
     serviceId: urn:upnp-org:serviceId:AVTransport
     serviceId: urn:upnp-org:serviceId:RenderingControl
     serviceId: urn:upnp-org:serviceId:ConnectionManager
+UPnPRootDevice uuid:9ab0c...8381a is closed
 >>>
 
 The API is made of the methods and attibutes of the UPnPControlPoint,
