@@ -123,17 +123,20 @@ async def msearch(ip, ttl):
             raise OSError(e.args[0], f'{ip}: {e.args[1]}') from None
 
         # Start the server.
-        loop = asyncio.get_running_loop()
-        transport, protocol = await loop.create_datagram_endpoint(
-            lambda: MsearchServerProtocol(ip), sock=sock)
-
-        # Prepare the socket for sending from the network interface of 'ip'.
-        sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
-                        socket.inet_aton(ip))
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
-
-        expire = time.monotonic() + MX
+        transport = None
         try:
+            loop = asyncio.get_running_loop()
+            transport, protocol = await loop.create_datagram_endpoint(
+                lambda: MsearchServerProtocol(ip), sock=sock)
+
+            # Prepare the socket for sending from the network
+            # interface of 'ip'.
+            sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
+                            socket.inet_aton(ip))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+
+            expire = time.monotonic() + MX
+
             for i in range(MSEARCH_COUNT):
                 await asyncio.sleep(MSEARCH_INTERVAL)
                 if not protocol.closed():
@@ -143,9 +146,11 @@ async def msearch(ip, ttl):
                 remain = expire - time.monotonic()
                 if remain > 0:
                     await asyncio.sleep(expire - time.monotonic())
-        finally:
-            transport.close()
+
             return  protocol.get_result()
+        finally:
+            if transport is not None:
+                transport.close()
     finally:
         # Needed when OSError is raised upon binding the socket.
         sock.close()
@@ -183,16 +188,17 @@ async def notify(ip_addresses, process_datagram):
         sock.bind(MCAST_ADDR)
 
         # Start the server.
-        loop = asyncio.get_running_loop()
-        on_con_lost = loop.create_future()
-        transport, protocol = await loop.create_datagram_endpoint(
-            lambda: NotifyServerProtocol(process_datagram, on_con_lost),
-            sock=sock)
-
+        transport = None
         try:
+            loop = asyncio.get_running_loop()
+            on_con_lost = loop.create_future()
+            transport, protocol = await loop.create_datagram_endpoint(
+                lambda: NotifyServerProtocol(process_datagram, on_con_lost),
+                sock=sock)
             await on_con_lost
         finally:
-            transport.close()
+            if transport is not None:
+                transport.close()
     finally:
         # Needed when OSError is raised upon setting IP_ADD_MEMBERSHIP.
         sock.close()
@@ -339,5 +345,5 @@ class NotifyServerProtocol:
     def connection_lost(self, exc):
         if not self.on_con_lost.done():
             self.on_con_lost.set_result(True)
-        msg = f': {exc!r}' if exc is not None else ''
-        logger.debug(f'Connection lost by NotifyServerProtocol{msg}')
+        if exc:
+            logger.debug(f'Connection lost by NotifyServerProtocol: {exc!r}')

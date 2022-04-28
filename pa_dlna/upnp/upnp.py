@@ -16,7 +16,7 @@ Example of using the Control Point (there is no external dependency):
 ...
 >>> try:
 ...   asyncio.run(main(['192.168.0.254', '192.168.43.83']))
-... except asyncio.CancelledError as e:
+... except asyncio.CancelledError:
 ...   pass
 ...
   Got 'alive' from 192.168.0.212
@@ -25,7 +25,6 @@ Example of using the Control Point (there is no external dependency):
     serviceId: urn:upnp-org:serviceId:AVTransport
     serviceId: urn:upnp-org:serviceId:RenderingControl
     serviceId: urn:upnp-org:serviceId:ConnectionManager
-UPnPRootDevice uuid:9ab0c...8381a is closed
 >>>
 
 The API is made of the methods and attibutes of the UPnPControlPoint,
@@ -60,6 +59,7 @@ logger = logging.getLogger('upnp')
 MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 
+class UPnPClosedControlPointError(UPnPError): pass
 class UPnPControlPointError(UPnPError): pass
 class UPnPClosedDeviceError(UPnPError): pass
 class UPnPInvalidSoapError(UPnPError): pass
@@ -81,14 +81,25 @@ class AsyncioTasks:
         self._tasks = set()             # references to tasks
 
     def create_task(self, coro, name):
-        task = asyncio.create_task(coro, name=name)
+        curtasks = asyncio.all_tasks()
+        try:
+            task = asyncio.create_task(coro, name=name)
+        except (KeyboardInterrupt, SystemExit):
+            # Avoid asyncio ERROR log: "Task was destroyed but it is pending!"
+            newtasks = asyncio.all_tasks()
+            diff = newtasks.difference(curtasks)
+            for t in diff:
+                t.cancel()
+            raise
+
         self._tasks.add(task)
         task.add_done_callback(lambda t: self._tasks.remove(t))
         return task
 
     def cancel_all(self):
         for task in self:
-            task.cancel()
+            if not task.cancelled():
+                task.cancel()
 
     def __iter__(self):
         for t in self._tasks:
@@ -409,7 +420,7 @@ class UPnPRootDevice(UPnPDevice):
             if self._task is not None:
                 self._task.cancel()
             self._aio_tasks.cancel_all()
-            logger.warning(f'{self} is closed')
+            logger.info(f'{self} is closed')
             self.control_point._remove_root_device(self._udn)
 
     def _set_valid_until(self, max_age):
@@ -461,6 +472,12 @@ class UPnPRootDevice(UPnPDevice):
             self._closed = False
             self.control_point._put_notification('alive', self)
             await self._age_root_device()
+        except asyncio.CancelledError:
+            self.close()
+            raise
+        except (KeyboardInterrupt, SystemExit) as e:
+            logger.debug(f'UPnPRootDevice._run got {e!r}')
+            self.control_point.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close()
@@ -475,12 +492,6 @@ class UPnPRootDevice(UPnPDevice):
 # UPnP control point.
 class UPnPControlPoint:
     """An UPnP control point.
-
-    Once an UPnPControlPoint has been opened, either with the open() method or
-    as a context manager, the coroutine that has opened the control point must
-    be ready to handle asyncio.CancelledError until the control point is
-    closed. The CancelledError message contains the exception that had been
-    raised in the library, it may be for example a KeyboardInterrupt.
 
     Attributes:
       ip_addresses  list of local IPv4 addresses of the network interfaces
@@ -523,11 +534,6 @@ class UPnPControlPoint:
         # coroutine with a task.
         self._curtask = asyncio.current_task()
 
-        # Set up signal handlers.
-        loop = asyncio.get_running_loop()
-        for s in (SIGINT, SIGTERM):
-            loop.add_signal_handler(s, lambda s=s: self._sig_handler(s))
-
         # Start the msearch task.
         self._aio_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
 
@@ -539,11 +545,6 @@ class UPnPControlPoint:
 
         if not self._closed:
             self._closed = True
-
-            # Remove the signal handlers.
-            loop = asyncio.get_running_loop()
-            for s in (SIGINT, SIGTERM):
-                loop.remove_signal_handler(s)
 
             for root_device in list(self._devices.values()):
                 root_device.close()
@@ -557,22 +558,20 @@ class UPnPControlPoint:
             logger.debug('UPnPControlPoint is closed')
 
     async def get_notification(self):
-        """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance)."""
+        """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance).
 
-        return await self._upnp_queue.get()
+        Raise UPnPClosedControlPointError when the control point is closed.
+        """
+
+        if self._closed:
+            raise UPnPClosedControlPointError
+        else:
+            return await self._upnp_queue.get()
 
     def _put_notification(self, kind, root_device):
         self._upnp_queue.put_nowait((kind, root_device))
         state = 'created' if kind == 'alive' else 'deleted'
-        logger.info(f'{root_device} has been {state}')
-
-    def _sig_handler(self, signal):
-        errmsg = f'Got signal {strsignal(signal)}'
-        logger.info(errmsg)
-        if signal == SIGINT:
-            self.close(exc=KeyboardInterrupt())
-        else:
-            self.close(exc=SystemExit())
+        logger.debug(f'{root_device} has been {state}')
 
     def _create_root_device(self, header, ip_source):
         # Get the max-age.
@@ -593,7 +592,7 @@ class UPnPControlPoint:
             # Instantiate the UPnPDevice and start its task.
             root_device = UPnPRootDevice(self, udn, ip_source,
                                          header['LOCATION'], max_age)
-            task = self._aio_tasks.create_task(root_device._run(),
+            self._aio_tasks.create_task(root_device._run(),
                                                name=str(root_device))
             self._devices[udn] = root_device
             logger.info(f'New {root_device} at {ip_source}')
@@ -657,10 +656,17 @@ class UPnPControlPoint:
             while True:
                 for ip in self.ip_addresses:
                     result = await msearch(ip, self.ttl)
-                    for (datagram, src_addr) in result:
-                        self._process_ssdp(datagram, src_addr[0],
-                                           is_msearch=True)
+                    if result:
+                        for (datagram, src_addr) in result:
+                            self._process_ssdp(datagram, src_addr[0],
+                                               is_msearch=True)
                 await asyncio.sleep(MSEARCH_EVERY)
+        except asyncio.CancelledError:
+            self.close()
+            raise
+        except (KeyboardInterrupt, SystemExit) as e:
+            logger.debug(f'_ssdp_msearch got {e!r}')
+            self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
@@ -670,6 +676,12 @@ class UPnPControlPoint:
 
         try:
             await notify(self.ip_addresses, self._process_ssdp)
+        except asyncio.CancelledError:
+            self.close()
+            raise
+        except (KeyboardInterrupt, SystemExit) as e:
+            logger.debug(f'_ssdp_notify got {e!r}')
+            self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)

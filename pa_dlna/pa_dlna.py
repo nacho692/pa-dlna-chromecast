@@ -223,8 +223,6 @@ class PaDlna:
 
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
-        except asyncio.CancelledError as e:
-            logger.error(f'Got exception {e!r}')
         finally:
             self.close()
 
@@ -244,8 +242,10 @@ def main():
     pa_dlna = PaDlna(options['networks'], options['ttl'])
     try:
         asyncio.run(pa_dlna.run())
-    except asyncio.CancelledError as e:
-        logger.error(f'Got exception {e!r}')
+    except asyncio.CancelledError:
+        pass
+    except (KeyboardInterrupt, SystemExit) as e:
+        logger.warning(f'main got {e!r}')
     finally:
         logger.info('End of pa-dlna')
         if logfile_hdler is not None:
