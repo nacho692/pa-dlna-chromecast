@@ -141,7 +141,6 @@ class MediaRenderer:
     """A DLNA MediaRenderer.
 
     See the Standardized DCP (SDCP) specifications:
-      UPnP AV Architecture:2
       AVTransport:3 Service
       RenderingControl:3 Service
       ConnectionManager:3 Service
@@ -167,6 +166,9 @@ class MediaRenderer:
             return await service.soap_action(action, args)
         except UPnPSoapFaultError as e:
             return e.args[0]
+        except UPnPClosedDeviceError:
+            logger.error(f'soap_action(): root device {self.root_device} is'
+                         f' closed')
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close()
@@ -174,11 +176,15 @@ class MediaRenderer:
     async def run(self):
         """Set up the MediaRenderer."""
 
-        resp = await self.soap_action(AVTRANSPORT, 'GetMediaInfo',
-                                      {'InstanceID': 0})
+        resp = await self.soap_action(CONNECTIONMANAGER, 'GetProtocolInfo',
+                                      {})
 
-class PaDlna:
-    """Manage the DLNA MediaRenderer devices and Pulseaudio."""
+class AVControlPoint:
+    """Control point with Content.
+
+    Manage Pulseaudio and the DLNA MediaRenderer devices.
+    See section 6.6 of "UPnP AV Architecture:2".
+    """
 
     def __init__(self, ipaddr_list, ttl):
         self.ipaddr_list = ipaddr_list
@@ -238,8 +244,8 @@ def main():
     options, logfile_hdler = parse_args()
     logger.info(f'Options {options}')
 
-    # Run the PaDlna instance.
-    pa_dlna = PaDlna(options['networks'], options['ttl'])
+    # Run the AVControlPoint instance.
+    pa_dlna = AVControlPoint(options['networks'], options['ttl'])
     try:
         asyncio.run(pa_dlna.run())
     except asyncio.CancelledError:

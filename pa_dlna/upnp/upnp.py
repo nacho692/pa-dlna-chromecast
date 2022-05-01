@@ -408,7 +408,7 @@ class UPnPRootDevice(UPnPDevice):
         self._task = None
         self._aio_tasks = AsyncioTasks()
 
-    def close(self):
+    def close(self, exc=None):
         """Close the root device.
 
         Close the root device its services and recursively all its embedded
@@ -421,7 +421,7 @@ class UPnPRootDevice(UPnPDevice):
                 self._task.cancel()
             self._aio_tasks.cancel_all()
             logger.info(f'{self} is closed')
-            self.control_point._remove_root_device(self._udn)
+            self.control_point._remove_root_device(self._udn, exc=exc)
 
     def _set_valid_until(self, max_age):
         # The '_valid_until' attribute is the monotonic date when the root
@@ -480,7 +480,7 @@ class UPnPRootDevice(UPnPDevice):
             self.control_point.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
-            self.close()
+            self.close(e)
         finally:
             logger.debug(f'End of {self} task')
 
@@ -523,6 +523,8 @@ class UPnPControlPoint:
         self._closed = False
         self._upnp_queue = asyncio.Queue()
         self._devices = {}              # {udn: UPnPRootDevice}
+        self._faulty_devices = set()    # set of the udn of root devices
+                                        # having raised an exception
         self._curtask = None            # task running UPnPControlPoint.open()
         self._aio_tasks = AsyncioTasks()
 
@@ -573,7 +575,7 @@ class UPnPControlPoint:
         state = 'created' if kind == 'alive' else 'deleted'
         logger.debug(f'{root_device} has been {state}')
 
-    def _create_root_device(self, header, ip_source):
+    def _create_root_device(self, header, udn, ip_source):
         # Get the max-age.
         # 'max_age' None means no aging.
         max_age = None
@@ -587,7 +589,6 @@ class UPnPControlPoint:
                                f' SSDP notify from {ip_source}:\n{header}')
                 return
 
-        udn = header['USN'].split('::')[0]
         if udn not in self._devices:
             # Instantiate the UPnPDevice and start its task.
             root_device = UPnPRootDevice(self, udn, ip_source,
@@ -612,12 +613,17 @@ class UPnPControlPoint:
             # Refresh the aging time.
             root_device._set_valid_until(max_age)
 
-    def _remove_root_device(self, udn):
+    def _remove_root_device(self, udn, exc=None):
         root_device = self._devices.get(udn)
         if root_device is not None:
             root_device.close()
             self._put_notification('byebye', root_device)
             del self._devices[udn]
+
+            if exc is not None:
+                self._faulty_devices.add(udn)
+                logger.info(f'Add {shorten(udn)} to the list of faulty root'
+                            f' devices')
 
     def _process_ssdp(self, datagram, ip_source, is_msearch):
         """Process the received datagrams.
@@ -634,7 +640,11 @@ class UPnPControlPoint:
         logger.debug(f'Got {msg} from {ip_source}')
 
         if is_msearch or (header['NTS'] == 'ssdp:alive'):
-            self._create_root_device(header, ip_source)
+            udn = header['USN'].split('::')[0]
+            if udn in self._faulty_devices:
+                logger.debug(f'Ignore faulty root device {shorten(udn)}')
+            else:
+                self._create_root_device(header, udn, ip_source)
         else:
             nts = header['NTS']
             if nts == 'ssdp:byebye':
