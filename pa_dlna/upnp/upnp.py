@@ -84,7 +84,7 @@ class AsyncioTasks:
         curtasks = asyncio.all_tasks()
         try:
             task = asyncio.create_task(coro, name=name)
-        except (KeyboardInterrupt, SystemExit):
+        except KeyboardInterrupt:
             # Avoid asyncio ERROR log: "Task was destroyed but it is pending!"
             newtasks = asyncio.all_tasks()
             diff = newtasks.difference(curtasks)
@@ -362,8 +362,9 @@ class UPnPDevice(UPnPElement):
 
         # Add the childless elements of the device element as instance
         # attributes of the UPnPDevice instance.
-        d = findall_childless(device_etree, namespace)
-        self.__dict__.update(d)
+        for k, v in findall_childless(device_etree, namespace).items():
+            setattr(self, k, v)
+
         if not hasattr(self, 'deviceType'):
             raise UPnPXMLFatalError("Missing 'deviceType' element")
         logger.info(f'New device - deviceType: {self.deviceType}')
@@ -387,7 +388,6 @@ class UPnPRootDevice(UPnPDevice):
     the other attributes and methods available.
 
     Attributes:
-      control_point the UPnPControlPoint instance
       ip_source     IP source address of the UPnP device
       location      'Location' field value in the header of the notify or
                     msearch SSDP
@@ -398,7 +398,7 @@ class UPnPRootDevice(UPnPDevice):
 
     def __init__(self, control_point, udn, ip_source, location, max_age):
         super().__init__(self, self)
-        self.control_point = control_point  # UPnPControlPoint instance
+        self._control_point = control_point  # UPnPControlPoint instance
         self._udn = udn
         self.ip_source = ip_source
         self.location = location
@@ -421,7 +421,7 @@ class UPnPRootDevice(UPnPDevice):
                 self._task.cancel()
             self._aio_tasks.cancel_all()
             logger.info(f'{self} is closed')
-            self.control_point._remove_root_device(self._udn, exc=exc)
+            self._control_point._remove_root_device(self._udn, exc=exc)
 
     def _set_valid_until(self, max_age):
         # The '_valid_until' attribute is the monotonic date when the root
@@ -470,14 +470,14 @@ class UPnPRootDevice(UPnPDevice):
                                         ' device description')
             await self._parse_description(device_description)
             self._closed = False
-            self.control_point._put_notification('alive', self)
+            self._control_point._put_notification('alive', self)
             await self._age_root_device()
         except asyncio.CancelledError:
             self.close()
             raise
-        except (KeyboardInterrupt, SystemExit) as e:
-            logger.debug(f'UPnPRootDevice._run got {e!r}')
-            self.control_point.close(exc=e)
+        except KeyboardInterrupt as e:
+            logger.debug('UPnPRootDevice._run got KeyboardInterrupt')
+            self._control_point.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(e)
@@ -670,12 +670,15 @@ class UPnPControlPoint:
                         for (datagram, src_addr) in result:
                             self._process_ssdp(datagram, src_addr[0],
                                                is_msearch=True)
+                    else:
+                        logger.debug(f'No response to all M-SEARCH messages,'
+                                     f' next try in {MSEARCH_EVERY} seconds')
                 await asyncio.sleep(MSEARCH_EVERY)
         except asyncio.CancelledError:
             self.close()
             raise
-        except (KeyboardInterrupt, SystemExit) as e:
-            logger.debug(f'_ssdp_msearch got {e!r}')
+        except KeyboardInterrupt as e:
+            logger.debug('_ssdp_msearch got KeyboardInterrupt')
             self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
@@ -689,8 +692,8 @@ class UPnPControlPoint:
         except asyncio.CancelledError:
             self.close()
             raise
-        except (KeyboardInterrupt, SystemExit) as e:
-            logger.debug(f'_ssdp_notify got {e!r}')
+        except KeyboardInterrupt as e:
+            logger.debug('_ssdp_notify got KeyboardInterrupt')
             self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')

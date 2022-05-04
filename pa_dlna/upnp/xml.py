@@ -172,6 +172,16 @@ def parse_soap_fault(xml):
     except ET.ParseError as e:
         print(f'{e!r}')
 
+def pprint_xml(xml):
+    """Pretty print an xml string."""
+
+    root, namespace = upnp_org_etree(xml)
+    tree = ET.ElementTree(root)
+    ET.indent(tree)
+    with io.StringIO() as out:
+        tree.write(out, encoding="unicode", default_namespace=str(namespace))
+        print(out.getvalue())
+
 # Helper classes.
 SoapFault = collections.namedtuple('SoapFault', 'errorCode errorDescription',
                                    defaults=['Not specified'])
@@ -195,6 +205,9 @@ class UPnPNamespace:
 
         if self.value is None:
             raise UPnPXMLError(f'No namespace starting with {value_beg}')
+
+    def __str__(self):
+        return self.value
 
     def __repr__(self):
         return f'{{{self.value}}}' if self.value else ''

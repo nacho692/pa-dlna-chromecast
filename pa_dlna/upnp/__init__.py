@@ -7,4 +7,4 @@ from .upnp import (UPnPControlPointError, UPnPClosedDeviceError,
                    UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                    AsyncioTasks)
 from .network import (UPnPInvalidSsdpError, UPnPInvalidHttpError)
-from .xml import UPnPXMLError
+from .xml import (UPnPXMLError, pprint_xml)
