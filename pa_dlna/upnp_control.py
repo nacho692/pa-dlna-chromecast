@@ -12,6 +12,8 @@ from .upnp import (UPnPControlPoint, UPnPDevice, pprint_xml)
 
 logger = logging.getLogger('upnpctl')
 
+SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
+
 # Utilities.
 def _dedent(txt):
     """A dedent that does not use the first line to compute the margin.
@@ -48,6 +50,11 @@ def build_commands_from(instance, obj, exclude=()):
 def device_name(dev):
     attr = 'friendlyName'
     return getattr(dev, attr) if hasattr(dev, attr) else str(dev)
+
+def service_id(service):
+    id = service.serviceId
+    return (id[len(SERVICEID_PREFIX):] if id.startswith(SERVICEID_PREFIX) else
+                                                                        id)
 
 # Class(es).
 class _Cmd(cmd.Cmd):
@@ -98,17 +105,38 @@ class _Cmd(cmd.Cmd):
         super().cmdloop(intro=_dedent(self.__doc__) + self.get_help())
 
 class UPnPServiceCmd(_Cmd):
-    """XXX."""
+    """=== UPnP service ===
+
+    Use the 'previous' command to return to the device.
+
+    """
 
     def __init__(self, upnp_service):
         super().__init__()
         build_commands_from(self, upnp_service)
         self.upnp_service = upnp_service
-        self.prompt = None # XXX f'[{device_name(upnp_device)}] '
+        self.prompt = f'[{service_id(self.upnp_service)}] '
         self.quit = False
 
+    def do_quit(self, unused):
+        """Quit the application"""
+
+        # Tell cmdloop() to return True.
+        self.quit = True
+        # Stop the current interpreter and return to the previous one.
+        return True
+
+    def do_previous(self, unused):
+        """Return to the previous device."""
+        return True
+
+    def cmdloop(self):
+        super().cmdloop()
+        # Tell the previous interpreter to just quit when self.quit is True.
+        return self.quit
+
 class UPnPDeviceCmd(_Cmd):
-    """=== Controlling an UPnPDevice ===
+    """=== UPnP device ===
 
     Use the 'device' or 'service' command to select an embedded device or
     service and the 'next' command to enter the selected device or service.
@@ -143,6 +171,32 @@ class UPnPDeviceCmd(_Cmd):
             self.selected = self.select_device(dev_list, idx)
         else:
             print([device_name(dev) for dev in dev_list])
+
+    def help_service(self):
+        print(_dedent(f"""Print information about a service and select it.
+
+        Without argument, list the services.
+        With an index to this list (starting at zero) as argument, select
+        the corresponding service for the 'next' command and print the
+        service serviceType and serviceId.
+
+        """))
+
+    def do_service(self, idx):
+        services_list = list(self.upnp_device.serviceList.values())
+        if idx:
+            try:
+                idx = int(idx)
+                serv = services_list[idx]
+                print('Selected service:')
+                print('  serviceId:', service_id(serv))
+                print('  serviceType:', serv.serviceType)
+            except Exception as e:
+                print(f'*** {e!r}')
+            else:
+                self.selected = serv
+        else:
+            print([service_id(serv) for serv in services_list])
 
     def do_next(self, unused):
         """Go to the selected service or embedded device."""
