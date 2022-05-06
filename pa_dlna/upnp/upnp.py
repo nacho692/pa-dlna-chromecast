@@ -381,6 +381,12 @@ class UPnPDevice(UPnPElement):
 
         return self
 
+    def __str__(self):
+        if hasattr(self, 'UDN'):
+            return f'{shorten(self.UDN)}'
+        else:
+            return 'Embedded device'
+
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device.
 

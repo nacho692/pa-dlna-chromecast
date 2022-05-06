@@ -8,11 +8,9 @@ import textwrap
 import pprint
 
 from . import (main_function, UPnPApplication)
-from .upnp import (UPnPControlPoint, pprint_xml)
+from .upnp import (UPnPControlPoint, UPnPDevice, pprint_xml)
 
 logger = logging.getLogger('upnpctl')
-
-INDENT = 4 * ' '                        # Python indentation in this module
 
 # Utilities.
 def _dedent(txt):
@@ -56,6 +54,31 @@ class _Cmd(cmd.Cmd):
     def __init__(self):
         super().__init__()
 
+    def device_help(self, kind):
+        return _dedent(f"""Print information about a device and select it.
+
+        Without argument, list the {kind} devices.
+        With an index to this list (starting at zero) as argument, select
+        the corresponding device for the 'next' command and print the device
+        friendlyName, deviceType and UDN.
+
+        """)
+
+    def select_device(self, devices, idx):
+        """Select a device in a list and print some device attributes."""
+
+        try:
+            idx = int(idx)
+            dev = devices[idx]
+            print('Selected device:')
+            print('  friendlyName:', device_name(dev))
+            print('  deviceType:', dev.deviceType)
+            print('  UDN:', dev.UDN)
+        except Exception as e:
+            print(f'*** {e!r}')
+        else:
+            return  dev
+
     def get_help(self):
         """Return the help as a string."""
 
@@ -70,6 +93,16 @@ class _Cmd(cmd.Cmd):
 
     def cmdloop(self):
         super().cmdloop(intro=_dedent(self.__doc__) + self.get_help())
+
+class UPnPServiceCmd(_Cmd):
+    """XXX."""
+
+    def __init__(self, upnp_service):
+        super().__init__()
+        build_commands_from(self, upnp_service)
+        self.upnp_service = upnp_service
+        self.prompt = None # XXX f'[{device_name(upnp_device)}] '
+        self.quit = False
 
 class UPnPDeviceCmd(_Cmd):
     """=== Controlling an UPnPDevice ===
@@ -88,6 +121,7 @@ class UPnPDeviceCmd(_Cmd):
         self.upnp_device = upnp_device
         self.prompt = f'[{device_name(upnp_device)}] '
         self.quit = False
+        self.selected = None
 
     def do_quit(self, unused):
         """Quit the application"""
@@ -97,18 +131,31 @@ class UPnPDeviceCmd(_Cmd):
         # Stop the current interpreter and return to the previous one.
         return True
 
+    def help_device(self):
+        print(self.device_help('embedded'))
+
+    def do_device(self, idx):
+        dev_list = list(self.upnp_device.deviceList.values())
+        if idx:
+            self.selected = self.select_device(dev_list, idx)
+        else:
+            print([device_name(dev) for dev in dev_list])
+
     def do_next(self, unused):
         """Go to the selected service or embedded device."""
 
-        # XXX service or device
-        device = UPnPDeviceCmd(None)
-        if device.cmdloop():
-            self.do_quit(None)
+        if self.selected is None:
+            print('*** No selected device or service')
+            return
+
+        clazz = (UPnPDeviceCmd if isinstance(self.selected, UPnPDevice) else
+                                                            UPnPServiceCmd)
+        interpreter = clazz(self.selected)
+        if interpreter.cmdloop():
+            return self.do_quit(None)
 
     def do_previous(self, unused):
         """Return to the previous device."""
-
-        # XXX add help() ???
         return True
 
     def help_ip_source(self):
@@ -170,31 +217,14 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         return True
 
     def help_device(self):
-        print(_dedent("""Print information about a device and select it.
-
-        Without argument, list the discovered devices.
-        With an index to this list (starting at zero) as argument, select
-        the corresponding device for the 'next' command and print the device
-        friendlyName, deviceType and UDN.
-
-        """))
+        print(self.device_help('discovered'))
 
     def do_device(self, idx):
-        dev_list = [dev for dev in self.control_point._devices.values()]
+        dev_list = list(self.devices)
         if idx:
-            try:
-                idx = int(idx)
-                dev =dev_list[idx]
-                print('Selected device:')
-                print('  friendlyName:', device_name(dev))
-                print('  deviceType:', dev.deviceType)
-                print('  UDN:', dev.UDN)
-            except Exception as e:
-                print(f'*** {e!r}')
-            else:
-                self.selected = dev
+            self.selected = self.select_device(dev_list, idx)
         else:
-            print(tuple(device_name(dev) for dev in dev_list))
+            print([device_name(dev) for dev in dev_list])
 
     def do_next(self, unused):
         """Go to the selected device."""
@@ -204,8 +234,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                   ' select one')
             return
 
-        device = UPnPDeviceCmd(self.selected)
-        if device.cmdloop():
+        interpreter = UPnPDeviceCmd(self.selected)
+        if interpreter.cmdloop():
             self.close()
             return True
 
