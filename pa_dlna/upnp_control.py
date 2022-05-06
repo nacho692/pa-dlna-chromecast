@@ -91,6 +91,9 @@ class _Cmd(cmd.Cmd):
         finally:
             self.stdout = _stdout
 
+    def emptyline(self):
+        """Do not run the last command."""
+
     def cmdloop(self):
         super().cmdloop(intro=_dedent(self.__doc__) + self.get_help())
 
