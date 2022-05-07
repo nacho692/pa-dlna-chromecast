@@ -86,7 +86,7 @@ class AVControlPoint(UPnPApplication):
     async def run_control_point(self):
         try:
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.ipaddr_list,
+            async with UPnPControlPoint(self.ip_list,
                                         self.ttl) as control_point:
                 while True:
                     notif, root_device = await control_point.get_notification()

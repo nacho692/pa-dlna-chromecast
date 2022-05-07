@@ -68,7 +68,7 @@ class _Cmd(cmd.Cmd):
         super().__init__()
 
     def device_help(self, kind):
-        return _dedent(f"""Print information about a device and select it.
+        return _dedent(f"""Print information about a device and select it
 
         Without argument, list the {kind} devices.
         With an index to this list (starting at zero) as argument, select
@@ -143,7 +143,7 @@ class UPnPServiceCmd(_Cmd):
         return True
 
     def do_previous(self, unused):
-        """Return to the previous device."""
+        """Return to the previous device"""
         return True
 
     def cmdloop(self):
@@ -188,7 +188,7 @@ class UPnPDeviceCmd(_Cmd):
             self.selected = selected
 
     def help_service(self):
-        print(_dedent(f"""Print information about a service and select it.
+        print(_dedent(f"""Print information about a service and select it
 
         Without argument, list the services.
         With an index to this list (starting at zero) as argument, select
@@ -222,7 +222,7 @@ class UPnPDeviceCmd(_Cmd):
             print([str(serv) for serv in services_list])
 
     def do_next(self, unused):
-        """Go to the selected service or embedded device."""
+        """Go to the selected service or embedded device"""
 
         if self.selected is None:
             print('*** No selected device or service')
@@ -235,7 +235,7 @@ class UPnPDeviceCmd(_Cmd):
             return self.do_quit(None)
 
     def do_previous(self, unused):
-        """Return to the previous device."""
+        """Return to the previous device"""
         return True
 
     def help_ip_source(self):
@@ -305,8 +305,17 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         if selected is not None:
             self.selected = selected
 
+    def help_ip_list(self):
+        print(_dedent("""Print the list of the local IPv4 addresses of the
+        network interfaces where UPnP devices may be discovered
+
+        """))
+
+    def help_ttl(self):
+        print('Print the the IP packets time to live')
+
     def do_next(self, unused):
-        """Go to the selected device."""
+        """Go to the selected device"""
 
         if self.selected is None:
             print("*** No selected device, use the 'device INDEX' command to"
@@ -340,7 +349,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.loop = asyncio.get_running_loop()
         try:
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.ipaddr_list,
+            async with UPnPControlPoint(self.ip_list,
                                         self.ttl) as self.control_point:
                 event.set()
                 while True:

@@ -155,7 +155,7 @@ async def msearch(ip, ttl):
         # Needed when OSError is raised upon binding the socket.
         sock.close()
 
-async def notify(ip_addresses, process_datagram):
+async def notify(ip_list, process_datagram):
     """Implement the SSDP advertisement protocol."""
 
     # See section 21.10 Sending and Receiving in
@@ -168,7 +168,7 @@ async def notify(ip_addresses, process_datagram):
     sock.setblocking(False)
 
     try:
-        for ip in ip_addresses:
+        for ip in ip_list:
             # Become a member of the IP multicast group on this interface.
             mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
                                socket.inet_aton(ip))

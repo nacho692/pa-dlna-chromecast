@@ -5,8 +5,8 @@ Example of using the Control Point (there is no external dependency):
 >>> import asyncio
 >>> import upnp
 >>>
->>> async def main(ipaddr_list):
-...   async with upnp.UPnPControlPoint(ipaddr_list) as control_point:
+>>> async def main(ip_list):
+...   async with upnp.UPnPControlPoint(ip_list) as control_point:
 ...     notification, root_device = await control_point.get_notification()
 ...     print(f"  Got '{notification}' from {root_device.ip_source}")
 ...     print(f'  deviceType: {root_device.deviceType}')
@@ -506,7 +506,7 @@ class UPnPControlPoint:
     """An UPnP control point.
 
     Attributes:
-      ip_addresses  list of local IPv4 addresses of the network interfaces
+      ip_list       list of local IPv4 addresses of the network interfaces
                     where UPnP devices may be discovered
       ttl           the IP packets time to live
 
@@ -519,18 +519,18 @@ class UPnPControlPoint:
       __aclose__
     """
 
-    def __init__(self, ip_addresses, ttl=2):
+    def __init__(self, ip_list, ttl=2):
         """Constructor.
 
-        'ip_addresses' list of the local IPv4 addresses of the network
-            interfaces where DLNA devices may be discovered.
-        'ttl' IP packets time to live.
+        'ip_list'   list of the local IPv4 addresses of the network
+                    interfaces where DLNA devices may be discovered
+        'ttl'       IP packets time to live
         """
 
-        if not ip_addresses:
+        if not ip_list:
             raise UPnPControlPointError('The list of ip addresses cannot'
                                              ' be empty')
-        self.ip_addresses = ip_addresses
+        self.ip_list = ip_list
         self.ttl = ttl
         self._closed = False
         self._upnp_queue = asyncio.Queue()
@@ -676,7 +676,7 @@ class UPnPControlPoint:
 
         try:
             while True:
-                for ip in self.ip_addresses:
+                for ip in self.ip_list:
                     result = await msearch(ip, self.ttl)
                     if result:
                         for (datagram, src_addr) in result:
@@ -700,7 +700,7 @@ class UPnPControlPoint:
         """Listen to SSDP notifications."""
 
         try:
-            await notify(self.ip_addresses, self._process_ssdp)
+            await notify(self.ip_list, self._process_ssdp)
         except asyncio.CancelledError:
             self.close()
             raise

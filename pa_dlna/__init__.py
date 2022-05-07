@@ -111,7 +111,7 @@ def parse_args(doc, logger):
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
     parser.add_argument('--networks', '-n', metavar="IP_LIST", default='',
-                        dest='ipaddr_list',
+                        dest='ip_list',
                         help=' '.join(line.strip() for line in
                                      networks_option.__doc__.split('\n')[2:]))
     parser.add_argument('--ttl', type=int, default=2,
@@ -135,7 +135,7 @@ def parse_args(doc, logger):
     logfile_hdler = setup_logging(options)
 
     # Run networks_option() once logging has been setup.
-    options['ipaddr_list'] = networks_option(options['ipaddr_list'], parser,
+    options['ip_list'] = networks_option(options['ip_list'], parser,
                                              logger)
 
     return options, logfile_hdler
