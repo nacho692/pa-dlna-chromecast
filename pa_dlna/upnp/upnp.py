@@ -58,6 +58,7 @@ logger = logging.getLogger('upnp')
 
 MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
+SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
 
 class UPnPClosedControlPointError(UPnPError): pass
 class UPnPControlPointError(UPnPError): pass
@@ -244,6 +245,11 @@ class UPnPService(UPnPElement):
         # Not implemented.
 
         return self
+
+    def __str__(self):
+        return (self.serviceId[len(SERVICEID_PREFIX):] if
+                self.serviceId.startswith(SERVICEID_PREFIX) else
+                self.serviceId)
 
 class UPnPDevice(UPnPElement):
     """An UPnP device.

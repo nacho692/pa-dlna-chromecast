@@ -12,7 +12,7 @@ from .upnp import (UPnPControlPoint, UPnPDevice, pprint_xml)
 
 logger = logging.getLogger('upnpctl')
 
-SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
+class MissingElementError(Exception): pass
 
 # Utilities.
 def _dedent(txt):
@@ -47,14 +47,20 @@ def build_commands_from(instance, obj, exclude=()):
             getattr(instance.__class__, funcname).__doc__ = (
                                                 f"Print the value of '{key}'")
 
+def check_required(obj, attributes):
+    """Check that all in 'attributes' are attributes of 'obj'."""
+
+    for name in attributes:
+        if not hasattr(obj, name):
+            msg = ''
+            if hasattr(obj, 'ip_source'):
+                msg = f' at {obj.ip_source}'
+            raise MissingElementError(f"Missing '{name}' xml element in"
+                            f" description of '{str(obj)}'{msg}")
+
 def device_name(dev):
     attr = 'friendlyName'
     return getattr(dev, attr) if hasattr(dev, attr) else str(dev)
-
-def service_id(service):
-    id = service.serviceId
-    return (id[len(SERVICEID_PREFIX):] if id.startswith(SERVICEID_PREFIX) else
-                                                                        id)
 
 # Class(es).
 class _Cmd(cmd.Cmd):
@@ -75,16 +81,26 @@ class _Cmd(cmd.Cmd):
         """Select a device in a list and print some device attributes."""
 
         try:
-            idx = int(idx)
-            dev = devices[idx]
-            print('Selected device:')
-            print('  friendlyName:', device_name(dev))
-            print('  deviceType:', dev.deviceType)
-            print('  UDN:', dev.UDN)
-        except Exception as e:
-            print(f'*** {e!r}')
+            for dev in devices:
+                check_required(dev, ('deviceType', 'UDN'))
+        except MissingElementError as e:
+            print(f'*** {e.args[0]}')
+            return
+
+        if idx:
+            try:
+                idx = int(idx)
+                dev = devices[idx]
+                print('Selected device:')
+                print('  friendlyName:', device_name(dev))
+                print('  deviceType:', dev.deviceType)
+                print('  UDN:', dev.UDN)
+            except Exception as e:
+                print(f'*** {e!r}')
+            else:
+                return  dev
         else:
-            return  dev
+            print([device_name(dev) for dev in devices])
 
     def get_help(self):
         """Return the help as a string."""
@@ -113,9 +129,9 @@ class UPnPServiceCmd(_Cmd):
 
     def __init__(self, upnp_service):
         super().__init__()
-        build_commands_from(self, upnp_service)
         self.upnp_service = upnp_service
-        self.prompt = f'[{service_id(self.upnp_service)}] '
+        build_commands_from(self, upnp_service)
+        self.prompt = f'[{str(self.upnp_service)}] '
         self.quit = False
 
     def do_quit(self, unused):
@@ -147,9 +163,9 @@ class UPnPDeviceCmd(_Cmd):
 
     def __init__(self, upnp_device):
         super().__init__()
+        self.upnp_device = upnp_device
         build_commands_from(self, upnp_device,
                             exclude=('deviceList', 'serviceList'))
-        self.upnp_device = upnp_device
         self.prompt = f'[{device_name(upnp_device)}] '
         self.quit = False
         self.selected = None
@@ -167,10 +183,9 @@ class UPnPDeviceCmd(_Cmd):
 
     def do_device(self, idx):
         dev_list = list(self.upnp_device.deviceList.values())
-        if idx:
-            self.selected = self.select_device(dev_list, idx)
-        else:
-            print([device_name(dev) for dev in dev_list])
+        selected = self.select_device(dev_list, idx)
+        if selected is not None:
+            self.selected = selected
 
     def help_service(self):
         print(_dedent(f"""Print information about a service and select it.
@@ -184,19 +199,27 @@ class UPnPDeviceCmd(_Cmd):
 
     def do_service(self, idx):
         services_list = list(self.upnp_device.serviceList.values())
+
+        try:
+            for serv in services_list:
+                check_required(serv, ('serviceType', 'serviceId'))
+        except MissingElementError as e:
+            print(f'*** {e.args[0]}')
+            return
+
         if idx:
             try:
                 idx = int(idx)
                 serv = services_list[idx]
                 print('Selected service:')
-                print('  serviceId:', service_id(serv))
+                print('  serviceId:', str(serv))
                 print('  serviceType:', serv.serviceType)
             except Exception as e:
                 print(f'*** {e!r}')
             else:
                 self.selected = serv
         else:
-            print([service_id(serv) for serv in services_list])
+            print([str(serv) for serv in services_list])
 
     def do_next(self, unused):
         """Go to the selected service or embedded device."""
@@ -278,10 +301,9 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
 
     def do_device(self, idx):
         dev_list = list(self.devices)
-        if idx:
-            self.selected = self.select_device(dev_list, idx)
-        else:
-            print([device_name(dev) for dev in dev_list])
+        selected = self.select_device(dev_list, idx)
+        if selected is not None:
+            self.selected = selected
 
     def do_next(self, unused):
         """Go to the selected device."""
