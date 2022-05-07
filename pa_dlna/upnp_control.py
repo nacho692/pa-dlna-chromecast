@@ -150,12 +150,18 @@ class UPnPServiceCmd(_Cmd):
         return True
 
     def do_previous(self, unused):
-        """Return to the previous device"""
+        """Return to the device"""
         return True
+
+    def help_parent_device(self):
+        print('Shortened UDN of the parent device')
 
     def do_description(self, unused):
         """Print the xml 'description'"""
         pprint_xml(self.upnp_service.description)
+
+    def help_root_device(self):
+        print('Shortened UDN of the root device')
 
     def cmdloop(self):
         super().cmdloop()
@@ -245,8 +251,13 @@ class UPnPDeviceCmd(_Cmd):
         if interpreter.cmdloop():
             return self.do_quit(None)
 
+    def help_previous(self):
+        if self.upnp_device.parent_device is self.upnp_device.root_device:
+            print('Return to the control point')
+        else:
+            print('Return to the previous device')
+
     def do_previous(self, unused):
-        """Return to the previous device"""
         return True
 
     def help_ip_source(self):
