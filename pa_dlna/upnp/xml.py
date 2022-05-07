@@ -178,8 +178,15 @@ def pprint_xml(xml):
     root, namespace = upnp_org_etree(xml)
     tree = ET.ElementTree(root)
     ET.indent(tree)
+
+    # A namespace qualified with the '' prefix causes xml.etree.ElementTree to
+    # throw the following exception in tree.write():
+    # ValueError: cannot use non-qualified names with default_namespace option
+    default_namespace = str(namespace) if namespace.key else None
+
     with io.StringIO() as out:
-        tree.write(out, encoding="unicode", default_namespace=str(namespace))
+        tree.write(out, encoding="unicode",
+                   default_namespace=default_namespace)
         print(out.getvalue())
 
 # Helper classes.
@@ -198,8 +205,9 @@ class UPnPNamespace:
         if not ns:
             self.value = ''
 
-        for v in ns.values():
+        for k, v in ns.items():
             if v.startswith(value_beg):
+                self.key = k
                 self.value = v
                 break
 

@@ -6,6 +6,7 @@ import logging
 import asyncio
 import textwrap
 import pprint
+import traceback
 
 from . import (main_function, UPnPApplication)
 from .upnp import (UPnPControlPoint, UPnPDevice, pprint_xml)
@@ -117,6 +118,12 @@ class _Cmd(cmd.Cmd):
     def emptyline(self):
         """Do not run the last command."""
 
+    def onecmd(self, line):
+        try:
+            return super().onecmd(line)
+        except Exception:
+            traceback.print_exc(limit=-10)
+
     def cmdloop(self):
         super().cmdloop(intro=_dedent(self.__doc__) + self.get_help())
 
@@ -145,6 +152,10 @@ class UPnPServiceCmd(_Cmd):
     def do_previous(self, unused):
         """Return to the previous device"""
         return True
+
+    def do_description(self, unused):
+        """Print the xml 'description'"""
+        pprint_xml(self.upnp_service.description)
 
     def cmdloop(self):
         super().cmdloop()
