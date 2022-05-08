@@ -172,10 +172,10 @@ class UPnPServiceCmd(_Cmd):
     def help_actionList(self):
         print(_dedent("""Print an action or list actions
 
-        With a numeric argument such as 'actionList DEPTH'
-          When DEPTH is 1, print a list of the actions.
-          When DEPTH is 2, print a list of the actions with their arguments.
-          When DEPTH is 3, print a list of the actions with their arguments
+        With a numeric argument such as 'actionList DEPTH':
+          When DEPTH is 1, print the list of the actions.
+          When DEPTH is 2, print the list of the actions with their arguments.
+          When DEPTH is 3, print the list of the actions with their arguments
             and the values of 'direction' and 'relatedStateVariable' for each
             argument.
         With no argument, it is the same as 'actionList 1'.
@@ -207,6 +207,50 @@ class UPnPServiceCmd(_Cmd):
         else:
             try:
                 action = {arg: self.upnp_service.actionList[arg]}
+                _pprint(action)
+            except KeyError:
+                print(f"*** '{arg}' is not an action")
+
+    def help_serviceStateTable(self):
+        print(_dedent("""Print a stateVariable or list the stateVariables
+
+        With a numeric argument such as 'serviceStateTable DEPTH':
+          When DEPTH is 1, print the list of the stateVariables.
+          When DEPTH is 2, print the list of the stateVariables with their
+            parameters.
+          When DEPTH is 3, print also the list of the 'allowedValueList' or
+           'allowedValuerange' parameter if any.
+
+        With no argument, it is the same as 'serviceStateTable 1'.
+        With the stateVariable name as argument, print the full description of
+        the stateVariable.
+
+        Completion is enabled on the stateVariable names.
+
+        """))
+
+    def complete_serviceStateTable(self, text, line, begidx, endidx):
+        return [s for s in self.upnp_service.serviceStateTable if
+                s.startswith(text)]
+
+    def do_serviceStateTable(self, arg):
+        depth = None
+        if arg == '':
+            depth = 1
+        else:
+            try:
+                depth = int(arg)
+                if depth <= 0 or depth > 3:
+                    print('*** Depth must be > 0 and < 4')
+                    return
+            except ValueError:
+                pass
+
+        if depth is not None:
+            _pprint(self.upnp_service.serviceStateTable, depth=depth)
+        else:
+            try:
+                action = {arg: self.upnp_service.serviceStateTable[arg]}
                 _pprint(action)
             except KeyError:
                 print(f"*** '{arg}' is not an action")
