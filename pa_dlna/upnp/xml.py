@@ -75,6 +75,7 @@ def scpd_actionlist(scpd, namespace):
                     for argument in e:
                         d = findall_childless(argument, namespace)
                         name = d['name']
+                        del d['name']
                         args[name] = d
             # Silently ignore malformed actions.
             if action_name is not None and args is not None:

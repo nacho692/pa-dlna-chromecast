@@ -132,7 +132,7 @@ class UPnPService(UPnPElement):
       actionList    dict {action name: arguments} where arguments is a dict
                     indexed by the argument name with a value that is another
                     dict whose keys are in.
-                    ('name', 'direction', 'relatedStateVariable')
+                    ('direction', 'relatedStateVariable')
 
       serviceStateTable  dict {variable name: params} where params is a dict
                     with keys in ('sendEvents', 'multicast', 'dataType',

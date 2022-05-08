@@ -1,12 +1,14 @@
 """Command line tool to control upnp devices."""
 
 import io
+import sys
 import cmd
 import logging
 import asyncio
 import textwrap
 import pprint
 import traceback
+import functools
 
 from . import (main_function, UPnPApplication)
 from .upnp import (UPnPControlPoint, UPnPDevice, pprint_xml)
@@ -16,6 +18,14 @@ logger = logging.getLogger('upnpctl')
 class MissingElementError(Exception): pass
 
 # Utilities.
+# We want to preserve the order of 'in' and 'out' elements in the 'actionList'
+# of the service xml description.
+# The 'sort_dicts' keyword is supported since 3.8.
+if sys.version_info >= (3, 8):
+    _pprint = functools.partial(pprint.pprint, sort_dicts=False)
+else:
+    _pprint = pprint.pprint
+
 def _dedent(txt):
     """A dedent that does not use the first line to compute the margin.
 
@@ -163,6 +173,48 @@ class UPnPServiceCmd(_Cmd):
     def help_root_device(self):
         print('Shortened UDN of the root device')
 
+    def help_actionList(self):
+        print(_dedent("""Print an action or list actions
+
+        With a numeric argument such as 'actionList DEPTH'
+          When DEPTH is 1, print a list of the actions.
+          When DEPTH is 2, print a list of the actions with their arguments.
+          When DEPTH is 3, print a list of the actions with their arguments
+            and the values of 'direction' and 'relatedStateVariable' for each
+            argument.
+        With no argument, it is the same as 'actionList 1'.
+        With the action name as argument, print the full description of the
+        action.
+
+        Completion is enabled on the action names.
+
+        """))
+
+    def complete_actionList(self, text, line, begidx, endidx):
+        return [a for a in self.upnp_service.actionList if a.startswith(text)]
+
+    def do_actionList(self, arg):
+        depth = None
+        if arg == '':
+            depth = 1
+        else:
+            try:
+                depth = int(arg)
+                if depth <= 0 or depth > 3:
+                    print('*** Depth must be > 0 and < 4')
+                    return
+            except ValueError:
+                pass
+
+        if depth is not None:
+            _pprint(self.upnp_service.actionList, depth=depth)
+        else:
+            try:
+                action = {arg: self.upnp_service.actionList[arg]}
+                _pprint(action)
+            except KeyError:
+                print(f"*** '{arg}' is not an action")
+
     def cmdloop(self):
         super().cmdloop()
         # Tell the previous interpreter to just quit when self.quit is True.
@@ -205,7 +257,7 @@ class UPnPDeviceCmd(_Cmd):
             self.selected = selected
 
     def help_service(self):
-        print(_dedent(f"""Print information about a service and select it
+        print(_dedent("""Print information about a service and select it
 
         Without argument, list the services.
         With an index to this list (starting at zero) as argument, select
@@ -275,7 +327,7 @@ class UPnPDeviceCmd(_Cmd):
 
         device = self.upnp_device
         if hasattr(device, 'iconList'):
-            pprint.pprint(device.iconList, indent=2)
+            _pprint(device.iconList, indent=2)
         else:
             print('None')
 
