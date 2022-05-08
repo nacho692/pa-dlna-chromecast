@@ -79,12 +79,11 @@ class _Cmd(cmd.Cmd):
         super().__init__()
 
     def device_help(self, kind):
-        return _dedent(f"""Print information about a device and select it
+        return _dedent(f"""Select {kind} device
 
-        Without argument, list the {kind} devices.
-        With an index to this list (starting at zero) as argument, select
-        the corresponding device for the 'next' command and print the device
-        friendlyName, deviceType and UDN.
+        Use the command 'device IDX' to select the device at index IDX
+        (starting at zero) in the list printed by the 'device_list' command.
+        With no argument, do this for the device at index 0.
 
         """)
 
@@ -98,20 +97,19 @@ class _Cmd(cmd.Cmd):
             print(f'*** {e.args[0]}')
             return
 
-        if idx:
-            try:
-                idx = int(idx)
-                dev = devices[idx]
-                print('Selected device:')
-                print('  friendlyName:', device_name(dev))
-                print('  deviceType:', dev.deviceType)
-                print('  UDN:', dev.UDN)
-            except Exception as e:
-                print(f'*** {e!r}')
-            else:
-                return  dev
+        idx = 0 if idx == '' else idx
+        try:
+            idx = int(idx)
+            dev = devices[idx]
+            print('Selected device:')
+            print('  friendlyName:', device_name(dev))
+            print('  deviceType:', dev.deviceType)
+            print('  UDN:', dev.UDN)
+            print()
+        except Exception as e:
+            print(f'*** {e!r}')
         else:
-            print([device_name(dev) for dev in devices])
+            return  dev
 
     def get_help(self):
         """Return the help as a string."""
@@ -138,9 +136,7 @@ class _Cmd(cmd.Cmd):
         super().cmdloop(intro=_dedent(self.__doc__) + self.get_help())
 
 class UPnPServiceCmd(_Cmd):
-    """=== UPnP service ===
-
-    Use the 'previous' command to return to the device.
+    """Use the 'previous' command to return to the device.
 
     """
 
@@ -221,12 +217,9 @@ class UPnPServiceCmd(_Cmd):
         return self.quit
 
 class UPnPDeviceCmd(_Cmd):
-    """=== UPnP device ===
-
-    Use the 'device' or 'service' command to select an embedded device or
-    service and the 'next' command to enter the selected device or service.
-    Use the 'previous' command to return to the previous device or to the
-    control point.
+    """Use the 'device' or 'service' command to select an embedded device or
+    service. Use the 'previous' command to return to the previous device or to
+    the control point.
 
     """
 
@@ -237,7 +230,6 @@ class UPnPDeviceCmd(_Cmd):
                             exclude=('deviceList', 'serviceList'))
         self.prompt = f'[{device_name(upnp_device)}] '
         self.quit = False
-        self.selected = None
 
     def do_quit(self, unused):
         """Quit the application"""
@@ -247,22 +239,32 @@ class UPnPDeviceCmd(_Cmd):
         # Stop the current interpreter and return to the previous one.
         return True
 
+    def do_device_list(self, unused):
+        """List the embedded UPnP devices"""
+        print([device_name(dev) for dev in
+               self.upnp_device.deviceList.values()])
+
     def help_device(self):
-        print(self.device_help('embedded'))
+        print(self.device_help('an embedded'))
 
     def do_device(self, idx):
         dev_list = list(self.upnp_device.deviceList.values())
         selected = self.select_device(dev_list, idx)
         if selected is not None:
-            self.selected = selected
+            interpreter = UPnPDeviceCmd(selected)
+            if interpreter.cmdloop():
+                return self.do_quit(None)
+
+    def do_service_list(self, unused):
+        """List the services"""
+        print([str(serv) for serv in self.upnp_device.serviceList.values()])
 
     def help_service(self):
-        print(_dedent("""Print information about a service and select it
+        print(_dedent("""Select a service
 
-        Without argument, list the services.
-        With an index to this list (starting at zero) as argument, select
-        the corresponding service for the 'next' command and print the
-        service serviceType and serviceId.
+        Use the command 'service IDX' to select the service at index IDX
+        (starting at zero) in the list printed by the 'service_list' command.
+        With no argument, do this for the service at index 0.
 
         """))
 
@@ -276,32 +278,20 @@ class UPnPDeviceCmd(_Cmd):
             print(f'*** {e.args[0]}')
             return
 
-        if idx:
-            try:
-                idx = int(idx)
-                serv = services_list[idx]
-                print('Selected service:')
-                print('  serviceId:', str(serv))
-                print('  serviceType:', serv.serviceType)
-            except Exception as e:
-                print(f'*** {e!r}')
-            else:
-                self.selected = serv
+        idx = 0 if idx == '' else idx
+        try:
+            idx = int(idx)
+            serv = services_list[idx]
+            print('Selected service:')
+            print('  serviceId:', str(serv))
+            print('  serviceType:', serv.serviceType)
+            print()
+        except Exception as e:
+            print(f'*** {e!r}')
         else:
-            print([str(serv) for serv in services_list])
-
-    def do_next(self, unused):
-        """Go to the selected service or embedded device"""
-
-        if self.selected is None:
-            print('*** No selected device or service')
-            return
-
-        clazz = (UPnPDeviceCmd if isinstance(self.selected, UPnPDevice) else
-                                                            UPnPServiceCmd)
-        interpreter = clazz(self.selected)
-        if interpreter.cmdloop():
-            return self.do_quit(None)
+            interpreter = UPnPServiceCmd(serv)
+            if interpreter.cmdloop():
+                return self.do_quit(None)
 
     def help_previous(self):
         if self.upnp_device.parent_device is self.upnp_device.root_device:
@@ -340,14 +330,13 @@ class UPnPDeviceCmd(_Cmd):
         return self.quit
 
 class UPnPControlCmd(UPnPApplication, _Cmd):
-    """=== Interactive interface to an UPnP control point ===
+    """Interactive interface to an UPnP control point
 
     List available commands with 'help' or '?'. List detailed help with
-    'help CMD'. Use tab completion and command history when the readline
+    'help COMMAND'. Use tab completion and command history when the readline
     Python module is available.
 
-    Use the 'device' or 'service' command to select a device or service and
-    the 'next' command to enter the selected device or service.
+    Use the 'device' command to select a device among the discovered devices.
 
     """
 
@@ -360,7 +349,6 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.control_point = None
         self.cp_thread = None
         self.devices = set()
-        self.selected = None
 
         # Cmd attributes.
         self.prompt = '[Control Point] '
@@ -370,14 +358,21 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.close()
         return True
 
+    def do_device_list(self, unused):
+        """List the discovered UPnP devices"""
+        print([device_name(dev) for dev in self.devices])
+
     def help_device(self):
-        print(self.device_help('discovered'))
+        print(self.device_help('a discovered'))
 
     def do_device(self, idx):
         dev_list = list(self.devices)
         selected = self.select_device(dev_list, idx)
         if selected is not None:
-            self.selected = selected
+            interpreter = UPnPDeviceCmd(selected)
+            if interpreter.cmdloop():
+                self.close()
+                return True
 
     def help_ip_list(self):
         print(_dedent("""Print the list of the local IPv4 addresses of the
@@ -387,19 +382,6 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
 
     def help_ttl(self):
         print('Print the the IP packets time to live')
-
-    def do_next(self, unused):
-        """Go to the selected device"""
-
-        if self.selected is None:
-            print("*** No selected device, use the 'device INDEX' command to"
-                  ' select one')
-            return
-
-        interpreter = UPnPDeviceCmd(self.selected)
-        if interpreter.cmdloop():
-            self.close()
-            return True
 
     def close(self):
         if (self.loop is not None and not self.loop.is_closed() and
