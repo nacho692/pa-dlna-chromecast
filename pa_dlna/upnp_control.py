@@ -90,6 +90,10 @@ class _Cmd(cmd.Cmd):
     def select_device(self, devices, idx):
         """Select a device in a list and print some device attributes."""
 
+        if not devices:
+            print('*** No device')
+            return
+
         try:
             for dev in devices:
                 check_required(dev, ('deviceType', 'UDN'))
@@ -303,39 +307,48 @@ class UPnPDeviceCmd(_Cmd):
         """List the services"""
         print([str(serv) for serv in self.upnp_device.serviceList.values()])
 
+    def complete_service(self, text, line, begidx, endidx):
+        return [s for s in
+                (str(serv) for serv in self.upnp_device.serviceList.values())
+                    if s.startswith(text)]
+
     def help_service(self):
         print(_dedent("""Select a service
 
-        Use the command 'service IDX' to select the service at index IDX
-        (starting at zero) in the list printed by the 'service_list' command.
-        With no argument, do this for the service at index 0.
+        Use the command 'service NAME' to select the service named NAME.
+        Completion is enabled on the service names.
 
         """))
 
-    def do_service(self, idx):
-        services_list = list(self.upnp_device.serviceList.values())
+    def do_service(self, arg):
+        services = list(self.upnp_device.serviceList.values())
+
+        if not services:
+            print('*** No service')
+            return
 
         try:
-            for serv in services_list:
+            for serv in services:
                 check_required(serv, ('serviceType', 'serviceId'))
         except MissingElementError as e:
             print(f'*** {e.args[0]}')
             return
 
-        idx = 0 if idx == '' else idx
-        try:
-            idx = int(idx)
-            serv = services_list[idx]
-            print('Selected service:')
-            print('  serviceId:', str(serv))
-            print('  serviceType:', serv.serviceType)
-            print()
-        except Exception as e:
-            print(f'*** {e!r}')
+        for serv in services:
+            str_serv = str(serv)
+            if str_serv == arg:
+                print('Selected service:')
+                print('  serviceId:', str_serv)
+                print('  serviceType:', serv.serviceType)
+                print()
+                break
         else:
-            interpreter = UPnPServiceCmd(serv)
-            if interpreter.cmdloop():
-                return self.do_quit(None)
+            print(f"*** Unkown service '{arg}'")
+            return
+
+        interpreter = UPnPServiceCmd(serv)
+        if interpreter.cmdloop():
+            return self.do_quit(None)
 
     def help_previous(self):
         if self.upnp_device.parent_device is self.upnp_device.root_device:
