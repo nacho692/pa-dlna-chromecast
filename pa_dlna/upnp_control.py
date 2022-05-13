@@ -75,6 +75,42 @@ def device_name(dev):
     attr = 'friendlyName'
     return getattr(dev, attr) if hasattr(dev, attr) else str(dev)
 
+def comma_split(txt):
+    """Split 'txt' on commas handling backslash escaped commas."""
+
+    escaped = None
+    result = []
+    for line in txt.split(','):
+        if escaped:
+            line = escaped + line
+            escaped = None
+        if line.endswith('\\'):
+            escaped = line[:-1] + ','
+        else:
+            result.append(line.strip())
+    return result
+
+def pprint_soap(response):
+    """Pretty print an soap response."""
+
+    if not response:
+        print('SOAP response OK')
+        return
+
+    for arg, value in response.items():
+        # A comma separated list becomes a Python list.
+        if isinstance(value, str):
+            splitted = comma_split(value)
+            if len(splitted) > 1:
+                response[arg] = splitted
+            else:
+                try:
+                    response[arg] = int(value)
+                except ValueError:
+                    pass
+    print('SOAP response:')
+    _pprint(response)
+
 # Class(es).
 class _Cmd(cmd.Cmd):
     def __init__(self):
@@ -331,8 +367,8 @@ class UPnPServiceCmd(_Cmd):
                             self.upnp_service.soap_action(action, args),
                             self.loop)
         try:
-            result = future.result()
-            print(f'{result}')
+            response = future.result()
+            pprint_soap(response)
         except UPnPSoapFaultError as e:
             print(f'*** Fault {e.args[0]}')
         except UPnPClosedDeviceError:
