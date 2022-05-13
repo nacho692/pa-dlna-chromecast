@@ -117,7 +117,7 @@ def parse_args(doc, logger):
     parser.add_argument('--ttl', type=int, default=2,
                         help='the IP packets time to live '
                         '(default: %(default)s)')
-    parser.add_argument('--loglevel', '-l', default='warning',
+    parser.add_argument('--loglevel', '-l', default='error',
                         choices=('debug', 'info', 'warning', 'error'),
                         help='set the log level of the logging console on '
                         'stderr (default: %(default)s)')

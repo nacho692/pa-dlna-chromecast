@@ -11,7 +11,8 @@ import traceback
 import functools
 
 from . import (main_function, UPnPApplication)
-from .upnp import (UPnPControlPoint, UPnPDevice, pprint_xml)
+from .upnp import (UPnPControlPoint, UPnPDevice, UPnPSoapFaultError,
+                   UPnPClosedDeviceError, pprint_xml)
 
 logger = logging.getLogger('upnpctl')
 
@@ -37,14 +38,16 @@ def _dedent(txt):
                                                        l == '' or l.strip()))
 
 class DoMethod:
-    """Default do_* method that prints the UPnPElement attribute value."""
+    # The implementation of generic do_* methods.
 
-    def __init__(self, name, value):
-        self.name = name
-        self.value = value
+    def __init__(self, func, arg, doc=None):
+        self.func = func
+        self.arg = arg
+        if doc is not None:
+            self.__doc__ = doc
 
-    def __call__(self, arg):
-        print(self.value)
+    def __call__(self, unused):
+        return self.func(self.arg)
 
 def build_commands_from(instance, obj, exclude=()):
     """Build do_* commands from 'obj'."""
@@ -54,9 +57,8 @@ def build_commands_from(instance, obj, exclude=()):
             continue
         funcname = f'do_{key}'
         if not hasattr(instance, funcname):
-            setattr(instance.__class__, funcname, DoMethod(funcname, value))
-            getattr(instance.__class__, funcname).__doc__ = (
-                                                f"Print the value of '{key}'")
+            setattr(instance, funcname, DoMethod(print, value,
+                                            f"Print the value of '{key}'"))
 
 def check_required(obj, attributes):
     """Check that all in 'attributes' are attributes of 'obj'."""
@@ -115,6 +117,9 @@ class _Cmd(cmd.Cmd):
         else:
             return  dev
 
+    def get_names(self):
+        return dir(self)
+
     def get_help(self):
         """Return the help as a string."""
 
@@ -139,15 +144,61 @@ class _Cmd(cmd.Cmd):
     def cmdloop(self):
         super().cmdloop(intro=_dedent(self.__doc__) + self.get_help())
 
+class ActionCommand(cmd.Cmd):
+    """Cmd interpreter used to prompt for an argument."""
+
+    def __init__(self, argument):
+        super().__init__()
+        self.prompt = f'  {argument} =  '
+        self.result = None
+
+    def complete(self, text, state):
+        return None
+
+    def cmdloop(self, intro=None):
+        # Disable history.
+        try:
+            if self.use_rawinput and self.completekey:
+                try:
+                    import readline
+                    readline.set_auto_history(False)
+                except ImportError:
+                    pass
+            super().cmdloop(intro)
+        finally:
+            if self.use_rawinput and self.completekey:
+                try:
+                    import readline
+                    readline.set_auto_history(True)
+                except ImportError:
+                    pass
+
+    def onecmd(self, line):
+        line = line.strip()
+        if line:
+            self.result = line
+            return True
+
 class UPnPServiceCmd(_Cmd):
     """Use the 'previous' command to return to the device.
+    Enter an action command to be prompted for the value of each of
+    its arguments. Type <Ctl-D> to abort entering those values.
 
     """
 
-    def __init__(self, upnp_service):
+    def __init__(self, upnp_service, loop):
         super().__init__()
         self.upnp_service = upnp_service
+        self.loop = loop
         build_commands_from(self, upnp_service)
+
+        # Build the do_* action commands.
+        self.doc_header = 'Main commands:'
+        self.undoc_header = 'Action commands:'
+        for action in self.upnp_service.actionList:
+            funcname = f'do_{action}'
+            setattr(self, funcname, DoMethod(self.soap_action, action))
+
         self.prompt = f'[{str(self.upnp_service)}] '
         self.quit = False
 
@@ -259,6 +310,36 @@ class UPnPServiceCmd(_Cmd):
             except KeyError:
                 print(f"*** '{arg}' is not an action")
 
+    def soap_action(self, action):
+        """Invoke a soap action on asyncio event loop from this thread."""
+
+        if self.loop is None or self.loop.is_closed():
+            print('*** The control point is closed')
+            return
+
+        args = {}
+        for arg, params in self.upnp_service.actionList[action].items():
+            if params['direction'] == 'in':
+                cmd = ActionCommand(arg)
+                cmd.cmdloop()
+                if cmd.result == 'EOF':
+                    print('*** Action interrupted')
+                    return
+                args[arg] = cmd.result
+
+        future = asyncio.run_coroutine_threadsafe(
+                            self.upnp_service.soap_action(action, args),
+                            self.loop)
+        try:
+            result = future.result()
+            print(f'{result}')
+        except UPnPSoapFaultError as e:
+            print(f'*** Fault {e.args[0]}')
+        except UPnPClosedDeviceError:
+            print(f'*** {self.upnp_service.root_device} is closed')
+        except Exception as e:
+            print(f'*** Got exception {e!r}')
+
     def cmdloop(self):
         super().cmdloop()
         # Tell the previous interpreter to just quit when self.quit is True.
@@ -271,9 +352,10 @@ class UPnPDeviceCmd(_Cmd):
 
     """
 
-    def __init__(self, upnp_device):
+    def __init__(self, upnp_device, loop):
         super().__init__()
         self.upnp_device = upnp_device
+        self.loop = loop
         build_commands_from(self, upnp_device,
                             exclude=('deviceList', 'serviceList'))
         self.prompt = f'[{device_name(upnp_device)}] '
@@ -346,7 +428,7 @@ class UPnPDeviceCmd(_Cmd):
             print(f"*** Unkown service '{arg}'")
             return
 
-        interpreter = UPnPServiceCmd(serv)
+        interpreter = UPnPServiceCmd(serv, self.loop)
         if interpreter.cmdloop():
             return self.do_quit(None)
 
@@ -426,7 +508,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         dev_list = list(self.devices)
         selected = self.select_device(dev_list, idx)
         if selected is not None:
-            interpreter = UPnPDeviceCmd(selected)
+            interpreter = UPnPDeviceCmd(selected, self.loop)
             if interpreter.cmdloop():
                 self.close()
                 return True

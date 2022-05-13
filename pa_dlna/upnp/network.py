@@ -339,7 +339,7 @@ class NotifyServerProtocol:
             self.error_received(exc)
 
     def error_received(self, exc):
-        logger.error(f'Error received by NotifyServerProtocol: {exc!r}')
+        logger.warning(f'Error received by NotifyServerProtocol: {exc!r}')
         self.transport.abort()
 
     def connection_lost(self, exc):
