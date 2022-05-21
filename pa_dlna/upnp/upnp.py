@@ -488,7 +488,7 @@ class UPnPRootDevice(UPnPDevice):
             self.close()
             raise
         except KeyboardInterrupt as e:
-            logger.debug('UPnPRootDevice._run got KeyboardInterrupt')
+            logger.debug('UPnPRootDevice._run() got KeyboardInterrupt')
             self._control_point.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
@@ -690,7 +690,7 @@ class UPnPControlPoint:
             self.close()
             raise
         except KeyboardInterrupt as e:
-            logger.debug('_ssdp_msearch got KeyboardInterrupt')
+            logger.debug('_ssdp_msearch() got KeyboardInterrupt')
             self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
@@ -705,7 +705,7 @@ class UPnPControlPoint:
             self.close()
             raise
         except KeyboardInterrupt as e:
-            logger.debug('_ssdp_notify got KeyboardInterrupt')
+            logger.debug('_ssdp_notify() got KeyboardInterrupt')
             self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
