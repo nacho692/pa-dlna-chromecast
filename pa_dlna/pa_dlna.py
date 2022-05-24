@@ -14,6 +14,9 @@ from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
 
 logger = logging.getLogger('pa-dlna')
 
+# Set 'test_pulseaudio' to True for testing when no DLNA device is available.
+test_pulseaudio = 0
+
 MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
 AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
@@ -21,6 +24,13 @@ CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 
 # A Playback instance is a connection of a sink-input to a sink.
 Playback = namedtuple('Playback', ['sink_input', 'sink'])
+
+# Utilities.
+def log_event(event_type, playback):
+    i = playback.sink_input
+    s = playback.sink
+    logger.info(f"Sink-input {i.index} '{event_type._value}' event for sink"
+                f" {s.name}({s.index}) state '{s.state._value}'")
 
 # Class(es).
 class PulseAudio:
@@ -90,14 +100,16 @@ class PulseAudio:
                     await self.pulse_ctl.module_unload(index)
                     del self.renderers[index]
 
-    async def dispatch(self, event, playback):
+    async def dispatch(self, event_type, playback):
         """Dispatch an event to a registered MediaRenderer instance."""
 
         if playback is None:
             return
+
         for renderer in self.renderers.values():
             if renderer.sink_index == playback.sink.index:
-                await renderer.on_pulse_event(event, playback)
+                log_event(event_type, playback)
+                await renderer.on_pulse_event(event_type, playback)
                 break
 
     def remove_playback(self, index):
@@ -107,60 +119,69 @@ class PulseAudio:
                 return playback
         return None
 
-    async def get_playback(self, event):
-        """Find the sink whose sink_input has triggered the event.
+    async def handle_event(self, event):
+        """Dispatch the event."""
 
-        If there has been a change, return the new Playback instance.
-        """
-
-        # Got a 'remove' event.
+        # A 'remove' event.
         if event.t == PulseEventTypeEnum.remove:
-            playback = self.remove_playback(event.index)
-            return playback
+            previous = self.remove_playback(event.index)
+            await self.dispatch(event.t, previous)
+            return
 
-        # Find the corresponding sink-input.
+        # Find the sink_input that has triggered the event.
+        # Note that by the time this code is running, pulseaudio may have done
+        # other changes. In other words, there may be inconsistencies between
+        # the event and the sink_input and sink lists.
         sink_inputs = await self.pulse_ctl.sink_input_list()
         for sink_input in sink_inputs:
             index = sink_input.index
+
             if index == event.index:
                 # Ignore 'pulsesink probe' - seems to be used to query sink
                 # formats (not for playback).
                 if sink_input.name == 'pulsesink probe':
-                    return None
+                    return
 
-                # Find the corresponding sink.
+                # Find the corresponding sink and instantiate a Playback.
                 sinks = await self.pulse_ctl.sink_list()
                 for sink in sinks:
                     if sink.index == sink_input.sink:
-                        playback = Playback(sink_input, sink)
-
-                        # Although it is the same stream and same indexes,
-                        # sink_input and sink instances are different.
                         previous = self.remove_playback(index)
+                        playback = Playback(sink_input, sink)
                         self.playbacks.add(playback)
 
-                        # Ignore the event if the state and media.name
-                        # are unchanged.
-                        if (previous is not None and
-                                previous.sink.state == sink.state and
-                                previous.sink_input.proplist['media.name'] ==
-                                    sink_input.proplist['media.name']):
-                            return None
-                        return playback
-                logger.info('Cannot match a sink-input to a sink')
-                return None
-        logger.info(f'Event {event.index, event.t} for a non-existent'
-                     f' sink-input')
+                        if previous is not None:
+                            # The sink_input/sink connection has not changed.
+                            if previous.sink_input.sink == sink_input.sink:
+                                # We are interested in changes to the state
+                                # and media.name.
+                                if (previous.sink_input.proplist['media.name']
+                                        != sink_input.proplist['media.name'] or
+                                        previous.sink.state != sink.state):
+                                    await self.dispatch(event.t, playback)
+
+                            # The sink_input has been re-routed to another
+                            # sink.
+                            else:
+                                await self.dispatch(event.t, playback)
+                                # Build a new 'remove' event for the sink that
+                                # had been previously connected to this
+                                # sink_input.
+                                await self.dispatch(PulseEventTypeEnum.remove,
+                                                    previous)
+                        else:
+                            await self.dispatch(event.t, playback)
 
     async def run(self):
         try:
             async with PulseAsync('pa-dlna') as self.pulse_ctl:
                 try:
-                    # await asyncio.sleep(3600) # XXX
+                    if test_pulseaudio:
+                        await TestMediaRenderer(self.av_control_point).run()
+
                     async for event in self.pulse_ctl.subscribe_events(
                                                 PulseEventMaskEnum.sink_input):
-                        playback = await self.get_playback(event)
-                        await self.dispatch(event, playback)
+                        await self.handle_event(event)
                 finally:
                     # Unload the null-sink modules.
                     for idx in self.renderers:
@@ -171,6 +192,9 @@ class PulseAudio:
             raise
         except KeyboardInterrupt as e:
             logger.debug('PulseAudio.run() got KeyboardInterrupt')
+            self.close(exc=e)
+        except PulseError as e:
+            logger.error(f'{e!r}')
             self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
@@ -193,13 +217,10 @@ class MediaRenderer:
     def close(self):
         self.root_device.close()
 
-    async def on_pulse_event(self, event, playback):
+    async def on_pulse_event(self, event_type, playback):
         """Handle a Pulseaudio event."""
 
         assert self.sink_index == playback.sink.index
-        i = playback.sink_input
-        s = playback.sink
-        logger.info(f'Event: {event.t}, {i.index, s.name[0:15], s.state}')
 
     async def soap_action(self, serviceId, action, args):
         """Send a SOAP action.
@@ -226,6 +247,26 @@ class MediaRenderer:
 
         resp = await self.soap_action(CONNECTIONMANAGER, 'GetProtocolInfo',
                                       {})
+        pulse = self.av_control_point.pulse
+        self.sink_index = await pulse.register(self)
+
+class TestMediaRenderer(MediaRenderer):
+    """MediaRenderer to be used for testing when no DLNA device available."""
+
+    class RootDevice:
+        modelName = 'R-N402D'
+        friendlyName = 'Yamaha RN402D'
+
+    def __init__(self, av_control_point):
+        super().__init__(self.RootDevice(), av_control_point)
+
+    def close(self):
+        pass
+
+    async def on_pulse_event(self, event_type, playback):
+        pass
+
+    async def run(self):
         pulse = self.av_control_point.pulse
         self.sink_index = await pulse.register(self)
 
