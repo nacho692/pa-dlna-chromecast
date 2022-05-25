@@ -45,7 +45,7 @@ class PulseAudio:
         self.closed = False
         self.pulse_ctl = None
         self.playbacks = set()     # set of Playback instances
-        self.renderers = {}        # {null-sink module index: MediaRenderer}
+        self.renderers = {}        # {null-sink index: MediaRenderer}
 
     def close(self, exc=None):
         if not self.closed:
@@ -77,28 +77,32 @@ class PulseAudio:
 
         name = name.replace(' ', r'\ ')
         description = description.replace(' ', r'\ ')
-        index = await self.pulse_ctl.module_load('module-null-sink',
+        module_index = await self.pulse_ctl.module_load('module-null-sink',
                                 args=f'sink_name="{name}" '
                                      f'sink_properties=device.description='
                                      f'"{description}"')
-        self.renderers[index] = renderer
 
+        # Find the index of the null-sink.
         sinks = await self.pulse_ctl.sink_list()
         idxs = set(sink.index for sink in sinks)
         diff = idxs.difference(previous_idxs)
         if len(diff) != 1:
-            raise RuntimeError(f'Got {len(diff)} more sink(s) instead of 1,'
+            raise RuntimeError(f'Got {len(diff)} more new sinks instead of 1,'
                                f' while loading a null-sink module')
-        return diff.pop()
+        sink_index = diff.pop()
+        renderer.sink_index = sink_index
+        renderer.module_index = module_index
+        self.renderers[sink_index] = renderer
 
     async def unregister(self, renderer):
-        if self.pulse_ctl is not None:
-            for index, rnd in list(self.renderers.items()):
-                if rnd is renderer:
-                    logger.debug(f'Unload null-sink module'
-                                 f' name="{rnd.modelName}"')
-                    await self.pulse_ctl.module_unload(index)
-                    del self.renderers[index]
+        if self.pulse_ctl is None:
+            return
+
+        assert renderer.sink_index in self.renderers
+        logger.debug(f'Unload null-sink module'
+                     f' name="{renderer.root_device.modelName}"')
+        await self.pulse_ctl.module_unload(renderer.module_index)
+        del self.renderers[renderer.sink_index]
 
     async def dispatch(self, event_type, playback):
         """Dispatch an event to a registered MediaRenderer instance."""
@@ -106,11 +110,10 @@ class PulseAudio:
         if playback is None:
             return
 
-        for renderer in self.renderers.values():
-            if renderer.sink_index == playback.sink.index:
-                log_event(event_type, playback)
-                await renderer.on_pulse_event(event_type, playback)
-                break
+        renderer = self.renderers.get(playback.sink.index)
+        if renderer is not None:
+            log_event(event_type, playback)
+            await renderer.on_pulse_event(event_type, playback)
 
     def remove_playback(self, index):
         for playback in list(self.playbacks):
@@ -176,16 +179,19 @@ class PulseAudio:
         try:
             async with PulseAsync('pa-dlna') as self.pulse_ctl:
                 try:
-                    if test_pulseaudio:
-                        await TestMediaRenderer(self.av_control_point).run()
-
+                    event_count = 0
                     async for event in self.pulse_ctl.subscribe_events(
                                                 PulseEventMaskEnum.sink_input):
                         await self.handle_event(event)
+
+                        event_count += 1
+                        if test_pulseaudio and if event_count == 1:
+                            rndr = TestMediaRenderer(self.av_control_point)
+                            await rndr.run()
                 finally:
                     # Unload the null-sink modules.
-                    for idx in self.renderers:
-                        await self.pulse_ctl.module_unload(idx)
+                    for rndr in self.renderers.values():
+                        await self.pulse_ctl.module_unload(rndr.module_index)
                     self.pulse_ctl = None
         except asyncio.CancelledError:
             self.close()
@@ -213,8 +219,11 @@ class MediaRenderer:
         self.root_device = root_device
         self.av_control_point = av_control_point
         self.sink_index = None          # null-sink index
+        self.module_index = None        # and the corresponding module index
 
-    def close(self):
+    async def close(self):
+        pulse = self.av_control_point.pulse
+        await pulse.unregister(self)
         self.root_device.close()
 
     async def on_pulse_event(self, event_type, playback):
@@ -240,7 +249,7 @@ class MediaRenderer:
                          f' closed')
         except Exception as e:
             logger.exception(f'{e!r}')
-            self.close()
+            await self.close()
 
     async def run(self):
         """Set up the MediaRenderer."""
@@ -248,7 +257,7 @@ class MediaRenderer:
         resp = await self.soap_action(CONNECTIONMANAGER, 'GetProtocolInfo',
                                       {})
         pulse = self.av_control_point.pulse
-        self.sink_index = await pulse.register(self)
+        await pulse.register(self)
 
 class TestMediaRenderer(MediaRenderer):
     """MediaRenderer to be used for testing when no DLNA device available."""
@@ -260,15 +269,16 @@ class TestMediaRenderer(MediaRenderer):
     def __init__(self, av_control_point):
         super().__init__(self.RootDevice(), av_control_point)
 
-    def close(self):
-        pass
+    async def close(self):
+        pulse = self.av_control_point.pulse
+        await pulse.unregister(self)
 
     async def on_pulse_event(self, event_type, playback):
         pass
 
     async def run(self):
         pulse = self.av_control_point.pulse
-        self.sink_index = await pulse.register(self)
+        await pulse.register(self)
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -285,11 +295,11 @@ class AVControlPoint(UPnPApplication):
         self.pulse = None               # PulseAudio instance
         self.aio_tasks = AsyncioTasks()
 
-    def close(self):
+    async def close(self):
         if not self.closed:
             self.closed = True
             for renderer in self.devices.values():
-                renderer.close()
+                await renderer.close()
             self.devices = {}
             self.aio_tasks.cancel_all()
 
@@ -332,7 +342,7 @@ class AVControlPoint(UPnPApplication):
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
         finally:
-            self.close()
+            await self.close()
 
     def __str__(self):
         return 'pa-dlna'
