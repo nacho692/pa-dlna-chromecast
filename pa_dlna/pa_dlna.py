@@ -5,8 +5,7 @@ import logging
 import re
 from collections import namedtuple
 from pulsectl_asyncio import PulseAsync
-from pulsectl import (PulseError, PulseEventMaskEnum, PulseEventTypeEnum,
-                      PulseStateEnum)
+from pulsectl import PulseError, PulseEventMaskEnum, PulseEventTypeEnum
 
 from . import (main_function, UPnPApplication)
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
@@ -25,14 +24,27 @@ CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 # A Playback instance is a connection of a sink-input to a sink.
 Playback = namedtuple('Playback', ['sink_input', 'sink'])
 
-# Utilities.
-def log_event(event_type, playback):
-    i = playback.sink_input
-    s = playback.sink
-    logger.info(f"Sink-input {i.index} '{event_type._value}' event for sink"
-                f" {s.name}({s.index}) state '{s.state._value}'")
-
 # Class(es).
+class PulseEvent:
+    """A sink-input event."""
+
+    def __init__(self, event_type, playback):
+        self._playback = playback
+
+        # self.event is either one of ('new', 'change', 'remove') from
+        # pulsectl PulseEventTypeEnum or the 'switch' event that occurs when
+        # the 'running' sink-input is switched to another sink.
+        if event_type in PulseEventTypeEnum:
+            self.event = event_type._value
+        else:
+            self.event = event_type
+        self.index = playback.sink_input.index
+        self.state = playback.sink.state._value
+
+    def __str__(self):
+        return (f"Sink-input {self.index} '{self.event}' event for"
+                f" sink {self._playback.sink.name} state '{self.state}'")
+
 class PulseAudio:
     """PulseAudio monitors pulseaudio events.
 
@@ -107,13 +119,11 @@ class PulseAudio:
     async def dispatch(self, event_type, playback):
         """Dispatch an event to a registered MediaRenderer instance."""
 
-        if playback is None:
-            return
-
         renderer = self.renderers.get(playback.sink.index)
         if renderer is not None:
-            log_event(event_type, playback)
-            await renderer.on_pulse_event(event_type, playback)
+            event = PulseEvent(event_type, playback)
+            logger.info(f'{event}')
+            await renderer.on_pulse_event(event)
 
     def remove_playback(self, index):
         for playback in list(self.playbacks):
@@ -128,7 +138,8 @@ class PulseAudio:
         # A 'remove' event.
         if event.t == PulseEventTypeEnum.remove:
             previous = self.remove_playback(event.index)
-            await self.dispatch(event.t, previous)
+            if previous is not None:
+                await self.dispatch(event.t, previous)
             return
 
         # Find the sink_input that has triggered the event.
@@ -156,22 +167,19 @@ class PulseAudio:
                         if previous is not None:
                             # The sink_input/sink connection has not changed.
                             if previous.sink_input.sink == sink_input.sink:
-                                # We are interested in changes to the state
-                                # and media.name.
-                                if (previous.sink_input.proplist['media.name']
-                                        != sink_input.proplist['media.name'] or
-                                        previous.sink.state != sink.state):
+                                # We are only interested in changes to the
+                                # sink state.
+                                if previous.sink.state != sink.state:
                                     await self.dispatch(event.t, playback)
 
                             # The sink_input has been re-routed to another
                             # sink.
                             else:
                                 await self.dispatch(event.t, playback)
-                                # Build a new 'remove' event for the sink that
+                                # Build a new 'switch' event for the sink that
                                 # had been previously connected to this
                                 # sink_input.
-                                await self.dispatch(PulseEventTypeEnum.remove,
-                                                    previous)
+                                await self.dispatch('switch', previous)
                         else:
                             await self.dispatch(event.t, playback)
 
@@ -185,7 +193,7 @@ class PulseAudio:
                         await self.handle_event(event)
 
                         event_count += 1
-                        if test_pulseaudio and if event_count == 1:
+                        if test_pulseaudio and event_count == 1:
                             rndr = TestMediaRenderer(self.av_control_point)
                             await rndr.run()
                 finally:
@@ -226,10 +234,10 @@ class MediaRenderer:
         await pulse.unregister(self)
         self.root_device.close()
 
-    async def on_pulse_event(self, event_type, playback):
+    async def on_pulse_event(self, event):
         """Handle a Pulseaudio event."""
 
-        assert self.sink_index == playback.sink.index
+        assert isinstance(event, PulseEvent)
 
     async def soap_action(self, serviceId, action, args):
         """Send a SOAP action.
@@ -273,8 +281,8 @@ class TestMediaRenderer(MediaRenderer):
         pulse = self.av_control_point.pulse
         await pulse.unregister(self)
 
-    async def on_pulse_event(self, event_type, playback):
-        pass
+    async def on_pulse_event(self, event):
+        assert isinstance(event, PulseEvent)
 
     async def run(self):
         pulse = self.av_control_point.pulse
