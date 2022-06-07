@@ -47,8 +47,17 @@ class PulseAudio:
         self.renderers = {}        # {null-sink index: MediaRenderer}
 
     def close(self, exc=None):
+        class SilenceAsyncio:
+            def filter(self, record):
+                return None
+
         if not self.closed:
             self.closed = True
+
+            # Avoid error message upon KeyboardInterrupt:
+            # "asyncio ERROR   Exception in callback Future.set_result(None)"
+            # whose origin is in pulsectl_asyncio.
+            logging.getLogger('asyncio').addFilter(SilenceAsyncio())
 
             errmsg = f'{exc!r}' if exc else None
             self.av_control_point.curtask.cancel(msg=errmsg)
