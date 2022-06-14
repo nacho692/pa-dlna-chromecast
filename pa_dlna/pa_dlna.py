@@ -33,14 +33,17 @@ class MediaRenderer:
     def __init__(self, root_device, av_control_point):
         self.root_device = root_device
         self.av_control_point = av_control_point
+        self.closed = False
         self.sink_index = None          # null-sink index
         self.module_index = None        # and the corresponding module index
 
     async def close(self):
-        control_point = self.av_control_point
-        await control_point.pulse.unregister(self)
-        self.root_device.close()
-        control_point.remove_device(self.root_device)
+        if not self.closed:
+            self.closed = True
+            control_point = self.av_control_point
+            await control_point.pulse.unregister(self)
+            self.root_device.close()
+            del control_point.renderers[self.sink_index]
 
     async def on_pulse_event(self, event):
         """Handle a PulseAudio event."""
@@ -72,9 +75,6 @@ class MediaRenderer:
 
         resp = await self.soap_action(CONNECTIONMANAGER, 'GetProtocolInfo',
                                       {})
-        pulse = self.av_control_point.pulse
-        await pulse.register(self)
-
 class FakeMediaRenderer(MediaRenderer):
     """MediaRenderer to be used for testing when no DLNA device available."""
 
@@ -86,16 +86,14 @@ class FakeMediaRenderer(MediaRenderer):
         super().__init__(self.RootDevice(), av_control_point)
 
     async def close(self):
-        control_point = self.av_control_point
-        await control_point.pulse.unregister(self)
-        control_point.remove_device(self.root_device)
+        if not self.closed:
+            self.closed = True
+            control_point = self.av_control_point
+            await control_point.pulse.unregister(self)
+            del control_point.renderers[self.sink_index]
 
     async def on_pulse_event(self, event):
         assert isinstance(event, PulseEvent)
-
-    async def run(self):
-        pulse = self.av_control_point.pulse
-        await pulse.register(self)
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -107,7 +105,7 @@ class AVControlPoint(UPnPApplication):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.closed = False
-        self.devices = {}               # dict {UPnPDevice: MediaRenderer}
+        self.renderers = {}             # dict {sink_index: MediaRenderer}
         self.curtask = None             # task running run_control_point()
         self.pulse = None               # PulseAudio instance
         self.start_event = asyncio.Event()
@@ -121,17 +119,13 @@ class AVControlPoint(UPnPApplication):
     async def close(self):
         if not self.closed:
             self.closed = True
-            for renderer in list(self.devices.values()):
+            for renderer in list(self.renderers.values()):
                 await renderer.close()
 
             if self.pulse is not None:
                 self.pulse.close()
 
             self.aio_tasks.cancel_all()
-
-    def remove_device(self, device):
-        if device in self.devices:
-            del self.devices[device]
 
     async def run_control_point(self):
         try:
@@ -153,8 +147,8 @@ class AVControlPoint(UPnPApplication):
                 await self.start_event.wait()
                 if use_fake_renderer:
                     renderer = FakeMediaRenderer(self)
-                    await renderer.run()
-                    self.devices[object()] = renderer
+                    sink_index = await self.pulse.register(renderer)
+                    self.renderers[sink_index] = renderer
 
                 # Handle UPnP notifications.
                 while True:
@@ -167,13 +161,26 @@ class AVControlPoint(UPnPApplication):
                                 root_device.deviceType) is None:
                         continue
 
-                    if notif == 'alive':
-                        if root_device not in self.devices:
-                            renderer = MediaRenderer(root_device, self)
-                            await renderer.run()
-                            self.devices[root_device] = renderer
+                    # Find an existing MediaRenderer instance.
+                    for rndr in self.renderers.values():
+                        if rndr.root_device is root_device:
+                            renderer = rndr
+                            break
                     else:
-                        self.remove_device(root_device)
+                        renderer = None
+
+                    if notif == 'alive':
+                        if renderer is None:
+                            renderer = MediaRenderer(root_device, self)
+                            sink_index = await self.pulse.register(renderer)
+                            self.renderers[sink_index] = renderer
+                            await renderer.run()
+                    else:
+                        if renderer is not None:
+                            renderer.close()
+                        else:
+                            logger.warning("Got a 'byebye' notification for"
+                                           ' no existing MediaRenderer')
 
         except Exception as e:
             logger.exception(f'Got exception {e!r}')

@@ -44,13 +44,8 @@ class PulseAudio:
         self.closed = False
         self.pulse_ctl = None
         self.playbacks = set()     # set of Playback instances
-        self.renderers = {}        # {null-sink index: MediaRenderer}
 
     def close(self, exc=None):
-        class SilenceAsyncio:
-            def filter(self, record):
-                return None
-
         if not self.closed:
             self.closed = True
 
@@ -95,22 +90,19 @@ class PulseAudio:
         sink_index = diff.pop()
         renderer.sink_index = sink_index
         renderer.module_index = module_index
-        self.renderers[sink_index] = renderer
+        return sink_index
 
     async def unregister(self, renderer):
         if self.pulse_ctl is None:
             return
-        assert renderer.sink_index in self.renderers
-
         name = renderer.root_device.modelName
         logger.debug(f"Unload null-sink module '{name}'")
         await self.pulse_ctl.module_unload(renderer.module_index)
-        del self.renderers[renderer.sink_index]
 
     async def dispatch(self, event_type, playback):
         """Dispatch an event to a registered MediaRenderer instance."""
 
-        renderer = self.renderers.get(playback.sink.index)
+        renderer = self.av_control_point.renderers.get(playback.sink.index)
         if renderer is not None:
             event = PulseEvent(event_type, playback)
             logger.info(f'{event}')
