@@ -79,20 +79,10 @@ class AsyncioTasks:
     """
 
     def __init__(self):
-        self._tasks = set()             # references to tasks
+        self._tasks = set()
 
     def create_task(self, coro, name):
-        curtasks = asyncio.all_tasks()
-        try:
-            task = asyncio.create_task(coro, name=name)
-        except KeyboardInterrupt:
-            # Avoid asyncio ERROR log: "Task was destroyed but it is pending!"
-            newtasks = asyncio.all_tasks()
-            diff = newtasks.difference(curtasks)
-            for t in diff:
-                t.cancel()
-            raise
-
+        task = asyncio.create_task(coro, name=name)
         self._tasks.add(task)
         task.add_done_callback(lambda t: self._tasks.remove(t))
         return task
@@ -487,12 +477,9 @@ class UPnPRootDevice(UPnPDevice):
         except asyncio.CancelledError:
             self.close()
             raise
-        except KeyboardInterrupt as e:
-            logger.debug('UPnPRootDevice._run() got KeyboardInterrupt')
-            self._control_point.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
-            self.close(e)
+            self.close(exc=e)
         finally:
             logger.debug(f'End of {self} task')
 
@@ -689,9 +676,6 @@ class UPnPControlPoint:
         except asyncio.CancelledError:
             self.close()
             raise
-        except KeyboardInterrupt as e:
-            logger.debug('_ssdp_msearch() got KeyboardInterrupt')
-            self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
@@ -704,9 +688,6 @@ class UPnPControlPoint:
         except asyncio.CancelledError:
             self.close()
             raise
-        except KeyboardInterrupt as e:
-            logger.debug('_ssdp_notify() got KeyboardInterrupt')
-            self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)

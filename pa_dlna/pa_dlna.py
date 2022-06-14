@@ -3,16 +3,17 @@
 import asyncio
 import logging
 import re
+from signal import SIGINT, SIGTERM
 
-from . import (main_function, UPnPApplication)
+from . import main_function, UPnPApplication
 from .pulseaudio import (PulseEvent, PulseAudio)
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError)
 
 logger = logging.getLogger('pa-dlna')
 
-# Set 'use_fake_renderer' to True when no DLNA device is available.
-use_fake_renderer = 1 # XXX
+# Test with 'use_fake_renderer' as True when no DLNA device is available.
+use_fake_renderer = 0
 
 MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
 AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
@@ -36,9 +37,10 @@ class MediaRenderer:
         self.module_index = None        # and the corresponding module index
 
     async def close(self):
-        pulse = self.av_control_point.pulse
-        await pulse.unregister(self)
+        control_point = self.av_control_point
+        await control_point.pulse.unregister(self)
         self.root_device.close()
+        control_point.remove_device(self.root_device)
 
     async def on_pulse_event(self, event):
         """Handle a PulseAudio event."""
@@ -84,8 +86,9 @@ class FakeMediaRenderer(MediaRenderer):
         super().__init__(self.RootDevice(), av_control_point)
 
     async def close(self):
-        pulse = self.av_control_point.pulse
-        await pulse.unregister(self)
+        control_point = self.av_control_point
+        await control_point.pulse.unregister(self)
+        control_point.remove_device(self.root_device)
 
     async def on_pulse_event(self, event):
         assert isinstance(event, PulseEvent)
@@ -107,13 +110,18 @@ class AVControlPoint(UPnPApplication):
         self.devices = {}               # dict {UPnPDevice: MediaRenderer}
         self.curtask = None             # task running run_control_point()
         self.pulse = None               # PulseAudio instance
-        self.event = asyncio.Event()
+        self.start_event = asyncio.Event()
+        self.end_event = asyncio.Event()
         self.aio_tasks = AsyncioTasks()
+
+    async def shutdown(self):
+        await self.end_event.wait()
+        await self.close()
 
     async def close(self):
         if not self.closed:
             self.closed = True
-            for renderer in self.devices.values():
+            for renderer in list(self.devices.values()):
                 await renderer.close()
 
             if self.pulse is not None:
@@ -129,6 +137,11 @@ class AVControlPoint(UPnPApplication):
         try:
             self.curtask = asyncio.current_task()
 
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(self.shutdown())
+            for sig in (SIGINT, SIGTERM):
+                loop.add_signal_handler(sig, self.end_event.set)
+
             # Run the UPnP control point.
             async with UPnPControlPoint(self.ip_list,
                                         self.ttl) as control_point:
@@ -137,10 +150,11 @@ class AVControlPoint(UPnPApplication):
                 self.aio_tasks.create_task(self.pulse.run(), name='pulseaudio')
 
                 # Wait for the connection to PulseAudio to be ready.
-                await self.event.wait()
+                await self.start_event.wait()
                 if use_fake_renderer:
                     renderer = FakeMediaRenderer(self)
                     await renderer.run()
+                    self.devices[object()] = renderer
 
                 # Handle UPnP notifications.
                 while True:
@@ -161,11 +175,8 @@ class AVControlPoint(UPnPApplication):
                     else:
                         self.remove_device(root_device)
 
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
-        finally:
             await self.close()
 
     def __str__(self):

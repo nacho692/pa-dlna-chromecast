@@ -54,11 +54,6 @@ class PulseAudio:
         if not self.closed:
             self.closed = True
 
-            # Avoid error message upon KeyboardInterrupt:
-            # "asyncio ERROR   Exception in callback Future.set_result(None)"
-            # whose origin is in pulsectl_asyncio.
-            logging.getLogger('asyncio').addFilter(SilenceAsyncio())
-
             errmsg = f'{exc!r}' if exc else None
             self.av_control_point.curtask.cancel(msg=errmsg)
 
@@ -80,8 +75,8 @@ class PulseAudio:
         # Load a null-sink module.
         name = device.modelName
         description = device.friendlyName
-        logger.debug(f'Load null-sink module, name="{name}"'
-                     f' description="{description}"')
+        logger.debug(f"Load null-sink module '{name}',"
+                     f" description='{description}'")
 
         name = name.replace(' ', r'\ ')
         description = description.replace(' ', r'\ ')
@@ -105,10 +100,10 @@ class PulseAudio:
     async def unregister(self, renderer):
         if self.pulse_ctl is None:
             return
-
         assert renderer.sink_index in self.renderers
-        logger.debug(f'Unload null-sink module'
-                     f' name="{renderer.root_device.modelName}"')
+
+        name = renderer.root_device.modelName
+        logger.debug(f"Unload null-sink module '{name}'")
         await self.pulse_ctl.module_unload(renderer.module_index)
         del self.renderers[renderer.sink_index]
 
@@ -182,25 +177,16 @@ class PulseAudio:
     async def run(self):
         try:
             async with PulseAsync('pa-dlna') as self.pulse_ctl:
-                self.av_control_point.event.set()
+                self.av_control_point.start_event.set()
                 try:
                     async for event in self.pulse_ctl.subscribe_events(
                                                 PulseEventMaskEnum.sink_input):
                         await self.handle_event(event)
                 finally:
-                    # Unload the null-sink modules.
-                    for rndr in self.renderers.values():
-                        await self.pulse_ctl.module_unload(rndr.module_index)
                     self.pulse_ctl = None
         except asyncio.CancelledError:
             self.close()
             raise
-        except KeyboardInterrupt as e:
-            logger.debug('PulseAudio.run() got KeyboardInterrupt')
-            self.close(exc=e)
-        except PulseError as e:
-            logger.error(f'{e!r}')
-            self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)

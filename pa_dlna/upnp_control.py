@@ -564,7 +564,6 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
             self.loop.call_soon_threadsafe(self.control_point.close)
         if self.cp_thread is not None:
             self.cp_thread.join(timeout=10)
-        print('End of upnp-control.')
 
     def run(self, cp_thread, event):
         self.cp_thread = cp_thread
@@ -572,9 +571,10 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         build_commands_from(self, self.control_point)
         try:
             self.cmdloop()
-        except KeyboardInterrupt:
-            print('Got KeyboardInterrupt')
+        except KeyboardInterrupt as e:
+            print(f'Got {e!r}')
             self.close()
+            raise
 
     async def run_control_point(self, event):
         self.loop = asyncio.get_running_loop()
