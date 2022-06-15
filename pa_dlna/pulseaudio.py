@@ -11,7 +11,42 @@ logger = logging.getLogger('pulse')
 # A Playback instance is a connection of a sink-input to a sink.
 Playback = namedtuple('Playback', ['sink_input', 'sink'])
 
-# Class(es).
+# A NullSink is instantiated upon registering a MediaRenderer instance.
+NullSink = namedtuple('NullSink', ['name', 'index', 'module_index'])
+
+async def sink_unique_name(name_prefix, pulse_ctl):
+    """Return a sink unique name.
+
+    Unique sink names have the form 'name_prefix-suffix'.
+    'suffix' is an integer, incremented by sink_unique_name() when
+    'name_prefix' is already used by one of the listed sinks.
+    No suffix is appended when none of the current listed sinks is using
+    'name_prefix'.
+    """
+
+    names_suffixes = {}
+    for sink in await pulse_ctl.sink_list():
+        try:
+            name, suffix = sink.name.rsplit('-', maxsplit=1)
+            suffix = int(suffix)
+        except AttributeError:
+            continue
+        except ValueError:
+            name = sink.name
+            suffix = 1
+        if name in names_suffixes:
+            if suffix > names_suffixes[name]:
+                names_suffixes[name] = suffix
+        else:
+            names_suffixes[name] = suffix
+
+    if name_prefix in names_suffixes:
+        suffix = names_suffixes[name_prefix] + 1
+        return f'{name_prefix}-{suffix}'
+    else:
+        return name_prefix
+
+# Classes.
 class PulseEvent:
     """A sink-input event."""
 
@@ -32,10 +67,10 @@ class PulseEvent:
         return (f"Sink-input {self.index} '{self.event}' event for"
                 f" sink {self._playback.sink.name} state '{self.state}'")
 
-class PulseAudio:
-    """PulseAudio monitors pulseaudio events.
+class Pulse:
+    """Pulse monitors pulseaudio events.
 
-    A MediaRenderer instance registers with the PulseAudio instance to receive
+    A MediaRenderer instance registers with the Pulse instance to receive
     those events.
     """
 
@@ -53,51 +88,41 @@ class PulseAudio:
             self.av_control_point.curtask.cancel(msg=errmsg)
 
             self.av_control_point.aio_tasks.cancel_all()
-            logger.debug('PulseAudio is closed')
+            logger.debug('Pulse is closed')
 
     async def register(self, renderer):
         """Register a MediaRenderer instance."""
 
-        device = renderer.root_device
         if self.pulse_ctl is None:
-            raise RuntimeError(f'Attempting to register'
-                               f' "{device.friendlyName}" while'
-                               f' not connected to pulseaudio')
-
-        sinks = await self.pulse_ctl.sink_list()
-        previous_idxs = (sink.index for sink in sinks)
+            return
 
         # Load a null-sink module.
-        name = device.modelName
-        description = device.friendlyName
-        logger.debug(f"Load null-sink module '{name}',"
-                     f" description='{description}'")
+        device = renderer.root_device
+        name = device.modelName.replace(' ', r'_')
+        name = await sink_unique_name(name, self.pulse_ctl)
 
-        name = name.replace(' ', r'\ ')
-        description = description.replace(' ', r'\ ')
+        description = device.friendlyName
+        _description = description.replace(' ', r'\ ')
         module_index = await self.pulse_ctl.module_load('module-null-sink',
                                 args=f'sink_name="{name}" '
                                      f'sink_properties=device.description='
-                                     f'"{description}"')
+                                     f'"{_description}"')
 
         # Find the index of the null-sink.
-        sinks = await self.pulse_ctl.sink_list()
-        idxs = set(sink.index for sink in sinks)
-        diff = idxs.difference(previous_idxs)
-        if len(diff) != 1:
-            raise RuntimeError(f'Got {len(diff)} more new sinks instead of 1,'
-                               f' while loading a null-sink module')
-        sink_index = diff.pop()
-        renderer.sink_index = sink_index
-        renderer.module_index = module_index
-        return sink_index
+        for sink in await self.pulse_ctl.sink_list():
+            if sink.name == name:
+                logger.debug(f"Loaded null-sink module '{name}',"
+                             f" description='{description}'")
+                return NullSink(name, sink.index, module_index)
+
+        await self.pulse_ctl.module_unload(module_index)
+        logger.error('Cannot find the index of the created null-sink')
 
     async def unregister(self, renderer):
         if self.pulse_ctl is None:
             return
-        name = renderer.root_device.modelName
-        logger.debug(f"Unload null-sink module '{name}'")
-        await self.pulse_ctl.module_unload(renderer.module_index)
+        logger.debug(f"Unload null-sink module '{renderer.nullsink.name}'")
+        await self.pulse_ctl.module_unload(renderer.nullsink.module_index)
 
     async def dispatch(self, event_type, playback):
         """Dispatch an event to a registered MediaRenderer instance."""

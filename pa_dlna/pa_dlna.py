@@ -6,7 +6,7 @@ import re
 from signal import SIGINT, SIGTERM
 
 from . import main_function, UPnPApplication
-from .pulseaudio import (PulseEvent, PulseAudio)
+from .pulseaudio import PulseEvent, Pulse, NullSink
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError)
 
@@ -20,7 +20,7 @@ AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
 CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 
-# Class(es).
+# Classes.
 class MediaRenderer:
     """A DLNA MediaRenderer.
 
@@ -34,16 +34,16 @@ class MediaRenderer:
         self.root_device = root_device
         self.av_control_point = av_control_point
         self.closed = False
-        self.sink_index = None          # null-sink index
-        self.module_index = None        # and the corresponding module index
+        self.nullsink = None            # A NullSink instance
 
     async def close(self):
         if not self.closed:
             self.closed = True
-            control_point = self.av_control_point
-            await control_point.pulse.unregister(self)
+            if self.nullsink is not None:
+                control_point = self.av_control_point
+                await control_point.pulse.unregister(self)
+                del control_point.renderers[self.nullsink.index]
             self.root_device.close()
-            del control_point.renderers[self.sink_index]
 
     async def on_pulse_event(self, event):
         """Handle a PulseAudio event."""
@@ -88,9 +88,10 @@ class FakeMediaRenderer(MediaRenderer):
     async def close(self):
         if not self.closed:
             self.closed = True
-            control_point = self.av_control_point
-            await control_point.pulse.unregister(self)
-            del control_point.renderers[self.sink_index]
+            if self.nullsink is not None:
+                control_point = self.av_control_point
+                await control_point.pulse.unregister(self)
+                del control_point.renderers[self.nullsink.index]
 
     async def on_pulse_event(self, event):
         assert isinstance(event, PulseEvent)
@@ -105,16 +106,23 @@ class AVControlPoint(UPnPApplication):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.closed = False
-        self.renderers = {}             # dict {sink_index: MediaRenderer}
+        self.renderers = {}             # dict {nullsink.index: MediaRenderer}
         self.curtask = None             # task running run_control_point()
-        self.pulse = None               # PulseAudio instance
+        self.pulse = None               # Pulse instance
         self.start_event = asyncio.Event()
         self.end_event = asyncio.Event()
         self.aio_tasks = AsyncioTasks()
 
     async def shutdown(self):
-        await self.end_event.wait()
-        await self.close()
+        try:
+            await self.end_event.wait()
+            await self.close()
+        except Exception as e:
+            logger.exception(f'{e!r}')
+        finally:
+            loop = asyncio.get_running_loop()
+            for sig in (SIGINT, SIGTERM):
+                loop.remove_signal_handler(sig)
 
     async def close(self):
         if not self.closed:
@@ -126,6 +134,13 @@ class AVControlPoint(UPnPApplication):
                 self.pulse.close()
 
             self.aio_tasks.cancel_all()
+
+    async def register(self, renderer):
+        nullsink = await self.pulse.register(renderer)
+        if nullsink is not None:
+            renderer.nullsink = nullsink
+            self.renderers[nullsink.index] = renderer
+            return True
 
     async def run_control_point(self):
         try:
@@ -139,16 +154,15 @@ class AVControlPoint(UPnPApplication):
             # Run the UPnP control point.
             async with UPnPControlPoint(self.ip_list,
                                         self.ttl) as control_point:
-                # Create the PulseAudio task.
-                self.pulse = PulseAudio(self)
-                self.aio_tasks.create_task(self.pulse.run(), name='pulseaudio')
+                # Create the Pulse task.
+                self.pulse = Pulse(self)
+                self.aio_tasks.create_task(self.pulse.run(), name='pulse')
 
                 # Wait for the connection to PulseAudio to be ready.
                 await self.start_event.wait()
                 if use_fake_renderer:
                     renderer = FakeMediaRenderer(self)
-                    sink_index = await self.pulse.register(renderer)
-                    self.renderers[sink_index] = renderer
+                    await self.register(renderer)
 
                 # Handle UPnP notifications.
                 while True:
@@ -172,9 +186,8 @@ class AVControlPoint(UPnPApplication):
                     if notif == 'alive':
                         if renderer is None:
                             renderer = MediaRenderer(root_device, self)
-                            sink_index = await self.pulse.register(renderer)
-                            self.renderers[sink_index] = renderer
-                            await renderer.run()
+                            if await self.register(renderer):
+                                await renderer.run()
                     else:
                         if renderer is not None:
                             renderer.close()
