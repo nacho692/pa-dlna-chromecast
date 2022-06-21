@@ -2,17 +2,10 @@
 
 import asyncio
 import logging
-from collections import namedtuple
 from pulsectl_asyncio import PulseAsync
-from pulsectl import PulseError, PulseEventMaskEnum, PulseEventTypeEnum
+from pulsectl import PulseEventMaskEnum, PulseEventTypeEnum
 
 logger = logging.getLogger('pulse')
-
-# A Playback instance is a connection of a sink-input to a sink.
-Playback = namedtuple('Playback', ['sink_input', 'sink'])
-
-# A NullSink is instantiated upon registering a MediaRenderer instance.
-NullSink = namedtuple('NullSink', ['name', 'index', 'module_index'])
 
 async def sink_unique_name(name_prefix, pulse_ctl):
     """Return a sink unique name.
@@ -47,62 +40,44 @@ async def sink_unique_name(name_prefix, pulse_ctl):
         return name_prefix
 
 # Classes.
-class PulseEvent:
-    """A sink-input event."""
+class NullSink:
+    """A connection between a sink_input and the null-sink of a MediaRenderer.
 
-    def __init__(self, event_type, playback):
-        self._playback = playback
+    A NullSink is instantiated upon registering a MediaRenderer instance.
+    """
 
-        # self.event is either one of ('new', 'change', 'remove') from
-        # pulsectl PulseEventTypeEnum or the 'switch' event that occurs when
-        # the 'running' sink-input is switched to another sink.
-        if event_type in PulseEventTypeEnum:
-            self.event = event_type._value
-        else:
-            self.event = event_type
-        self.index = playback.sink_input.index
-        self.state = playback.sink.state._value
-
-    def __str__(self):
-        return (f"Sink-input {self.index} '{self.event}' event for"
-                f" sink {self._playback.sink.name} state '{self.state}'")
+    def __init__(self, sink, module_index):
+        self.sink = sink                    # a pulse_ctl sink instance
+        self.module_index = module_index    # index of the null-sink module
+        self.sink_input = None              # a pulse_ctl sink-input instance
 
 class Pulse:
-    """Pulse monitors pulseaudio events.
-
-    A MediaRenderer instance registers with the Pulse instance to receive
-    those events.
-    """
+    """Pulse monitors pulseaudio sink-input events."""
 
     def __init__(self, av_control_point):
         self.av_control_point = av_control_point
         self.closed = False
         self.pulse_ctl = None
-        self.playbacks = set()     # set of Playback instances
 
-    def close(self, exc=None):
+    async def close(self):
         if not self.closed:
             self.closed = True
-
-            errmsg = f'{exc!r}' if exc else None
-            self.av_control_point.curtask.cancel(msg=errmsg)
-
-            self.av_control_point.aio_tasks.cancel_all()
+            await self.av_control_point.close()
             logger.debug('Pulse is closed')
 
     async def register(self, renderer):
-        """Register a MediaRenderer instance."""
+        """Load a null-sink module."""
 
         if self.pulse_ctl is None:
             return
 
-        # Load a null-sink module.
         device = renderer.root_device
         name = device.modelName.replace(' ', r'_')
         name = await sink_unique_name(name, self.pulse_ctl)
 
         description = device.friendlyName
         _description = description.replace(' ', r'\ ')
+
         module_index = await self.pulse_ctl.module_load('module-null-sink',
                                 args=f'sink_name="{name}" '
                                      f'sink_properties=device.description='
@@ -113,7 +88,7 @@ class Pulse:
             if sink.name == name:
                 logger.debug(f"Loaded null-sink module '{name}',"
                              f" description='{description}'")
-                return NullSink(name, sink.index, module_index)
+                return NullSink(sink, module_index)
 
         await self.pulse_ctl.module_unload(module_index)
         logger.error('Cannot find the index of the created null-sink')
@@ -121,34 +96,23 @@ class Pulse:
     async def unregister(self, renderer):
         if self.pulse_ctl is None:
             return
-        logger.debug(f"Unload null-sink module '{renderer.nullsink.name}'")
+        logger.debug(f'Unload null-sink module'
+                     f" '{renderer.nullsink.sink.name}'")
         await self.pulse_ctl.module_unload(renderer.nullsink.module_index)
 
-    async def dispatch(self, event_type, playback):
-        """Dispatch an event to a registered MediaRenderer instance."""
+    def find_previous_renderer(self, event):
+        """Find the renderer that was last connected to this sink-input."""
 
-        renderer = self.av_control_point.renderers.get(playback.sink.index)
-        if renderer is not None:
-            event = PulseEvent(event_type, playback)
-            logger.info(f'{event}')
-            await renderer.on_pulse_event(event)
+        for renderer in self.av_control_point.renderers.values():
+            if (renderer.nullsink is not None and
+                    renderer.nullsink.sink_input is not None and
+                    renderer.nullsink.sink_input.index == event.index):
+                return renderer
 
-    def remove_playback(self, index):
-        for playback in list(self.playbacks):
-            if playback.sink_input.index == index:
-                self.playbacks.remove(playback)
-                return playback
-        return None
+    async def find_renderer(self, event):
+        """Find the renderer now connected to this sink-input."""
 
-    async def handle_event(self, event):
-        """Dispatch the event."""
-
-        # A 'remove' event.
-        if event.t == PulseEventTypeEnum.remove:
-            previous = self.remove_playback(event.index)
-            if previous is not None:
-                await self.dispatch(event.t, previous)
-            return
+        notfound = (None, None)
 
         # Find the sink_input that has triggered the event.
         # Note that by the time this code is running, pulseaudio may have done
@@ -156,40 +120,53 @@ class Pulse:
         # the event and the sink_input and sink lists.
         sink_inputs = await self.pulse_ctl.sink_input_list()
         for sink_input in sink_inputs:
-            index = sink_input.index
-
-            if index == event.index:
+            if sink_input.index == event.index:
                 # Ignore 'pulsesink probe' - seems to be used to query sink
                 # formats (not for playback).
                 if sink_input.name == 'pulsesink probe':
-                    return
+                    return notfound
 
-                # Find the corresponding sink and instantiate a Playback.
-                sinks = await self.pulse_ctl.sink_list()
-                for sink in sinks:
-                    if sink.index == sink_input.sink:
-                        previous = self.remove_playback(index)
-                        playback = Playback(sink_input, sink)
-                        self.playbacks.add(playback)
+                # Find the corresponding sink when it is the null-sink of a
+                # MediaRenderer.
+                for renderer in self.av_control_point.renderers.values():
+                    if (renderer.nullsink is not None and
+                            renderer.nullsink.sink.index == sink_input.sink):
+                        return renderer, sink_input
+                break
+        return notfound
 
-                        if previous is not None:
-                            # The sink_input/sink connection has not changed.
-                            if previous.sink_input.sink == sink_input.sink:
-                                # We are only interested in changes to the
-                                # sink state.
-                                if previous.sink.state != sink.state:
-                                    await self.dispatch(event.t, playback)
+    async def handle_event(self, event):
+        """Dispatch the event."""
 
-                            # The sink_input has been re-routed to another
-                            # sink.
-                            else:
-                                await self.dispatch(event.t, playback)
-                                # Build a new 'switch' event for the sink that
-                                # had been previously connected to this
-                                # sink_input.
-                                await self.dispatch('switch', previous)
-                        else:
-                            await self.dispatch(event.t, playback)
+        if event.t == PulseEventTypeEnum.remove:
+            renderer = self.find_previous_renderer(event)
+            if renderer is not None:
+                await renderer.on_pulse_event(event.t._value)
+            return
+
+        renderer, sink_input = await self.find_renderer(event)
+        previous = self.find_previous_renderer(event)
+        if renderer is not None:
+            sink = await self.pulse_ctl.get_sink_by_name(
+                                            renderer.nullsink.sink.name)
+
+        # The sink_input/sink connection has not changed.
+        if renderer is not None and previous is renderer:
+            # We are only interested in changes to the
+            # sink state.
+            if previous.nullsink.sink.state != sink.state:
+                await renderer.on_pulse_event(event.t._value, sink, sink_input)
+        else:
+            if renderer is not None:
+                await renderer.on_pulse_event(event.t._value, sink, sink_input)
+
+            # The sink_input has been re-routed to another
+            # sink.
+            if previous is not None:
+                # Build a new 'exit' event for the sink that
+                # had been previously connected to this
+                # sink_input.
+                await previous.on_pulse_event('exit')
 
     async def run(self):
         try:
@@ -199,11 +176,19 @@ class Pulse:
                     async for event in self.pulse_ctl.subscribe_events(
                                                 PulseEventMaskEnum.sink_input):
                         await self.handle_event(event)
+                except Exception as e:
+                    logger.exception(f'{e!r}')
+                    await self.close()
                 finally:
                     self.pulse_ctl = None
         except asyncio.CancelledError:
-            self.close()
+            await self.close()
             raise
         except Exception as e:
-            logger.exception(f'{e!r}')
-            self.close(exc=e)
+            if (hasattr(e, '__cause__') and
+                    'pulse errno 6' in str(e.__cause__)):
+                # 'Failed to connect to pulseaudio server' without backtrace.
+                logger.error(f'{e!r}')
+            else:
+                logger.exception(f'{e!r}')
+            await self.close()

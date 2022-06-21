@@ -407,7 +407,7 @@ class UPnPRootDevice(UPnPDevice):
         self._set_valid_until(max_age)
 
         self._closed = True
-        self._task = None
+        self._curtask = None
         self._aio_tasks = AsyncioTasks()
 
     def close(self, exc=None):
@@ -419,11 +419,11 @@ class UPnPRootDevice(UPnPDevice):
 
         if not self._closed:
             self._closed = True
-            if self._task is not None:
-                self._task.cancel()
             self._aio_tasks.cancel_all()
             logger.info(f'{self} is closed')
             self._control_point._remove_root_device(self._udn, exc=exc)
+            if self._curtask is not None:
+                self._curtask.cancel()
 
     def _set_valid_until(self, max_age):
         # The '_valid_until' attribute is the monotonic date when the root
@@ -456,7 +456,7 @@ class UPnPRootDevice(UPnPDevice):
 
     async def _run(self):
         try:
-            self._task = asyncio.current_task()
+            self._curtask = asyncio.current_task()
             description = await http_get(self.location)
             description = description.decode()
 
