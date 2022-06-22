@@ -145,28 +145,18 @@ class Pulse:
             return
 
         renderer, sink_input = await self.find_renderer(event)
-        previous = self.find_previous_renderer(event)
         if renderer is not None:
             sink = await self.pulse_ctl.get_sink_by_name(
                                             renderer.nullsink.sink.name)
+            await renderer.on_pulse_event(event.t._value, sink, sink_input)
 
-        # The sink_input/sink connection has not changed.
-        if renderer is not None and previous is renderer:
-            # We are only interested in changes to the
-            # sink state.
-            if previous.nullsink.sink.state != sink.state:
-                await renderer.on_pulse_event(event.t._value, sink, sink_input)
-        else:
-            if renderer is not None:
-                await renderer.on_pulse_event(event.t._value, sink, sink_input)
-
-            # The sink_input has been re-routed to another
-            # sink.
-            if previous is not None:
-                # Build a new 'exit' event for the sink that
-                # had been previously connected to this
-                # sink_input.
-                await previous.on_pulse_event('exit')
+        # The sink_input has been re-routed to another sink.
+        previous = self.find_previous_renderer(event)
+        if previous is not None and previous is not renderer:
+            # Build our own 'exit' event (pulseaudio does not provide one)
+            # for the sink that had been previously connected to this
+            # sink_input.
+            await previous.on_pulse_event('exit')
 
     async def run(self):
         try:

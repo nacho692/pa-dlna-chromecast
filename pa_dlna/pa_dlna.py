@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from signal import SIGINT, SIGTERM
+from collections import namedtuple
 
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
@@ -19,6 +20,22 @@ MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
 AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
 CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
+
+SinkInputMetaData = namedtuple('SinkInputMetaData', ['application',
+                                                     'artist',
+                                                     'title'])
+
+def sink_input_meta(sink_input):
+    if sink_input is None:
+        return None
+
+    proplist = sink_input.proplist
+    try:
+        return SinkInputMetaData(proplist['application.name'],
+                                 proplist['media.artist'],
+                                 proplist['media.title'])
+    except KeyError:
+        pass
 
 # Classes.
 class MediaRenderer:
@@ -60,8 +77,8 @@ class MediaRenderer:
             sink = self.nullsink.sink
             sink_input = self.nullsink.sink_input
 
-        logger.info(f"Sink-input {sink_input.index} '{event}' event for"
-                    f" sink {sink.name} state '{sink.state._value}'")
+        logger.debug(f"Sink-input {sink_input.index} '{event}' event for"
+                    f" sink '{sink.name}' state '{sink.state._value}'")
 
     async def on_pulse_event(self, event, sink=None, sink_input=None):
         """Handle a PulseAudio event.
@@ -76,12 +93,28 @@ class MediaRenderer:
             assert sink is not None and sink_input is not None
         self.log_event(event, sink, sink_input)
 
-        # Process the event.
-
-        # Set the new attributes values of nullsink.
+        # Process the event and set the new attributes values of nullsink.
         if event in self.PULSE_RM_EVENTS:
+            logger.info(f"Stop the streaming to '{self.nullsink.sink.name}'")
             self.nullsink.sink_input = None
+
         else:
+            curstate = sink.state._value
+            prevstate = self.nullsink.sink.state._value
+            if curstate == 'running':
+                if prevstate != 'running':
+                    logger.info(f"Start the streaming to '{sink.name}'")
+                elif self.nullsink.sink_input is None:
+                    logger.info(f"Back to the streaming to '{sink.name}'")
+            elif curstate == 'idle' and prevstate == 'running':
+                logger.info(f"Pause the streaming to '{sink.name}'")
+
+            if event == 'change':
+                prev_metadata = sink_input_meta(self.nullsink.sink_input)
+                cur_metadata = sink_input_meta(sink_input)
+                if cur_metadata is not None and cur_metadata != prev_metadata:
+                    logger.debug(f'Playing {cur_metadata}')
+
             self.nullsink.sink = sink
             self.nullsink.sink_input = sink_input
 
@@ -186,6 +219,7 @@ class AVControlPoint(UPnPApplication):
 
                 # Wait for the connection to PulseAudio to be ready.
                 await self.start_event.wait()
+
                 if use_fake_renderer:
                     renderer = FakeMediaRenderer(self)
                     await renderer.register()
