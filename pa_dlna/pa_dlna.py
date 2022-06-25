@@ -13,7 +13,7 @@ from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
 
 logger = logging.getLogger('pa-dlna')
 
-# Test with 'use_fake_renderer' as True when no DLNA device is available.
+# Set 'use_fake_renderer' to True for testing when no available DLNA device.
 use_fake_renderer = 1 # XXX
 
 MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
@@ -54,6 +54,7 @@ class MediaRenderer:
         self.av_control_point = av_control_point
         self.closed = False
         self.nullsink = None            # A NullSink instance
+        self.pulse_queue = asyncio.Queue()
 
     async def close(self):
         if not self.closed:
@@ -83,6 +84,7 @@ class MediaRenderer:
     async def on_pulse_event(self, event, sink=None, sink_input=None):
         """Handle a PulseAudio event.
 
+        This coroutine is run by the 'pulse' task.
         'self.nullsink' holds the state prior to this event. The 'sink' and
         'sink_input' arguments define the new state.
         """
@@ -93,8 +95,10 @@ class MediaRenderer:
             assert sink is not None and sink_input is not None
         self.log_event(event, sink, sink_input)
 
+        avtransport_events = []
         # Process the event and set the new attributes values of nullsink.
         if event in self.PULSE_RM_EVENTS:
+            avtransport_events.append('stop')
             logger.info(f"Stop the streaming to '{self.nullsink.sink.name}'")
             self.nullsink.sink_input = None
 
@@ -103,20 +107,27 @@ class MediaRenderer:
             prevstate = self.nullsink.sink.state._value
             if curstate == 'running':
                 if prevstate != 'running':
+                    avtransport_events.append('start')
                     logger.info(f"Start the streaming to '{sink.name}'")
                 elif self.nullsink.sink_input is None:
+                    avtransport_events.append('start')
                     logger.info(f"Back to the streaming to '{sink.name}'")
             elif curstate == 'idle' and prevstate == 'running':
+                avtransport_events.append('pause')
                 logger.info(f"Pause the streaming to '{sink.name}'")
 
             if event == 'change':
                 prev_metadata = sink_input_meta(self.nullsink.sink_input)
                 cur_metadata = sink_input_meta(sink_input)
                 if cur_metadata is not None and cur_metadata != prev_metadata:
+                    avtransport_events.append(cur_metadata)
                     logger.debug(f'Playing {cur_metadata}')
 
             self.nullsink.sink = sink
             self.nullsink.sink_input = sink_input
+
+        for evt in avtransport_events:
+            self.pulse_queue.put_nowait(evt)
 
     async def soap_action(self, serviceId, action, args):
         """Send a SOAP action.
@@ -139,10 +150,27 @@ class MediaRenderer:
             await self.close()
 
     async def run(self):
-        """Set up the MediaRenderer."""
+        """Run the MediaRenderer task."""
 
-        resp = await self.soap_action(CONNECTIONMANAGER, 'GetProtocolInfo',
-                                      {})
+        try:
+            # Setup the MediaRenderer.
+            if not isinstance(self, FakeMediaRenderer):
+                resp = await self.soap_action(CONNECTIONMANAGER,
+                                              'GetProtocolInfo', {})
+
+            while True:
+                # An AVTransport event is either 'start', 'stop', 'pause' or
+                # an instance of SinkInputMetaData.
+                avtransport_event = await self.pulse_queue.get()
+                logger.debug(f'XXX {avtransport_event}')
+
+        except asyncio.CancelledError:
+            await self.close()
+            raise
+        except Exception as e:
+            logger.exception(f'{e!r}')
+            await self.close()
+
 class FakeMediaRenderer(MediaRenderer):
     """MediaRenderer to be used for testing when no DLNA device available."""
 
@@ -150,16 +178,11 @@ class FakeMediaRenderer(MediaRenderer):
         modelName = 'FakeMediaRenderer'
         friendlyName = 'This is a FakeMediaRenderer'
 
+        def close(self):
+            pass
+
     def __init__(self, av_control_point):
         super().__init__(self.RootDevice(), av_control_point)
-
-    async def close(self):
-        if not self.closed:
-            self.closed = True
-            if self.nullsink is not None:
-                control_point = self.av_control_point
-                await control_point.pulse.unregister(self)
-                del control_point.renderers[self.nullsink.sink.index]
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -200,6 +223,13 @@ class AVControlPoint(UPnPApplication):
             self.aio_tasks.cancel_all()
             self.curtask.cancel()
 
+    async def register(self, renderer):
+        """Load the null-sink module and create the renderer task."""
+
+        if await renderer.register():
+            self.aio_tasks.create_task(renderer.run(),
+                                       name=renderer.nullsink.sink.name)
+
     async def run_control_point(self):
         try:
             self.curtask = asyncio.current_task()
@@ -221,8 +251,7 @@ class AVControlPoint(UPnPApplication):
                 await self.start_event.wait()
 
                 if use_fake_renderer:
-                    renderer = FakeMediaRenderer(self)
-                    await renderer.register()
+                    await self.register(FakeMediaRenderer(self))
 
                 # Handle UPnP notifications.
                 while True:
@@ -245,9 +274,8 @@ class AVControlPoint(UPnPApplication):
 
                     if notif == 'alive':
                         if renderer is None:
-                            renderer = MediaRenderer(root_device, self)
-                            if await renderer.register():
-                                await renderer.run()
+                            await self.register(MediaRenderer(root_device,
+                                                              self))
                     else:
                         if renderer is not None:
                             renderer.close()
