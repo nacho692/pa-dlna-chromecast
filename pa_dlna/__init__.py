@@ -1,13 +1,19 @@
 """Utilities for starting an UPnPApplication."""
 
 import sys
+import os
 import argparse
 import ipaddress
 import subprocess
 import json
 import logging
+import pprint
+import textwrap
 import asyncio
 import threading
+from configparser import ConfigParser, ParsingError
+
+logger = logging.getLogger('init')
 
 __version__ = '0.1'
 MIN_PYTHON_VERSION = (3, 7)
@@ -17,6 +23,165 @@ if ver[0] != MIN_PYTHON_VERSION[0] or ver < MIN_PYTHON_VERSION:
     print(f'error: the python version must be at least'
           f' {MIN_PYTHON_VERSION}', file=sys.stderr)
     sys.exit(1)
+
+# Encoders configuration.
+try:
+    from . import encoders
+    def new_cfg_parser():
+        # 'allow_no_value' to write comments as fake options.
+        parser = ConfigParser(allow_no_value=True)
+        # Do not convert option names to lower case in interpolations.
+        parser.optionxform = str
+        return parser
+
+    def comments_from_doc(doc):
+        """A generator of comments from text."""
+
+        lines = doc.splitlines()
+        doc = lines[0] + '\n' + textwrap.dedent('\n'.join(l for l in lines[1:]
+                                                    if l == '' or l.strip()))
+        for line in doc.splitlines():
+            prefix = '# ' if line else '#'
+            yield prefix + line
+
+    def codecs_config(codecs_path):
+        """Set up encoders configuration."""
+
+        # Write the encoders default configuration when the 'codecs_path'
+        # argument has been set and exit.
+        if codecs_path is not None:
+            default_config = EncodersConfig()
+            with open(codecs_path, 'w') as f:
+                default_config.write(f)
+                logger.info(
+                    f"Writing encoders configuration file '{codecs_path}'")
+                sys.exit(0)
+
+        # Try to load the user configuration file, otherwise use the default
+        # configuration.
+        xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
+        if xdg_config_home is None:
+            xdg_config_home = os.path.expanduser('~/.config')
+        codecs_path = os.path.join(xdg_config_home, 'pa-dlna', 'pa-dlna.ini')
+
+        # Read the user configuration.
+        try:
+            with open(codecs_path) as f:
+                logger.info(f'Using encoders configuration at {codecs_path}')
+                config = EncodersConfig(f)
+        except OSError:
+            config = EncodersConfig()
+
+        return config
+
+    class EncodersConfig(dict):
+        """A mapping of encoders class names to their attributes.
+
+        The mapping is backed by a ConfigParser instance that may be read from
+        (or may be written to) an '.INI' configuration file.
+        The priority of the configuration is given by the order in which the
+        sections (class names) are listed, the first being the highest
+        priority.
+        """
+
+        def __init__(self, fileobject=None,
+                     root_class=encoders.ROOT_ENCODER):
+            self.root_class = root_class
+
+            # Build a dictionary of the leaves of the 'root_class'
+            # class hierarchy excluding the direct subclasses.
+            m = sys.modules[root_class.__module__]
+            self.leaves = dict((name, obj) for
+                                (name, obj) in m.__dict__.items() if
+                                    isinstance(obj, type) and
+                                    issubclass(obj, root_class) and
+                                    obj.__mro__.index(root_class) != 1 and
+                                    not obj.__subclasses__())
+
+            if fileobject is not None:
+                self.parser = self.read(fileobject)
+            else:
+                self.parser = self.default_config()
+            self.build_dictionary()
+
+        def default_config(self, classes=encoders.DEFAULT_CONFIG):
+            parser = new_cfg_parser()
+
+            for n in classes:
+                if n not in self.leaves:
+                    raise ParsingError(f"'{n}' is not a valid class name")
+                parser.add_section(n)
+                instance = self.leaves[n]()
+                doc = instance.__class__.__doc__
+                if doc:
+                    for comment in comments_from_doc(doc):
+                        # Only the first empty comment line will be written to
+                        # the .ini file by the parser as others are considered
+                        # as the same option with no value.
+                        parser.set(n, comment)
+                for attr in instance.__dict__:
+                    parser.set(n, attr, str(getattr(instance, attr)))
+            return parser
+
+        def get_value(self, section, instance, option, new_val):
+            old_val = getattr(instance, option)
+            if old_val is not True and old_val is not False:
+                for t in (int, float):
+                    if isinstance(old_val, t):
+                        try:
+                            return t(new_val)
+                        except ValueError as e:
+                            raise ParsingError(f'{section}.{option}: {e}')
+            try:
+                return self.parser.getboolean(section, option)
+            except ValueError:
+                pass
+            return new_val
+
+        def build_dictionary(self):
+            if self.parser is None:
+                return
+
+            for section in self.parser.sections():
+                if section in self.leaves:
+                    instance = self.leaves[section]()
+                    for option, value in self.parser.items(section):
+                        if option.startswith('#'):
+                            continue
+                        if hasattr(instance, option):
+                            new_val = self.get_value(section, instance,
+                                                     option, value)
+                            if new_val is not None:
+                                setattr(instance, option, new_val)
+                        else:
+                            raise ParsingError(f'Unknown option'
+                                               f" '{section}.{option}'")
+                    # Python 3.7: Dictionary order is guaranteed to be
+                    # insertion order.
+                    self[section] = instance.__dict__
+                else:
+                    raise ParsingError(f"'{section}' not a valid class name")
+
+        def read(self, fileobject):
+            """Read and parse a configuration file."""
+
+            parser = new_cfg_parser()
+            parser.read_file(fileobject)
+            return parser
+
+        def write(self, fileobject):
+            """Write the configuration to a text file object."""
+
+            for comment in comments_from_doc(self.root_class.__doc__):
+                fileobject.write(comment + '\n')
+            fileobject.write('\n')
+
+            if self.parser is not None:
+                self.parser.write(fileobject)
+
+except ImportError:
+    def codecs_config(codecs_path):
+        return None
 
 # Parsing arguments utilities.
 class FilterDebug:
@@ -57,11 +222,11 @@ def setup_logging(options):
 
     return None
 
-def networks_option(ip_list, parser, logger):
+def networks_option(ip_list, parser):
     """Return a list of IPv4 addresses from a comma separated list.
 
     IP_LIST is a comma separated list of the local IPv4 addresses of the
-    network interfaces where DLNA devices may be discovered.
+    network interfaces where UpnP devices may be discovered.
     When this option is an empty string or the option is missing, the first
     local address of each network interface is used, except 127.0.0.1.
     """
@@ -104,7 +269,7 @@ def networks_option(ip_list, parser, logger):
         parser.error('no network interface available')
     return addresses
 
-def parse_args(doc, logger):
+def parse_args(doc):
     """Parse the command line."""
 
     parser = argparse.ArgumentParser(description=doc)
@@ -115,17 +280,21 @@ def parse_args(doc, logger):
                         help=' '.join(line.strip() for line in
                                      networks_option.__doc__.split('\n')[2:]))
     parser.add_argument('--ttl', type=int, default=2,
-                        help='the IP packets time to live '
-                        '(default: %(default)s)')
+                        help='set the IP packets time to live to TTL'
+                        ' (default: %(default)s)')
+    parser.add_argument('--encoders', '-e', metavar='PATH',
+                        dest='codecs_path',
+                        help='write the default encoders configuration to'
+                        ' PATH and exit')
     parser.add_argument('--loglevel', '-l', default='error',
                         choices=('debug', 'info', 'warning', 'error'),
-                        help='set the log level of the logging console on '
-                        'stderr (default: %(default)s)')
-    parser.add_argument('--logfile', '-f', metavar='FILE',
-                        help='FILE is the pathname of a logging file '
-                        "handler set at the 'debug' log level")
+                        help='set the log level of the stderr logging console'
+                        ' (default: %(default)s)')
+    parser.add_argument('--logfile', '-f', metavar='PATH',
+                        help='add a PATH logging file handler set at '
+                        "'debug' log level")
     parser.add_argument('--logaio', '-a', action='store_true',
-                        help='do not ignore asyncio log entries at the'
+                        help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"
                         ' verbose logs')
 
@@ -135,8 +304,8 @@ def parse_args(doc, logger):
     logfile_hdler = setup_logging(options)
 
     # Run networks_option() once logging has been setup.
-    options['ip_list'] = networks_option(options['ip_list'], parser,
-                                             logger)
+    options['ip_list'] = networks_option(options['ip_list'], parser)
+    logger.info(f'Options {options}')
 
     return options, logfile_hdler
 
@@ -155,7 +324,7 @@ class UPnPApplication:
         raise NotImplementedError
 
 # The main function.
-def main_function(clazz, doc, logger, inthread=False):
+def main_function(clazz, doc, inthread=False):
 
     def run_in_thread(coro):
         """Run the UPnP control point in a thread."""
@@ -166,12 +335,20 @@ def main_function(clazz, doc, logger, inthread=False):
 
     assert issubclass(clazz, UPnPApplication)
 
-    # Parse options.
-    options, logfile_hdler = parse_args(doc, logger)
-    logger.info(f'Options {options}')
+    # Parse the arguments.
+    options, logfile_hdler = parse_args(doc)
+
+    try:
+        codecs = codecs_config(options['codecs_path'])
+        if codecs is not None:
+            codecs_repr = pprint.pformat(codecs, sort_dicts=False,
+                                         compact=True)
+            logger.debug(f'Encoders configuration:\n{codecs_repr}')
+    except Exception as e:
+        sys.exit(repr(e))
 
     # Run the UPnPApplication instance.
-    app = clazz(**options)
+    app = clazz(encoders=codecs, **options)
     logger.info(f'Starting {app}')
     try:
         if inthread:

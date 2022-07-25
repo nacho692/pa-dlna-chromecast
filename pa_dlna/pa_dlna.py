@@ -292,4 +292,4 @@ class AVControlPoint(UPnPApplication):
 
 # The main function.
 if __name__ == '__main__':
-    main_function(AVControlPoint, __doc__, logger)
+    main_function(AVControlPoint, __doc__)

@@ -603,4 +603,4 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
 
 # The main function.
 if __name__ == '__main__':
-    main_function(UPnPControlCmd, __doc__, logger, inthread=True)
+    main_function(UPnPControlCmd, __doc__, inthread=True)
