@@ -596,6 +596,7 @@ class UPnPControlPoint:
                                                name=str(root_device))
             self._devices[udn] = root_device
             logger.info(f'New {root_device} at {ip_source}')
+            logger.debug(f'UPnPRootDevice UDN {udn}')
 
         else:
             root_device = self._devices[udn]

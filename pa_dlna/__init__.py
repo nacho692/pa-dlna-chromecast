@@ -27,9 +27,10 @@ if ver[0] != MIN_PYTHON_VERSION[0] or ver < MIN_PYTHON_VERSION:
 # Encoders configuration.
 try:
     from . import encoders
-    def new_cfg_parser():
+
+    def new_cfg_parser(**kwargs):
         # 'allow_no_value' to write comments as fake options.
-        parser = ConfigParser(allow_no_value=True)
+        parser = ConfigParser(allow_no_value=True, **kwargs)
         # Do not convert option names to lower case in interpolations.
         parser.optionxform = str
         return parser
@@ -41,8 +42,7 @@ try:
         doc = lines[0] + '\n' + textwrap.dedent('\n'.join(l for l in lines[1:]
                                                     if l == '' or l.strip()))
         for line in doc.splitlines():
-            prefix = '# ' if line else '#'
-            yield prefix + line
+            yield '# ' + line if line else '#'
 
     def codecs_config(codecs_path):
         """Set up encoders configuration."""
@@ -87,6 +87,7 @@ try:
         def __init__(self, fileobject=None,
                      root_class=encoders.ROOT_ENCODER):
             self.root_class = root_class
+            self.empty_comment_cnt = 0
 
             # Build a dictionary of the leaves of the 'root_class'
             # class hierarchy excluding the direct subclasses.
@@ -104,9 +105,16 @@ try:
                 self.parser = self.default_config()
             self.build_dictionary()
 
-        def default_config(self, classes=encoders.DEFAULT_CONFIG):
-            parser = new_cfg_parser()
+        def write_empty_comment(self, parser, section):
+            # Make ConfigParser believe that we are adding each time
+            # a different option with no value.
+            parser.set(section, "#" + self.empty_comment_cnt * ' ')
+            self.empty_comment_cnt += 1
 
+        def default_config(self, classes=encoders.DEFAULT_CONFIG):
+
+            parser = new_cfg_parser(defaults={'selection':
+                                            '\n' + ',\n'.join(classes) + ','})
             for n in classes:
                 if n not in self.leaves:
                     raise ParsingError(f"'{n}' is not a valid class name")
@@ -115,12 +123,22 @@ try:
                 doc = instance.__class__.__doc__
                 if doc:
                     for comment in comments_from_doc(doc):
-                        # Only the first empty comment line will be written to
-                        # the .ini file by the parser as others are considered
-                        # as the same option with no value.
-                        parser.set(n, comment)
+                        if comment == '#':
+                            self.write_empty_comment(parser, n)
+                        else:
+                            parser.set(n, comment)
+                    self.write_empty_comment(parser, n)
+
+                write_separator = True
                 for attr in instance.__dict__:
-                    parser.set(n, attr, str(getattr(instance, attr)))
+                    if attr.startswith('_'):
+                        parser.set(n,
+                                   f'# {attr[1:]}: {getattr(instance, attr)}')
+                    else:
+                        if write_separator:
+                            write_separator = False
+                            self.write_empty_comment(parser, n)
+                        parser.set(n, attr, str(getattr(instance, attr)))
             return parser
 
         def get_value(self, section, instance, option, new_val):
@@ -142,18 +160,21 @@ try:
             if self.parser is None:
                 return
 
-            for section in self.parser.sections():
+            defaults = self.parser.defaults()
+            selection = (s.strip() for s in defaults['selection'].split(','))
+            for section in (s for s in selection if s):
                 if section in self.leaves:
                     instance = self.leaves[section]()
                     for option, value in self.parser.items(section):
                         if option.startswith('#'):
                             continue
-                        if hasattr(instance, option):
+                        if (hasattr(instance, option) and
+                                not option.startswith('_')):
                             new_val = self.get_value(section, instance,
                                                      option, value)
                             if new_val is not None:
                                 setattr(instance, option, new_val)
-                        else:
+                        elif option not in defaults:
                             raise ParsingError(f'Unknown option'
                                                f" '{section}.{option}'")
                     # Python 3.7: Dictionary order is guaranteed to be
@@ -282,7 +303,7 @@ def parse_args(doc):
     parser.add_argument('--ttl', type=int, default=2,
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')
-    parser.add_argument('--encoders', '-e', metavar='PATH',
+    parser.add_argument('--write-encoders', '-w', metavar='PATH',
                         dest='codecs_path',
                         help='write the default encoders configuration to'
                         ' PATH and exit')
