@@ -2,10 +2,13 @@ import subprocess
 import shutil
 
 DEFAULT_CONFIG = (
-                  'FFMpegMp3Encoder',
-                  'FFMpegAacEncoder',
-                  'FFMpegFlacEncoder',
-                  )
+    'FFMpegFlacEncoder',
+    'FFMpegL16Encoder',
+    'FFMpegOpusEncoder',
+    'FFMpegVorbisEncoder',
+    'FFMpegMp3Encoder',
+    'FFMpegAacEncoder',
+)
 
 class Encoder:
     """Configuration file for pa-dlna.
@@ -21,28 +24,43 @@ class Encoder:
 
     2) Otherwise use the first matching encoder listed in the 'selection'
        option of the 'DEFAULT' section. The 'selection' option is a comma
-       separated list of encoders.
+       separated list of encoders. This option can be customized as all other
+       options.
 
-    Note:
+    Notes:
     The 'udns' and 'selection' options may be written as a multi-line in which
     case all the lines after the first line MUST START with a white space.
+
+    The default value of 'selection' before any customization lists first the
+    ffmpeg lossless encoders FLAC, L16 and then the lossy ones according to
+    https://trac.ffmpeg.org/wiki/Encode/HighQualityAudio.
     """
 
     def __init__(self):
         self.udns = ''
 
+    def is_mime_type(self, protocol):
+        protocol = protocol.lower()
+        if protocol in self._mime_types:
+            return True
+
+    def encoder_command(self, udn=None, protocol=None):
+        if udn is not None:
+            if udn in (u.strip() for u in self.udns.split(',')):
+                return self._command()
+
+        if protocol is not None:
+            if self.is_mime_type(protocol):
+                return self._command()
+
 ROOT_ENCODER = Encoder
 
 class FFMpegEncoder(Encoder):
-    """See 'Guidelines for high quality lossy audio encoding'
-
-    at https://trac.ffmpeg.org/wiki/Encode/HighQualityAudio
-    """
 
     PGM = None
     ENCODERS = None
 
-    def __init__(self, mime_types, codec):
+    def __init__(self, mime_types, codec, encoder=None):
         if self.ENCODERS is None:
             FFMpegEncoder.ENCODERS = ''
             FFMpegEncoder.PGM = shutil.which('ffmpeg')
@@ -60,16 +78,19 @@ class FFMpegEncoder(Encoder):
         self.args = (f'-loglevel fatal -hide_banner -nostats'
                      f' -ac 2 -ar 44100 -f s16le -i -'
                      f' -f {codec}')
+        if encoder is not None:
+            self.args += f' -c:a {encoder}'
 
     def add_args(self, cmd):
         return cmd
 
-    def ffmpeg_cmd(self):
+    def _command(self):
         cmd = [self._pgm]
         cmd.extend(self.args.split())
         cmd = self.add_args(cmd)
         cmd.append('pipe:1')
         return cmd
+
 
 class FFMpegAacEncoder(FFMpegEncoder):
     """See https://trac.ffmpeg.org/wiki/Encode/AAC.
@@ -85,6 +106,46 @@ class FFMpegAacEncoder(FFMpegEncoder):
         cmd.extend(['-b:a', f'{self.bitrate}k'])
         return cmd
 
+class FFMpegFlacEncoder(FFMpegEncoder):
+    """See https://ffmpeg.org/ffmpeg-all.html#flac-2."""
+
+    def __init__(self):
+        super().__init__(['audio/flac', 'audio/x-flac'], 'flac')
+
+class FFMpegL16Encoder(FFMpegEncoder):
+    """See https://datatracker.ietf.org/doc/html/rfc2586."""
+
+    def __init__(self):
+        super().__init__(['audio/l16'], 's16be')
+        self.rate = 44100
+        self.channels = 2
+
+    def is_mime_type(self, protocol):
+        # For example 'audio/L16;rate=44100;channels=2'.
+        protocol = protocol.lower().split(';')
+        if protocol[0] != self._mime_types[0]:
+            return False
+
+        rate_channels = [0, 0]
+        for param in protocol[1:]:
+            for (n, prefix) in enumerate(['rate=', 'channels=']):
+                if param.startswith(prefix):
+                    try:
+                        rate_channels[n] = int(param[len(prefix):])
+                    except ValueError:
+                        return False
+                    break
+        if rate_channels[0] != 0:
+            self.rate = rate_channels[0]
+            if rate_channels[1] != 0:
+                self.channels = rate_channels[1]
+            return True
+
+    def add_args(self, cmd):
+        cmd.extend(['-ar', str(self.rate)])
+        cmd.extend(['-ac', str(self.channels)])
+        return cmd
+
 class FFMpegMp3Encoder(FFMpegEncoder):
     """Setting 'bitrate' to 0 causes VBR encoding to be chosen and 'qscale'
     to be used instead. See https://trac.ffmpeg.org/wiki/Encode/MP3.
@@ -93,7 +154,7 @@ class FFMpegMp3Encoder(FFMpegEncoder):
     """
 
     def __init__(self):
-        super().__init__(['audio/mpeg', 'audio/mp3'], 'mp3')
+        super().__init__(['audio/mpeg', 'audio/mp3'], 'mp3', 'libmp3lame')
         self.bitrate = 256
         self.qscale = 2
 
@@ -101,16 +162,36 @@ class FFMpegMp3Encoder(FFMpegEncoder):
         if self.bitrate != 0:
             cmd.extend(['-b:a', f'{self.bitrate}k'])
         else:
-            cmd.extend(['-qscale:a', f'{self.qscale}'])
+            cmd.extend(['-qscale:a', str(self.qscale)])
         return cmd
 
-class FFMpegFlacEncoder(FFMpegEncoder):
+class FFMpegOpusEncoder(FFMpegEncoder):
+    """See https://wiki.xiph.org/Opus_Recommended_Settings."""
 
     def __init__(self):
-        super().__init__(['audio/flac', 'audio/x-flac'], 'flac')
+        super().__init__(['audio/opus', 'audio/x-opus'], 'opus', 'libopus')
+        self.bitrate = 128
 
+    def add_args(self, cmd):
+        cmd.extend(['-b:a', f'{self.bitrate}k'])
+        return cmd
 
-class FFMpegWavEncoder(FFMpegEncoder): pass
-class FFMpegL16Encoder(FFMpegEncoder): pass
-class FFMpegOggEncoder(FFMpegEncoder): pass
-class FFMpegOpusEncoder(FFMpegEncoder): pass
+class FFMpegVorbisEncoder(FFMpegEncoder):
+    """Setting 'bitrate' to 0 causes VBR encoding to be chosen and 'qscale'
+    to be used instead. See https://ffmpeg.org/ffmpeg-all.html#libvorbis.
+
+    'bitrate' is expressed in kilobits.
+    """
+
+    def __init__(self):
+        super().__init__(['audio/vorbis', 'audio/x-vorbis'], 'vorbis',
+                         'libvorbis')
+        self.bitrate = 256
+        self.qscale = 3.0
+
+    def add_args(self, cmd):
+        if self.bitrate != 0:
+            cmd.extend(['-b:a', f'{self.bitrate}k'])
+        else:
+            cmd.extend(['-qscale:a', str(self.qscale)])
+        return cmd

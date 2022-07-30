@@ -115,7 +115,7 @@ try:
 
             parser = new_cfg_parser(defaults={'selection':
                                             '\n' + ',\n'.join(classes) + ','})
-            for n in classes:
+            for n in sorted(classes):
                 if n not in self.leaves:
                     raise ParsingError(f"'{n}' is not a valid class name")
                 parser.add_section(n)
@@ -304,7 +304,7 @@ def parse_args(doc):
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')
     parser.add_argument('--write-encoders', '-w', metavar='PATH',
-                        dest='codecs_path',
+                        dest='encoders_path',
                         help='write the default encoders configuration to'
                         ' PATH and exit')
     parser.add_argument('--loglevel', '-l', default='error',
@@ -360,7 +360,7 @@ def main_function(clazz, doc, inthread=False):
     options, logfile_hdler = parse_args(doc)
 
     try:
-        codecs = codecs_config(options['codecs_path'])
+        codecs = codecs_config(options['encoders_path'])
         if codecs is not None:
             codecs_repr = pprint.pformat(codecs, sort_dicts=False,
                                          compact=True)
