@@ -8,6 +8,7 @@ import subprocess
 import json
 import logging
 import pprint
+import functools
 import textwrap
 import asyncio
 import threading
@@ -18,11 +19,21 @@ logger = logging.getLogger('init')
 __version__ = '0.1'
 MIN_PYTHON_VERSION = (3, 7)
 
-ver = sys.version_info
-if ver[0] != MIN_PYTHON_VERSION[0] or ver < MIN_PYTHON_VERSION:
+VERSION = sys.version_info
+if VERSION[0] != MIN_PYTHON_VERSION[0] or VERSION < MIN_PYTHON_VERSION:
     print(f'error: the python version must be at least'
           f' {MIN_PYTHON_VERSION}', file=sys.stderr)
     sys.exit(1)
+
+# We want to preserve the order of 'in' and 'out' elements in the 'actionList'
+# of the service xml description.
+# The 'sort_dicts' keyword is supported since 3.8.
+if VERSION >= (3, 8):
+    pprint_pprint = functools.partial(pprint.pprint, sort_dicts=False)
+    pprint_pformat = functools.partial(pprint.pformat, sort_dicts=False)
+else:
+    pprint_pprint = pprint.pprint
+    pprint_pformat = pprint.pformat
 
 # Encoders configuration.
 try:
@@ -362,7 +373,7 @@ def main_function(clazz, doc, inthread=False):
     try:
         codecs = codecs_config(options['encoders_path'])
         if codecs is not None:
-            codecs_repr = pprint.pformat(codecs, sort_dicts=False,
+            codecs_repr = pprint_pformat(codecs, sort_dicts=False,
                                          compact=True)
             logger.debug(f'Encoders configuration:\n{codecs_repr}')
     except Exception as e:

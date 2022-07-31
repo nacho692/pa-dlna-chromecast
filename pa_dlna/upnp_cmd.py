@@ -1,16 +1,13 @@
 """Command line tool to control upnp devices."""
 
 import io
-import sys
 import cmd
 import logging
 import asyncio
 import textwrap
-import pprint
 import traceback
-import functools
 
-from . import (main_function, UPnPApplication)
+from . import (main_function, UPnPApplication, pprint_pprint)
 from .upnp import (UPnPControlPoint, UPnPDevice, UPnPSoapFaultError,
                    UPnPClosedDeviceError, pprint_xml)
 
@@ -19,14 +16,6 @@ logger = logging.getLogger('upnpctl')
 class MissingElementError(Exception): pass
 
 # Utilities.
-# We want to preserve the order of 'in' and 'out' elements in the 'actionList'
-# of the service xml description.
-# The 'sort_dicts' keyword is supported since 3.8.
-if sys.version_info >= (3, 8):
-    _pprint = functools.partial(pprint.pprint, sort_dicts=False)
-else:
-    _pprint = pprint.pprint
-
 def _dedent(txt):
     """A dedent that does not use the first line to compute the margin.
 
@@ -109,7 +98,7 @@ def pprint_soap(response):
                 except ValueError:
                     pass
     print('SOAP response:')
-    _pprint(response)
+    pprint_pprint(response)
 
 # Class(es).
 class _Cmd(cmd.Cmd):
@@ -294,11 +283,11 @@ class UPnPServiceCmd(_Cmd):
                 pass
 
         if depth is not None:
-            _pprint(self.upnp_service.actionList, depth=depth)
+            pprint_pprint(self.upnp_service.actionList, depth=depth)
         else:
             try:
                 action = {arg: self.upnp_service.actionList[arg]}
-                _pprint(action)
+                pprint_pprint(action)
             except KeyError:
                 print(f"*** '{arg}' is not an action")
 
@@ -338,11 +327,11 @@ class UPnPServiceCmd(_Cmd):
                 pass
 
         if depth is not None:
-            _pprint(self.upnp_service.serviceStateTable, depth=depth)
+            pprint_pprint(self.upnp_service.serviceStateTable, depth=depth)
         else:
             try:
                 action = {arg: self.upnp_service.serviceStateTable[arg]}
-                _pprint(action)
+                pprint_pprint(action)
             except KeyError:
                 print(f"*** '{arg}' is not an action")
 
@@ -492,7 +481,7 @@ class UPnPDeviceCmd(_Cmd):
 
         device = self.upnp_device
         if hasattr(device, 'iconList'):
-            _pprint(device.iconList, indent=2)
+            pprint_pprint(device.iconList, indent=2)
         else:
             print('None')
 
