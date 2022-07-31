@@ -19,7 +19,7 @@ class Encoder:
     1) Use the first encoder whose 'udns' option holds the UDN (Unique Device
        Name) of the device, 'udns' is a comma separated list of UDNs.
        An UDN value has the format 'uuid:UUID' and it can be obtained by
-       running the upnp_control program or looking at the logs when running
+       running the upnp_cmd program or looking at the logs when running
        pa_dlna with log level set at 'debug'.
 
     2) Otherwise use the first matching encoder listed in the 'selection'
