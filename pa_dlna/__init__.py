@@ -14,6 +14,8 @@ import asyncio
 import threading
 from configparser import ConfigParser, ParsingError
 
+from . import encoders
+
 logger = logging.getLogger('init')
 
 __version__ = '0.1'
@@ -36,184 +38,167 @@ else:
     pprint_pformat = pprint.pformat
 
 # Encoders configuration.
-try:
-    from . import encoders
+def new_cfg_parser(**kwargs):
+    # 'allow_no_value' to write comments as fake options.
+    parser = ConfigParser(allow_no_value=True, **kwargs)
+    # Do not convert option names to lower case in interpolations.
+    parser.optionxform = str
+    return parser
 
-    def new_cfg_parser(**kwargs):
-        # 'allow_no_value' to write comments as fake options.
-        parser = ConfigParser(allow_no_value=True, **kwargs)
-        # Do not convert option names to lower case in interpolations.
-        parser.optionxform = str
+def comments_from_doc(doc):
+    """A generator of comments from text."""
+
+    lines = doc.splitlines()
+    doc = lines[0] + '\n' + textwrap.dedent('\n'.join(l for l in lines[1:]
+                                                if l == '' or l.strip()))
+    for line in doc.splitlines():
+        yield '# ' + line if line else '#'
+
+def codecs_config():
+    """Get encoders configuration."""
+
+    # Try to load the user configuration file, otherwise use the default
+    # configuration.
+    xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
+    if xdg_config_home is None:
+        xdg_config_home = os.path.expanduser('~/.config')
+    codecs_path = os.path.join(xdg_config_home, 'pa-dlna', 'pa-dlna.ini')
+
+    # Read the user configuration.
+    try:
+        with open(codecs_path) as f:
+            logger.info(f'Using encoders configuration at {codecs_path}')
+            config = EncodersConfig(f)
+    except OSError:
+        config = EncodersConfig()
+
+    return config
+
+class EncodersConfig(dict):
+    """A mapping of encoders class names to their attributes.
+
+    The mapping is backed by a ConfigParser instance that may be read from
+    (or may be written to) an '.INI' configuration file.
+    The priority of the configuration is given by the order in which the
+    sections (class names) are listed, the first being the highest
+    priority.
+    """
+
+    def __init__(self, fileobject=None,
+                 root_class=encoders.ROOT_ENCODER):
+        self.root_class = root_class
+        self.empty_comment_cnt = 0
+
+        # Build a dictionary of the leaves of the 'root_class'
+        # class hierarchy excluding the direct subclasses.
+        m = sys.modules[root_class.__module__]
+        self.leaves = dict((name, obj) for
+                            (name, obj) in m.__dict__.items() if
+                                isinstance(obj, type) and
+                                issubclass(obj, root_class) and
+                                obj.__mro__.index(root_class) != 1 and
+                                not obj.__subclasses__())
+
+        if fileobject is not None:
+            self.parser = self.read(fileobject)
+        else:
+            self.parser = self.default_config()
+        self.build_dictionary()
+
+    def write_empty_comment(self, parser, section):
+        # Make ConfigParser believe that we are adding each time
+        # a different option with no value.
+        parser.set(section, "#" + self.empty_comment_cnt * ' ')
+        self.empty_comment_cnt += 1
+
+    def default_config(self, classes=encoders.DEFAULT_CONFIG):
+
+        parser = new_cfg_parser(defaults={'selection':
+                                        '\n' + ',\n'.join(classes) + ','})
+        for n in sorted(classes):
+            if n not in self.leaves:
+                raise ParsingError(f"'{n}' is not a valid class name")
+            parser.add_section(n)
+            instance = self.leaves[n]()
+            doc = instance.__class__.__doc__
+            if doc:
+                for comment in comments_from_doc(doc):
+                    if comment == '#':
+                        self.write_empty_comment(parser, n)
+                    else:
+                        parser.set(n, comment)
+                self.write_empty_comment(parser, n)
+
+            write_separator = True
+            for attr in instance.__dict__:
+                if attr.startswith('_'):
+                    parser.set(n,
+                               f'# {attr[1:]}: {getattr(instance, attr)}')
+                else:
+                    if write_separator:
+                        write_separator = False
+                        self.write_empty_comment(parser, n)
+                    parser.set(n, attr, str(getattr(instance, attr)))
         return parser
 
-    def comments_from_doc(doc):
-        """A generator of comments from text."""
-
-        lines = doc.splitlines()
-        doc = lines[0] + '\n' + textwrap.dedent('\n'.join(l for l in lines[1:]
-                                                    if l == '' or l.strip()))
-        for line in doc.splitlines():
-            yield '# ' + line if line else '#'
-
-    def codecs_config(codecs_path):
-        """Set up encoders configuration."""
-
-        # Write the encoders default configuration when the 'codecs_path'
-        # argument has been set and exit.
-        if codecs_path is not None:
-            default_config = EncodersConfig()
-            with open(codecs_path, 'w') as f:
-                default_config.write(f)
-                logger.info(
-                    f"Writing encoders configuration file '{codecs_path}'")
-                sys.exit(0)
-
-        # Try to load the user configuration file, otherwise use the default
-        # configuration.
-        xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
-        if xdg_config_home is None:
-            xdg_config_home = os.path.expanduser('~/.config')
-        codecs_path = os.path.join(xdg_config_home, 'pa-dlna', 'pa-dlna.ini')
-
-        # Read the user configuration.
+    def get_value(self, section, instance, option, new_val):
+        old_val = getattr(instance, option)
+        if old_val is not True and old_val is not False:
+            for t in (int, float):
+                if isinstance(old_val, t):
+                    try:
+                        return t(new_val)
+                    except ValueError as e:
+                        raise ParsingError(f'{section}.{option}: {e}')
         try:
-            with open(codecs_path) as f:
-                logger.info(f'Using encoders configuration at {codecs_path}')
-                config = EncodersConfig(f)
-        except OSError:
-            config = EncodersConfig()
+            return self.parser.getboolean(section, option)
+        except ValueError:
+            pass
+        return new_val
 
-        return config
+    def build_dictionary(self):
+        if self.parser is None:
+            return
 
-    class EncodersConfig(dict):
-        """A mapping of encoders class names to their attributes.
-
-        The mapping is backed by a ConfigParser instance that may be read from
-        (or may be written to) an '.INI' configuration file.
-        The priority of the configuration is given by the order in which the
-        sections (class names) are listed, the first being the highest
-        priority.
-        """
-
-        def __init__(self, fileobject=None,
-                     root_class=encoders.ROOT_ENCODER):
-            self.root_class = root_class
-            self.empty_comment_cnt = 0
-
-            # Build a dictionary of the leaves of the 'root_class'
-            # class hierarchy excluding the direct subclasses.
-            m = sys.modules[root_class.__module__]
-            self.leaves = dict((name, obj) for
-                                (name, obj) in m.__dict__.items() if
-                                    isinstance(obj, type) and
-                                    issubclass(obj, root_class) and
-                                    obj.__mro__.index(root_class) != 1 and
-                                    not obj.__subclasses__())
-
-            if fileobject is not None:
-                self.parser = self.read(fileobject)
+        defaults = self.parser.defaults()
+        selection = (s.strip() for s in defaults['selection'].split(','))
+        for section in (s for s in selection if s):
+            if section in self.leaves:
+                instance = self.leaves[section]()
+                for option, value in self.parser.items(section):
+                    if option.startswith('#'):
+                        continue
+                    if (hasattr(instance, option) and
+                            not option.startswith('_')):
+                        new_val = self.get_value(section, instance,
+                                                 option, value)
+                        if new_val is not None:
+                            setattr(instance, option, new_val)
+                    elif option not in defaults:
+                        raise ParsingError(f'Unknown option'
+                                           f" '{section}.{option}'")
+                # Python 3.7: Dictionary order is guaranteed to be
+                # insertion order.
+                self[section] = instance.__dict__
             else:
-                self.parser = self.default_config()
-            self.build_dictionary()
+                raise ParsingError(f"'{section}' not a valid class name")
 
-        def write_empty_comment(self, parser, section):
-            # Make ConfigParser believe that we are adding each time
-            # a different option with no value.
-            parser.set(section, "#" + self.empty_comment_cnt * ' ')
-            self.empty_comment_cnt += 1
+    def read(self, fileobject):
+        """Read and parse a configuration file."""
 
-        def default_config(self, classes=encoders.DEFAULT_CONFIG):
+        parser = new_cfg_parser()
+        parser.read_file(fileobject)
+        return parser
 
-            parser = new_cfg_parser(defaults={'selection':
-                                            '\n' + ',\n'.join(classes) + ','})
-            for n in sorted(classes):
-                if n not in self.leaves:
-                    raise ParsingError(f"'{n}' is not a valid class name")
-                parser.add_section(n)
-                instance = self.leaves[n]()
-                doc = instance.__class__.__doc__
-                if doc:
-                    for comment in comments_from_doc(doc):
-                        if comment == '#':
-                            self.write_empty_comment(parser, n)
-                        else:
-                            parser.set(n, comment)
-                    self.write_empty_comment(parser, n)
+    def write(self, fileobject):
+        """Write the configuration to a text file object."""
 
-                write_separator = True
-                for attr in instance.__dict__:
-                    if attr.startswith('_'):
-                        parser.set(n,
-                                   f'# {attr[1:]}: {getattr(instance, attr)}')
-                    else:
-                        if write_separator:
-                            write_separator = False
-                            self.write_empty_comment(parser, n)
-                        parser.set(n, attr, str(getattr(instance, attr)))
-            return parser
+        for comment in comments_from_doc(self.root_class.__doc__):
+            fileobject.write(comment + '\n')
+        fileobject.write('\n')
 
-        def get_value(self, section, instance, option, new_val):
-            old_val = getattr(instance, option)
-            if old_val is not True and old_val is not False:
-                for t in (int, float):
-                    if isinstance(old_val, t):
-                        try:
-                            return t(new_val)
-                        except ValueError as e:
-                            raise ParsingError(f'{section}.{option}: {e}')
-            try:
-                return self.parser.getboolean(section, option)
-            except ValueError:
-                pass
-            return new_val
-
-        def build_dictionary(self):
-            if self.parser is None:
-                return
-
-            defaults = self.parser.defaults()
-            selection = (s.strip() for s in defaults['selection'].split(','))
-            for section in (s for s in selection if s):
-                if section in self.leaves:
-                    instance = self.leaves[section]()
-                    for option, value in self.parser.items(section):
-                        if option.startswith('#'):
-                            continue
-                        if (hasattr(instance, option) and
-                                not option.startswith('_')):
-                            new_val = self.get_value(section, instance,
-                                                     option, value)
-                            if new_val is not None:
-                                setattr(instance, option, new_val)
-                        elif option not in defaults:
-                            raise ParsingError(f'Unknown option'
-                                               f" '{section}.{option}'")
-                    # Python 3.7: Dictionary order is guaranteed to be
-                    # insertion order.
-                    self[section] = instance.__dict__
-                else:
-                    raise ParsingError(f"'{section}' not a valid class name")
-
-        def read(self, fileobject):
-            """Read and parse a configuration file."""
-
-            parser = new_cfg_parser()
-            parser.read_file(fileobject)
-            return parser
-
-        def write(self, fileobject):
-            """Write the configuration to a text file object."""
-
-            for comment in comments_from_doc(self.root_class.__doc__):
-                fileobject.write(comment + '\n')
-            fileobject.write('\n')
-
-            if self.parser is not None:
-                self.parser.write(fileobject)
-
-except ImportError:
-    def codecs_config(codecs_path):
-        return None
+        if self.parser is not None:
+            self.parser.write(fileobject)
 
 # Parsing arguments utilities.
 class FilterDebug:
@@ -314,10 +299,13 @@ def parse_args(doc):
     parser.add_argument('--ttl', type=int, default=2,
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')
-    parser.add_argument('--write-encoders', '-w', metavar='PATH',
-                        dest='encoders_path',
+    parser.add_argument('--write-default', '-d', action='store_true',
                         help='write the default encoders configuration to'
-                        ' PATH and exit')
+                        ' stdout and exit')
+    parser.add_argument('--write-internal', '-i', action='store_true',
+                        help='write the internal encoders configuration '
+                        '(listing the encoders and their options as'
+                        ' they are used by the program) to stdout and exit')
     parser.add_argument('--loglevel', '-l', default='error',
                         choices=('debug', 'info', 'warning', 'error'),
                         help='set the log level of the stderr logging console'
@@ -332,6 +320,12 @@ def parse_args(doc):
 
     # Options as a dict.
     options = vars(parser.parse_args())
+
+    if options['write_default'] and options['write_internal']:
+        parser.error(f"Cannot set both '--write-default' and "
+                     f"'--write-internal' arguments simultaneously")
+    if options['write_default'] or options['write_internal']:
+        return options, None
 
     logfile_hdler = setup_logging(options)
 
@@ -370,12 +364,17 @@ def main_function(clazz, doc, inthread=False):
     # Parse the arguments.
     options, logfile_hdler = parse_args(doc)
 
+    # Get the encoders configuration.
     try:
-        codecs = codecs_config(options['encoders_path'])
-        if codecs is not None:
+        if options['write_default']:
+            EncodersConfig().write(sys.stdout)
+            sys.exit(0)
+        codecs = codecs_config()
+        if codecs is not None and options['write_internal']:
             codecs_repr = pprint_pformat(codecs, sort_dicts=False,
                                          compact=True)
-            logger.debug(f'Encoders configuration:\n{codecs_repr}')
+            sys.stdout.write(f'Encoders configuration:\n{codecs_repr}\n')
+            sys.exit(0)
     except Exception as e:
         sys.exit(repr(e))
 
