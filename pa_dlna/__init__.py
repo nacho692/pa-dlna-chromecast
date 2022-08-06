@@ -296,6 +296,9 @@ def parse_args(doc):
                         dest='ip_list',
                         help=' '.join(line.strip() for line in
                                      networks_option.__doc__.split('\n')[2:]))
+    parser.add_argument('--port', type=int, default=8081,
+                        help='set the TCP port on which the HTTP server'
+                        ' handles DLNA requests (default: %(default)s)')
     parser.add_argument('--ttl', type=int, default=2,
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')

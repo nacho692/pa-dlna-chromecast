@@ -563,7 +563,6 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         except KeyboardInterrupt as e:
             print(f'Got {e!r}')
             self.close()
-            raise
 
     async def run_control_point(self, event):
         self.loop = asyncio.get_running_loop()

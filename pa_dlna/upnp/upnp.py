@@ -476,7 +476,6 @@ class UPnPRootDevice(UPnPDevice):
             await self._age_root_device()
         except asyncio.CancelledError:
             self.close()
-            raise
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
@@ -676,7 +675,6 @@ class UPnPControlPoint:
                 await asyncio.sleep(MSEARCH_EVERY)
         except asyncio.CancelledError:
             self.close()
-            raise
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
@@ -688,7 +686,6 @@ class UPnPControlPoint:
             await notify(self.ip_list, self._process_ssdp)
         except asyncio.CancelledError:
             self.close()
-            raise
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)

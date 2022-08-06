@@ -8,6 +8,7 @@ from collections import namedtuple
 
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
+from .http_server import HTTPServer
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError)
 
@@ -72,6 +73,13 @@ class MediaRenderer:
             self.nullsink = nullsink
             control_point.renderers[nullsink.sink.index] = self
             return True
+
+    async def start_stream(self, writer, uri_path, http_version):
+        """Start the streaming task."""
+
+        # For HTTP 1.0 (RFC 1945) "the body length may be determined by the
+        # closing of the connection by the server".
+        raise NotImplementedError
 
     def log_event(self, event, sink, sink_input):
         if event in self.PULSE_RM_EVENTS:
@@ -166,7 +174,6 @@ class MediaRenderer:
 
         except asyncio.CancelledError:
             await self.close()
-            raise
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.close()
@@ -183,6 +190,19 @@ class FakeMediaRenderer(MediaRenderer):
 
     def __init__(self, av_control_point):
         super().__init__(self.RootDevice(), av_control_point)
+
+    async def start_stream(self, writer, uri_path, http_version):
+        if uri_path.strip('/') == 'FakeMediaRenderer-audio.mp3':
+            try:
+                writer.write('HTTP/1.1 200 OK\r\n'
+                             'Content-type: text/plain\r\n'
+                             '\r\n'
+                             'Test with FakeMediaRenderer.'.encode())
+                await writer.drain()
+                return True
+            finally:
+                writer.close()
+                await writer.wait_closed()
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -249,6 +269,11 @@ class AVControlPoint(UPnPApplication):
 
                 # Wait for the connection to PulseAudio to be ready.
                 await self.start_event.wait()
+
+                # Create the http_server task.
+                http_server = HTTPServer(self.renderers, self.port)
+                self.aio_tasks.create_task(http_server.run(),
+                                           name='http_server')
 
                 if use_fake_renderer:
                     await self.register(FakeMediaRenderer(self))

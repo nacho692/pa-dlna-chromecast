@@ -122,7 +122,7 @@ class FFMpegL16Encoder(FFMpegEncoder):
 
     def is_mime_type(self, protocol):
         # For example 'audio/L16;rate=44100;channels=2'.
-        protocol = protocol.lower().split(';')
+        protocol = [p.strip() for p in protocol.lower().split(';')]
         if protocol[0] != self._mime_types[0]:
             return False
 
@@ -154,7 +154,7 @@ class FFMpegMp3Encoder(FFMpegEncoder):
     """
 
     def __init__(self):
-        super().__init__(['audio/mpeg', 'audio/mp3'], 'mp3', 'libmp3lame')
+        super().__init__(['audio/mp3', 'audio/mpeg'], 'mp3', 'libmp3lame')
         self.bitrate = 256
         self.qscale = 2
 

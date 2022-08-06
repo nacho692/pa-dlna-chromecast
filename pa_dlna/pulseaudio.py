@@ -173,7 +173,6 @@ class Pulse:
                     self.pulse_ctl = None
         except asyncio.CancelledError:
             await self.close()
-            raise
         except Exception as e:
             if (hasattr(e, '__cause__') and
                     'pulse errno 6' in str(e.__cause__)):
