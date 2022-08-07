@@ -74,11 +74,9 @@ class MediaRenderer:
             control_point.renderers[nullsink.sink.index] = self
             return True
 
-    async def start_stream(self, writer, uri_path, http_version):
+    async def start_stream(self, writer, uri_path):
         """Start the streaming task."""
 
-        # For HTTP 1.0 (RFC 1945) "the body length may be determined by the
-        # closing of the connection by the server".
         raise NotImplementedError
 
     def log_event(self, event, sink, sink_input):
@@ -191,7 +189,7 @@ class FakeMediaRenderer(MediaRenderer):
     def __init__(self, av_control_point):
         super().__init__(self.RootDevice(), av_control_point)
 
-    async def start_stream(self, writer, uri_path, http_version):
+    async def start_stream(self, writer, uri_path):
         if uri_path.strip('/') == 'FakeMediaRenderer-audio.mp3':
             try:
                 writer.write('HTTP/1.1 200 OK\r\n'

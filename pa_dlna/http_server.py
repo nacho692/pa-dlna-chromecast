@@ -41,10 +41,14 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         logger.info(f'{self.request_version} GET request from '
-                    f"{self.client_address[0]}, uri path: '{self.path}'")
+                    f'{self.client_address[0]}\n'
+                    f"        uri path: '{self.path}'")
         logger.debug(f'Request headers:\n'
-                     f'{pprint_pformat(dict(self.headers.items()))}')
-        self.has_error = False
+                     f"{pprint_pformat(dict(self.headers.items()))}")
+        if self.request_version != 'HTTP/1.1':
+            self.send_error(HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
+        else:
+            self.has_error = False
 
 class HTTPServer:
     """See Hypertext Transfer Protocol -- HTTP/1.1 - RFC 2616."""
@@ -69,8 +73,7 @@ class HTTPServer:
             if not handler.has_error:
                 renderers = HTTPServer.http_server.renderers
                 for renderer in renderers.values():
-                    res = await renderer.start_stream(writer, handler.path,
-                                                      handler.request_version)
+                    res = await renderer.start_stream(writer, handler.path)
                     if res is True:
                         do_close = False
                         return
