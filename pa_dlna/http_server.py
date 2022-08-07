@@ -3,6 +3,7 @@
 import io
 import asyncio
 import http.server
+import urllib.parse
 import logging
 from http import HTTPStatus
 
@@ -12,13 +13,11 @@ logger = logging.getLogger('http')
 
 class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
-    def __init__(self, reader, writer):
+    def __init__(self, reader, writer, peername):
         self._reader = reader
         self.wfile = writer
+        self.client_address = peername
         self.has_error = True
-
-        addr = writer.get_extra_info('peername')
-        self.client_address = addr
 
         # BaseHTTPRequestHandler invokes self.wfile.flush().
         def flush():
@@ -51,29 +50,51 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             self.has_error = False
 
 class HTTPServer:
-    """See Hypertext Transfer Protocol -- HTTP/1.1 - RFC 2616."""
+    """HHTP server accepting connections only from 'allowed_ips'.
+
+    Reference: Hypertext Transfer Protocol -- HTTP/1.1 - RFC 2616.
+    """
 
     http_server = None
 
-    def __init__(self, renderers, port):
+    def __init__(self, renderers, ip_list, port):
         self.renderers = renderers
+        self.networks = ip_list
         self.port = port
+        self.allowed_ips = set()
         HTTPServer.http_server = self
+
+    def allow_from(self, ip_addr):
+        self.allowed_ips.add(ip_addr)
 
     @staticmethod
     async def client_connected(reader, writer):
+        http_server = HTTPServer.http_server
+        peername = writer.get_extra_info('peername')
+        ip_source = peername[0]
+        if ip_source not in http_server.allowed_ips:
+            sockname = writer.get_extra_info('sockname')
+            logger.warning(f'Discarded TCP connection from {ip_source} (not'
+                           f' allowed) received on {sockname[0]}')
+            writer.close()
+            return
+
         do_close = True
         try:
-            handler = HTTPRequestHandler(reader, writer)
+            handler = HTTPRequestHandler(reader, writer, peername)
             await handler.set_rfile()
             handler.handle_one_request()
 
             # Start the stream in a new task if the GET request is valid and
             # the uri path matches one of the encoder's.
             if not handler.has_error:
-                renderers = HTTPServer.http_server.renderers
+                # BaseHTTPRequestHandler has decoded the received bytes as
+                # 'iso-8859-1' encoded, now unquote the uri path.
+                uri_path = urllib.parse.unquote(handler.path)
+
+                renderers = http_server.renderers
                 for renderer in renderers.values():
-                    res = await renderer.start_stream(writer, handler.path)
+                    res = await renderer.start_stream(writer, uri_path)
                     if res is True:
                         do_close = False
                         return
@@ -91,7 +112,7 @@ class HTTPServer:
 
     async def run(self):
         self.server = await asyncio.start_server(self.client_connected,
-                                '127.0.0.1', self.port)
+                                                 self.networks, self.port)
         addrs = ', '.join(str(sock.getsockname())
                           for sock in self.server.sockets)
         logger.info(f'Serving HTTP requests on {addrs}')

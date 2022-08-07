@@ -180,6 +180,7 @@ class FakeMediaRenderer(MediaRenderer):
     """MediaRenderer to be used for testing when no DLNA device available."""
 
     class RootDevice:
+        ip_source = '127.0.0.1'
         modelName = 'FakeMediaRenderer'
         friendlyName = 'This is a FakeMediaRenderer'
 
@@ -190,7 +191,7 @@ class FakeMediaRenderer(MediaRenderer):
         super().__init__(self.RootDevice(), av_control_point)
 
     async def start_stream(self, writer, uri_path):
-        if uri_path.strip('/') == 'FakeMediaRenderer-audio.mp3':
+        if uri_path.strip('/') == 'FakeMediaRenderer.UDN':
             try:
                 writer.write('HTTP/1.1 200 OK\r\n'
                              'Content-type: text/plain\r\n'
@@ -269,12 +270,15 @@ class AVControlPoint(UPnPApplication):
                 await self.start_event.wait()
 
                 # Create the http_server task.
-                http_server = HTTPServer(self.renderers, self.port)
+                http_server = HTTPServer(self.renderers, self.ip_list,
+                                         self.port)
                 self.aio_tasks.create_task(http_server.run(),
                                            name='http_server')
 
                 if use_fake_renderer:
-                    await self.register(FakeMediaRenderer(self))
+                    fake_rndr = FakeMediaRenderer(self)
+                    http_server.allow_from(fake_rndr.root_device.ip_source)
+                    await self.register(fake_rndr)
 
                 # Handle UPnP notifications.
                 while True:
@@ -297,6 +301,7 @@ class AVControlPoint(UPnPApplication):
 
                     if notif == 'alive':
                         if renderer is None:
+                            http_server.allow_from(root_device.ip_source)
                             await self.register(MediaRenderer(root_device,
                                                               self))
                     else:
