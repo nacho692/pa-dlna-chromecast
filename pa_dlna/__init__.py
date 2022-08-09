@@ -14,7 +14,7 @@ import asyncio
 import threading
 from configparser import ConfigParser, ParsingError
 
-from . import encoders
+from . import encoders as encoders_module
 
 logger = logging.getLogger('init')
 
@@ -54,7 +54,7 @@ def comments_from_doc(doc):
     for line in doc.splitlines():
         yield '# ' + line if line else '#'
 
-def codecs_config():
+def encoders_config():
     """Get encoders configuration."""
 
     # Try to load the user configuration file, otherwise use the default
@@ -62,12 +62,12 @@ def codecs_config():
     xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
     if xdg_config_home is None:
         xdg_config_home = os.path.expanduser('~/.config')
-    codecs_path = os.path.join(xdg_config_home, 'pa-dlna', 'pa-dlna.ini')
+    encoders_path = os.path.join(xdg_config_home, 'pa-dlna', 'pa-dlna.ini')
 
     # Read the user configuration.
     try:
-        with open(codecs_path) as f:
-            logger.info(f'Using encoders configuration at {codecs_path}')
+        with open(encoders_path) as f:
+            logger.info(f'Using encoders configuration at {encoders_path}')
             config = EncodersConfig(f)
     except OSError:
         config = EncodersConfig()
@@ -75,7 +75,7 @@ def codecs_config():
     return config
 
 class EncodersConfig(dict):
-    """A mapping of encoders class names to their attributes.
+    """A mapping of encoders class names to an instance of this class.
 
     The mapping is backed by a ConfigParser instance that may be read from
     (or may be written to) an '.INI' configuration file.
@@ -85,7 +85,7 @@ class EncodersConfig(dict):
     """
 
     def __init__(self, fileobject=None,
-                 root_class=encoders.ROOT_ENCODER):
+                 root_class=encoders_module.ROOT_ENCODER):
         self.root_class = root_class
         self.empty_comment_cnt = 0
 
@@ -111,7 +111,7 @@ class EncodersConfig(dict):
         parser.set(section, "#" + self.empty_comment_cnt * ' ')
         self.empty_comment_cnt += 1
 
-    def default_config(self, classes=encoders.DEFAULT_CONFIG):
+    def default_config(self, classes=encoders_module.DEFAULT_CONFIG):
 
         parser = new_cfg_parser(defaults={'selection':
                                         '\n' + ',\n'.join(classes) + ','})
@@ -179,7 +179,7 @@ class EncodersConfig(dict):
                                            f" '{section}.{option}'")
                 # Python 3.7: Dictionary order is guaranteed to be
                 # insertion order.
-                self[section] = instance.__dict__
+                self[section] = instance
             else:
                 raise ParsingError(f"'{section}' not a valid class name")
 
@@ -372,17 +372,20 @@ def main_function(clazz, doc, inthread=False):
         if options['write_default']:
             EncodersConfig().write(sys.stdout)
             sys.exit(0)
-        codecs = codecs_config()
-        if codecs is not None and options['write_internal']:
-            codecs_repr = pprint_pformat(codecs, sort_dicts=False,
+        encoders = encoders_config()
+        if options['write_internal']:
+            _encoders = {}
+            for name, instance in encoders.items():
+                _encoders[name] = instance.__dict__
+            encoders_repr = pprint_pformat(_encoders, sort_dicts=False,
                                          compact=True)
-            sys.stdout.write(f'Encoders configuration:\n{codecs_repr}\n')
+            sys.stdout.write(f'Encoders configuration:\n{encoders_repr}\n')
             sys.exit(0)
     except Exception as e:
-        sys.exit(repr(e))
+        sys.exit(f'{e!r}')
 
     # Run the UPnPApplication instance.
-    app = clazz(encoders=codecs, **options)
+    app = clazz(encoders=encoders, **options)
     logger.info(f'Starting {app}')
     try:
         if inthread:

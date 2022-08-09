@@ -10,6 +10,25 @@ DEFAULT_CONFIG = (
     'FFMpegAacEncoder',
 )
 
+def select_encoder(encoders, protocols, udn):
+    """Select the encoder.
+
+    Return the selected encoder and the mime type.
+    """
+
+    def available_encoders(encoders):
+        return (instance for instance in encoders.values()
+                if instance.available)
+
+    for encoder in available_encoders(encoders):
+        if udn in (u.strip() for u in encoder.udns.split(',')):
+            return encoder, encoder.mime_types[0]
+
+    for encoder in available_encoders(encoders):
+        for protocol in protocols:
+            if protocol.lower() in encoder.mime_types:
+                return encoder, protocol
+
 class Encoder:
     """Configuration file for pa-dlna.
 
@@ -39,19 +58,17 @@ class Encoder:
     def __init__(self):
         self.udns = ''
 
-    def is_mime_type(self, protocol):
-        protocol = protocol.lower()
-        if protocol in self._mime_types:
-            return True
+    @property
+    def available(self):
+        return self._available
 
-    def encoder_command(self, udn=None, protocol=None):
-        if udn is not None:
-            if udn in (u.strip() for u in self.udns.split(',')):
-                return self._command()
+    @property
+    def mime_types(self):
+        return self._mime_types
 
-        if protocol is not None:
-            if self.is_mime_type(protocol):
-                return self._command()
+    @property
+    def command(self):
+        return self._command()
 
 ROOT_ENCODER = Encoder
 

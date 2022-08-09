@@ -1,5 +1,7 @@
 """An Upnp control point that forwards PulseAudio streams to DLNA devices."""
 
+import sys
+import shutil
 import asyncio
 import logging
 import re
@@ -9,6 +11,7 @@ from collections import namedtuple
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
 from .http_server import HTTPServer
+from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError)
 
@@ -25,6 +28,13 @@ CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 SinkInputMetaData = namedtuple('SinkInputMetaData', ['application',
                                                      'artist',
                                                      'title'])
+async def close_stream(stream):
+    try:
+        await stream.drain()
+        stream.close()
+        await writer.wait_closed()
+    except Exception:
+        pass
 
 def sink_input_meta(sink_input):
     if sink_input is None:
@@ -39,6 +49,56 @@ def sink_input_meta(sink_input):
         pass
 
 # Classes.
+class Stream:
+    """An audio stream.
+
+    The stream is made of two processes and an asyncio Stream Writer connected
+    through pipes:
+        - 'parec' records the audio from the nullsink monitor and forwards it
+          to the encoder program.
+        - The encoder program encodes the audio according to the encoder
+          protocol and forwards it to the Stream Writer.
+        - The Stream Writer writes the stream to the HTTP socket.
+    """
+
+    def __init__(self, renderer):
+        self.renderer = renderer
+        self.writer = None
+
+    async def stop(self):
+        if self.writer is not None:
+            logger.debug(f"Stop '{self.renderer.name}' stream")
+            await close_stream(self.writer)
+            self.writer = None
+
+    async def start(self, writer):
+        monitor = self.renderer.nullsink.sink.monitor_source_name
+        parec_pgm = self.renderer.control_point.parec_pgm
+        parec_cmd = [parec_pgm, f'--device={monitor}', '--format=s16le']
+        encoder_cmd = self.renderer.encoder.command
+
+        if self.writer is not None:
+            logger.debug(f"Cannot start '{self.renderer.name}' stream "
+                         f'(a stream is already running)')
+            await close_stream(writer)
+            return
+
+        self.writer = writer
+        logger.debug(f"Start '{self.renderer.name}' stream")
+        try:
+            # start the processes - write 200 OK and headers - pipe to socket
+            writer.write(f'HTTP/1.1 200 OK\r\n'
+                         f'Content-type: {self.renderer.mime_type}\r\n'
+                         f'\r\n'
+                         f'Test with FakeMediaRenderer.'.encode())
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+        finally:
+            await self.stop()
+
 class MediaRenderer:
     """A DLNA MediaRenderer.
 
@@ -50,34 +110,42 @@ class MediaRenderer:
 
     PULSE_RM_EVENTS = ('remove', 'exit')
 
-    def __init__(self, root_device, av_control_point):
+    def __init__(self, root_device, control_point):
         self.root_device = root_device
-        self.av_control_point = av_control_point
+        self.control_point = control_point
         self.closed = False
-        self.nullsink = None            # A NullSink instance
+        self.nullsink = None            # NullSink instance
+        self.name = None                # NullSink name
+        self.encoder = None
+        self.mime_type = None
+        self.stream = Stream(self)
         self.pulse_queue = asyncio.Queue()
 
     async def close(self):
         if not self.closed:
             self.closed = True
+            logger.info(f"Close '{self.name}' renderer")
             if self.nullsink is not None:
-                control_point = self.av_control_point
-                await control_point.pulse.unregister(self)
-                del control_point.renderers[self.nullsink.sink.index]
+                await self.control_point.pulse.unregister(self)
+                del self.control_point.renderers[self.nullsink.sink.index]
             self.root_device.close()
 
     async def register(self):
-        control_point = self.av_control_point
-        nullsink = await control_point.pulse.register(self)
+        nullsink = await self.control_point.pulse.register(self)
         if nullsink is not None:
             self.nullsink = nullsink
-            control_point.renderers[nullsink.sink.index] = self
+            self.name = nullsink.sink.name
+            self.control_point.renderers[nullsink.sink.index] = self
             return True
 
-    async def start_stream(self, writer, uri_path):
+    def start_stream(self, writer, uri_path):
         """Start the streaming task."""
 
-        raise NotImplementedError
+        if uri_path.strip('/') == self.root_device.udn:
+            task_name = f'stream-{self.name}'
+            self.control_point.aio_tasks.create_task(
+                                self.stream.start(writer), name=task_name)
+            return True
 
     def log_event(self, event, sink, sink_input):
         if event in self.PULSE_RM_EVENTS:
@@ -159,10 +227,25 @@ class MediaRenderer:
         """Run the MediaRenderer task."""
 
         try:
-            # Setup the MediaRenderer.
+            # Select an encoder matching the DLNA device supported mime types.
             if not isinstance(self, FakeMediaRenderer):
-                resp = await self.soap_action(CONNECTIONMANAGER,
-                                              'GetProtocolInfo', {})
+                protocols = await self.soap_action(CONNECTIONMANAGER,
+                                                   'GetProtocolInfo', {})
+            else:
+                protocols = ['audio/mp3']
+
+            res = select_encoder(self.control_point.encoders, protocols,
+                                 self.root_device.udn)
+            if res is not None:
+                self.encoder = res[0]
+                self.mime_type = res[1]
+                logger.info(f"Select '{self.encoder.__class__.__name__}'"
+                            f" encoder for the '{self.name}' renderer")
+            else:
+                logger.error(f'Cannot find an encoder matching the '
+                             f"{self.name} supported mime types")
+                await self.close()
+                return
 
             while True:
                 # An AVTransport event is either 'start', 'stop', 'pause' or
@@ -180,6 +263,7 @@ class FakeMediaRenderer(MediaRenderer):
     """MediaRenderer to be used for testing when no DLNA device available."""
 
     class RootDevice:
+        udn = 'e70e9d0e-bbbb-dddd-eeee-ffffffffffff'
         ip_source = '127.0.0.1'
         modelName = 'FakeMediaRenderer'
         friendlyName = 'This is a FakeMediaRenderer'
@@ -187,21 +271,8 @@ class FakeMediaRenderer(MediaRenderer):
         def close(self):
             pass
 
-    def __init__(self, av_control_point):
-        super().__init__(self.RootDevice(), av_control_point)
-
-    async def start_stream(self, writer, uri_path):
-        if uri_path.strip('/') == 'FakeMediaRenderer.UDN':
-            try:
-                writer.write('HTTP/1.1 200 OK\r\n'
-                             'Content-type: text/plain\r\n'
-                             '\r\n'
-                             'Test with FakeMediaRenderer.'.encode())
-                await writer.drain()
-                return True
-            finally:
-                writer.close()
-                await writer.wait_closed()
+    def __init__(self, control_point):
+        super().__init__(self.RootDevice(), control_point)
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -250,6 +321,13 @@ class AVControlPoint(UPnPApplication):
                                        name=renderer.nullsink.sink.name)
 
     async def run_control_point(self):
+        if not any(enc.available for enc in self.encoders.values()):
+            sys.exit('Error: No encoder is available')
+
+        self.parec_pgm = shutil.which('parec')
+        if self.parec_pgm is None:
+            sys.exit("Error: The pulseaudio 'parec' program cannot be found")
+
         try:
             self.curtask = asyncio.current_task()
 

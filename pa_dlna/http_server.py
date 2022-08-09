@@ -94,7 +94,7 @@ class HTTPServer:
 
                 renderers = http_server.renderers
                 for renderer in renderers.values():
-                    res = await renderer.start_stream(writer, uri_path)
+                    res = renderer.start_stream(writer, uri_path)
                     if res is True:
                         do_close = False
                         return

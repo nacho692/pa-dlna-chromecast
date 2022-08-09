@@ -390,6 +390,7 @@ class UPnPRootDevice(UPnPDevice):
     the other attributes and methods available.
 
     Attributes:
+      udn           Unique Device Name
       ip_source     IP source address of the UPnP device
       location      'Location' field value in the header of the notify or
                     msearch SSDP
@@ -401,7 +402,7 @@ class UPnPRootDevice(UPnPDevice):
     def __init__(self, control_point, udn, ip_source, location, max_age):
         super().__init__(self, self)
         self._control_point = control_point  # UPnPControlPoint instance
-        self._udn = udn
+        self.udn = udn
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
@@ -421,7 +422,7 @@ class UPnPRootDevice(UPnPDevice):
             self._closed = True
             self._aio_tasks.cancel_all()
             logger.info(f'{self} is closed')
-            self._control_point._remove_root_device(self._udn, exc=exc)
+            self._control_point._remove_root_device(self.udn, exc=exc)
             if self._curtask is not None:
                 self._curtask.cancel()
 
@@ -483,9 +484,9 @@ class UPnPRootDevice(UPnPDevice):
             logger.debug(f'End of {self} task')
 
     def __str__(self):
-        """Return a short representation of _udn."""
+        """Return a short representation of udn."""
 
-        return f'UPnPRootDevice {shorten(self._udn)}'
+        return f'UPnPRootDevice {shorten(self.udn)}'
 
 # UPnP control point.
 class UPnPControlPoint:
