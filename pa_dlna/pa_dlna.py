@@ -338,7 +338,7 @@ class AVControlPoint(UPnPApplication):
                 loop.add_signal_handler(sig, end_event.set)
 
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.ip_list,
+            async with UPnPControlPoint(self.net_ifaces,
                                         self.ttl) as control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
@@ -348,7 +348,7 @@ class AVControlPoint(UPnPApplication):
                 await self.start_event.wait()
 
                 # Create the http_server task.
-                http_server = HTTPServer(self.renderers, self.ip_list,
+                http_server = HTTPServer(self.renderers, self.net_ifaces,
                                          self.port)
                 self.aio_tasks.create_task(http_server.run(),
                                            name='http_server')

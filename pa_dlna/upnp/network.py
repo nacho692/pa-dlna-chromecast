@@ -155,7 +155,7 @@ async def msearch(ip, ttl):
         # Needed when OSError is raised upon binding the socket.
         sock.close()
 
-async def notify(ip_list, process_datagram):
+async def notify(net_ifaces, process_datagram):
     """Implement the SSDP advertisement protocol."""
 
     # See section 21.10 Sending and Receiving in
@@ -168,7 +168,7 @@ async def notify(ip_list, process_datagram):
     sock.setblocking(False)
 
     try:
-        for ip in ip_list:
+        for ip in (str(iface.ip) for iface in net_ifaces):
             # Become a member of the IP multicast group on this interface.
             mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
                                socket.inet_aton(ip))
@@ -176,7 +176,8 @@ async def notify(ip_list, process_datagram):
                 sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                                 mreq)
             except OSError as e:
-                raise OSError(e.args[0], f'{ip}: {e.args[1]}') from None
+                logger.warning(f'SSDP notify: {ip} cannot become member of'
+                               f' multicast goup: {e.args[1]}')
 
         # Allow other processes to bind to the same multicast group and port.
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

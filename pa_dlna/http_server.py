@@ -57,9 +57,9 @@ class HTTPServer:
 
     http_server = None
 
-    def __init__(self, renderers, ip_list, port):
+    def __init__(self, renderers, net_ifaces, port):
         self.renderers = renderers
-        self.networks = ip_list
+        self.networks = [str(iface.ip) for iface in net_ifaces]
         self.port = port
         self.allowed_ips = set()
         HTTPServer.http_server = self

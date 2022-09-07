@@ -538,7 +538,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                 self.close()
                 return True
 
-    def help_ip_list(self):
+    def help_net_ifaces(self):
         print(_dedent("""Print the list of the local IPv4 addresses of the
         network interfaces where UPnP devices may be discovered
 
@@ -568,7 +568,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.loop = asyncio.get_running_loop()
         try:
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.ip_list,
+            async with UPnPControlPoint(self.net_ifaces,
                                         self.ttl) as self.control_point:
                 event.set()
                 while True:
