@@ -30,16 +30,18 @@ def select_encoder(encoders, protocols, udn):
                 return encoder, protocol
 
 class Encoder:
-    """Configuration file for pa-dlna.
+    """INI configuration file for pa-dlna.
 
     This file is used to find an encoder matching one of the mime-types
     supported by a discovered DLNA device. The selection is made as follows:
 
     1) Use the first encoder whose 'udns' option holds the UDN (Unique Device
        Name) of the device, 'udns' is a comma separated list of UDNs.
-       An UDN value has the format 'uuid:UUID' and it can be obtained by
-       running the upnp_cmd program or looking at the logs when running
-       pa_dlna with log level set at 'debug'.
+       An UDN value has the format 'uuid:UUID' and it can be obtained by:
+         - looking at the logs when running pa_dlna with log level set at
+           'debug'
+         - or running the pa_dlna upnp_cmd program and entering the
+           'device [IDX]' command followed by the 'udn' command.
 
     2) Otherwise use the first matching encoder listed in the 'selection'
        option of the 'DEFAULT' section. The 'selection' option is a comma

@@ -305,10 +305,11 @@ def parse_args(doc):
     parser.add_argument('--ttl', type=int, default=2,
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')
-    parser.add_argument('--write-default', '-d', action='store_true',
+    parser.add_argument('--encoder-default', '-d', action='store_true',
                         help='write the default encoders configuration to'
-                        ' stdout and exit')
-    parser.add_argument('--write-internal', '-i', action='store_true',
+                        ' stdout and exit - use the output of this command '
+                        'to customize a pa_dlna.ini configuration file')
+    parser.add_argument('--encoder-internal', '-i', action='store_true',
                         help='write the internal encoders configuration '
                         '(listing the encoders and their options as'
                         ' they are used by the program) to stdout and exit')
@@ -327,10 +328,10 @@ def parse_args(doc):
     # Options as a dict.
     options = vars(parser.parse_args())
 
-    if options['write_default'] and options['write_internal']:
-        parser.error(f"Cannot set both '--write-default' and "
-                     f"'--write-internal' arguments simultaneously")
-    if options['write_default'] or options['write_internal']:
+    if options['encoder_default'] and options['encoder_internal']:
+        parser.error(f"Cannot set both '--encoder-default' and "
+                     f"'--encoder-internal' arguments simultaneously")
+    if options['encoder_default'] or options['encoder_internal']:
         return options, None
 
     logfile_hdler = setup_logging(options)
@@ -372,11 +373,11 @@ def main_function(clazz, doc, inthread=False):
 
     # Get the encoders configuration.
     try:
-        if options['write_default']:
+        if options['encoder_default']:
             EncodersConfig().write(sys.stdout)
             sys.exit(0)
         encoders = encoders_config()
-        if options['write_internal']:
+        if options['encoder_internal']:
             _encoders = {}
             for name, instance in encoders.items():
                 _encoders[name] = instance.__dict__
