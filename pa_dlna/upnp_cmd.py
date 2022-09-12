@@ -142,8 +142,20 @@ class _Cmd(cmd.Cmd):
         else:
             return  dev
 
+    def do_EOF(self, unused):
+        """Quit the application"""
+        print()
+        return self.do_quit(unused)
+
     def get_names(self):
         return dir(self)
+
+    def do_help(self, arg):
+        if not arg:
+            self.stdout.write(_dedent(self.__class__.__doc__))
+        super().do_help(arg)
+
+    do_help.__doc__ = cmd.Cmd.do_help.__doc__
 
     def get_help(self):
         """Return the help as a string."""
@@ -167,7 +179,7 @@ class _Cmd(cmd.Cmd):
             traceback.print_exc(limit=-10)
 
     def cmdloop(self):
-        super().cmdloop(intro=_dedent(self.__doc__) + self.get_help())
+        super().cmdloop(intro=self.get_help())
 
 class ActionCommand(cmd.Cmd):
     """Cmd interpreter used to prompt for an argument."""
@@ -498,7 +510,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
 
     List available commands with 'help' or '?'. List detailed help with
     'help COMMAND'. Use tab completion and command history when the readline
-    Python module is available.
+    Python module is available. Type 'quit' or <Ctl-D> here or at each
+    sub-menu to quit the session.
 
     Use the 'device' command to select a device among the discovered devices.
 

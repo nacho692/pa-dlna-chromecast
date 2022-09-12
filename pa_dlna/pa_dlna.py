@@ -271,7 +271,7 @@ class FakeMediaRenderer(MediaRenderer):
     """MediaRenderer to be used for testing when no DLNA device available."""
 
     class RootDevice:
-        udn = 'e70e9d0e-bbbb-dddd-eeee-ffffffffffff'
+        udn = 'uuid:e70e9d0e-bbbb-dddd-eeee-ffffffffffff'
         ip_source = '127.0.0.1'
         modelName = 'FakeMediaRenderer'
         friendlyName = 'This is a FakeMediaRenderer'
