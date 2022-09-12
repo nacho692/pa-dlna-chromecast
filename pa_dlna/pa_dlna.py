@@ -5,6 +5,7 @@ import shutil
 import asyncio
 import logging
 import re
+import ipaddress
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
@@ -67,9 +68,11 @@ class Stream:
 
     async def stop(self):
         if self.writer is not None:
-            logger.debug(f"Stop '{self.renderer.name}' stream")
-            await close_stream(self.writer)
-            self.writer = None
+            try:
+                logger.debug(f"Stop '{self.renderer.name}' stream")
+                await close_stream(self.writer)
+            finally:
+                self.writer = None
 
     async def start(self, writer):
         monitor = self.renderer.nullsink.sink.monitor_source_name
@@ -102,6 +105,10 @@ class Stream:
 class MediaRenderer:
     """A DLNA MediaRenderer.
 
+    Attributes:
+      net_iface     The control point ipaddress.IPv4Interface network
+                    interface that the DLNA device belongs to
+
     See the Standardized DCP (SDCP) specifications:
       AVTransport:3 Service
       RenderingControl:3 Service
@@ -110,9 +117,10 @@ class MediaRenderer:
 
     PULSE_RM_EVENTS = ('remove', 'exit')
 
-    def __init__(self, root_device, control_point):
-        self.root_device = root_device
+    def __init__(self, control_point, net_iface, root_device):
         self.control_point = control_point
+        self.net_iface = net_iface
+        self.root_device = root_device
         self.closed = False
         self.nullsink = None            # NullSink instance
         self.name = None                # NullSink name
@@ -228,7 +236,7 @@ class MediaRenderer:
 
         try:
             # Select an encoder matching the DLNA device supported mime types.
-            if not isinstance(self, FakeMediaRenderer):
+            if not isinstance(self, FakeMediaRenderer): # XXX
                 protocols = await self.soap_action(CONNECTIONMANAGER,
                                                    'GetProtocolInfo', {})
             else:
@@ -272,7 +280,9 @@ class FakeMediaRenderer(MediaRenderer):
             pass
 
     def __init__(self, control_point):
-        super().__init__(self.RootDevice(), control_point)
+        super().__init__(control_point,
+                         ipaddress.IPv4Interface('127.0.0.1/8'),
+                         self.RootDevice())
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -379,9 +389,20 @@ class AVControlPoint(UPnPApplication):
 
                     if notif == 'alive':
                         if renderer is None:
-                            http_server.allow_from(root_device.ip_source)
-                            await self.register(MediaRenderer(root_device,
-                                                              self))
+                            # Check that ip_source belongs to one of the
+                            # net_ifaces networks.
+                            ip_source = root_device.ip_source
+                            ip_obj = ipaddress.IPv4Address(ip_source)
+                            for net_iface in self.net_ifaces:
+                                if ip_obj in net_iface.network:
+                                    break
+                            else:
+                                logger.warning(f'{ip_source} does not belong'
+                                            ' to one of the enabled networks')
+                                return
+                            http_server.allow_from(ip_source)
+                            await self.register(MediaRenderer(self, net_iface,
+                                                              root_device))
                     else:
                         if renderer is not None:
                             renderer.close()

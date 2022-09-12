@@ -258,7 +258,7 @@ def networks_option(ip_interfaces, parser):
             except ValueError as e:
                 parser.error(e)
             if iface.network.prefixlen == 32:
-                parser.error(f'{ip_interface} network prefix length is 32')
+                logger.warning(f'{ip_interface} network prefix length is 32')
             net_ifaces.append(iface)
 
     else:

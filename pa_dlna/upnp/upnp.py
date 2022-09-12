@@ -45,7 +45,6 @@ import asyncio
 import logging
 import time
 import collections
-import ipaddress
 import urllib.parse
 from signal import SIGINT, SIGTERM, strsignal
 
@@ -393,8 +392,6 @@ class UPnPRootDevice(UPnPDevice):
     Attributes:
       udn           Unique Device Name
       ip_source     IP source address of the UPnP device
-      net_iface     The ipaddress.IPv4Interface network interface that
-                    'ip_source' belongs to
       location      'Location' field value in the header of the notify or
                     msearch SSDP
 
@@ -402,13 +399,11 @@ class UPnPRootDevice(UPnPDevice):
       close         close the root device
     """
 
-    def __init__(self, control_point, udn, ip_source, net_iface, location,
-                 max_age):
+    def __init__(self, control_point, udn, ip_source, location, max_age):
         super().__init__(self, self)
         self._control_point = control_point  # UPnPControlPoint instance
         self.udn = udn
         self.ip_source = ip_source
-        self.net_iface = net_iface
         self.location = location
         self._set_valid_until(max_age)
 
@@ -572,7 +567,7 @@ class UPnPControlPoint:
         state = 'created' if kind == 'alive' else 'deleted'
         logger.debug(f'{root_device} has been {state}')
 
-    def _create_root_device(self, header, udn, ip_source, net_iface):
+    def _create_root_device(self, header, udn, ip_source):
         # Get the max-age.
         # 'max_age' None means no aging.
         max_age = None
@@ -588,7 +583,7 @@ class UPnPControlPoint:
 
         if udn not in self._devices:
             # Instantiate the UPnPDevice and start its task.
-            root_device = UPnPRootDevice(self, udn, ip_source, net_iface,
+            root_device = UPnPRootDevice(self, udn, ip_source,
                                          header['LOCATION'], max_age)
             self._aio_tasks.create_task(root_device._run(),
                                                name=str(root_device))
@@ -630,16 +625,6 @@ class UPnPControlPoint:
         is a notify advertisement.
         """
 
-        # Check that ip_source belongs to one of the net_ifaces networks.
-        ip_obj = ipaddress.IPv4Address(ip_source)
-        for net_iface in self.net_ifaces:
-            if ip_obj in net_iface.network:
-                break
-        else:
-            logger.warning(f'{ip_source} does not belong to one of the enabled'
-                           f' networks')
-            return
-
         header = parse_ssdp(datagram, ip_source, is_msearch)
         if header is None:
             return
@@ -652,7 +637,7 @@ class UPnPControlPoint:
             if udn in self._faulty_devices:
                 logger.debug(f'Ignore faulty root device {shorten(udn)}')
             else:
-                self._create_root_device(header, udn, ip_source, net_iface)
+                self._create_root_device(header, udn, ip_source)
         else:
             nts = header['NTS']
             if nts == 'ssdp:byebye':
