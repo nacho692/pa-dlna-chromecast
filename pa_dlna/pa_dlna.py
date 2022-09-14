@@ -230,9 +230,11 @@ class MediaRenderer:
         if isinstance(self, TestMediaRenderer):
             mime_types = [self.mime_type]
         else:
-            protocols = await self.soap_action(CONNECTIONMANAGER,
+            protocol = await self.soap_action(CONNECTIONMANAGER,
                                                'GetProtocolInfo', {})
-            mime_types = protocols # XXX
+            mime_types = [proto.split(':')[2] for proto in
+                          (x for x in protocol['Sink'].split(','))]
+            logger.info(f'{self.name} renderer mime types:\n  {mime_types}')
 
         return select_encoder(self.control_point.encoders, mime_types, udn)
 
@@ -273,7 +275,7 @@ class MediaRenderer:
                               f':{self.control_point.port}'
                               f'/audio-content/{udn}')
             logger.info(f"New '{self.mime_type}' "
-                        f'{self.name}, with url:\n  {self.audio_url}')
+                        f'{self.name} renderer, with url:\n  {self.audio_url}')
 
             while True:
                 # An AVTransport event is either 'start', 'stop', 'pause' or
@@ -403,7 +405,7 @@ class AVControlPoint(UPnPApplication):
                 # Handle UPnP notifications.
                 while True:
                     notif, root_device = await control_point.get_notification()
-                    logger.info(f"Got '{notif}' notification for "
+                    logger.info(f"Got '{notif}' notification for"
                                 f' {root_device}')
 
                     # Ignore non MediaRenderer devices.

@@ -321,7 +321,7 @@ class UPnPDevice(UPnPElement):
             serviceId = d['serviceId']
             self.serviceList[serviceId] = await (
                                 UPnPService(self, self.root_device, d)._run())
-            logger.info(f'New service - serviceId: {serviceId}')
+            logger.debug(f'New service - serviceId: {serviceId}')
 
     async def _create_devices(self, devices, namespace):
         """Instantiate the embedded UPnPDevice(s)."""
