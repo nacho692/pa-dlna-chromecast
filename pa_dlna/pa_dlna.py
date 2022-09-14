@@ -148,7 +148,8 @@ class MediaRenderer:
             logger.info(f"Close '{self.name}' renderer")
             if self.nullsink is not None:
                 await self.control_point.pulse.unregister(self)
-                del self.control_point.renderers[self.nullsink.sink.index]
+            # Closing the root device will trigger a 'byebye' notification and
+            # the renderer will be removed from self.control_point.renderers.
             self.root_device.close()
 
     async def register(self):
@@ -438,7 +439,10 @@ class AVControlPoint(UPnPApplication):
                             await self.register(rndr, http_server)
                     else:
                         if renderer is not None:
-                            renderer.close()
+                            if not renderer.closed:
+                                renderer.close()
+                            else:
+                                del self.renderers[renderer.nullsink.sink.index]
                         else:
                             logger.warning("Got a 'byebye' notification for"
                                            ' no existing MediaRenderer')
