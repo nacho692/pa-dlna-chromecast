@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import ipaddress
+import random
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
@@ -18,9 +19,6 @@ from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
 
 logger = logging.getLogger('pa-dlna')
 
-# Set 'use_fake_renderer' to True for testing when no available DLNA device.
-use_fake_renderer = 1 # XXX
-
 MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
 AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
@@ -29,6 +27,20 @@ CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 SinkInputMetaData = namedtuple('SinkInputMetaData', ['application',
                                                      'artist',
                                                      'title'])
+random.seed()
+def get_udn():
+    """Build a random UPnP udn."""
+
+    rbytes = random.randbytes(16)
+    p = 0
+    udn = ['uuid:']
+    for n in [4, 2, 2, 2, 6]:
+        if p != 0:
+            udn.append('-')
+        udn.append(''.join(format(x, '02x') for x in rbytes[p:p+n]))
+        p += n
+    return ''.join(udn)
+
 async def close_stream(stream):
     try:
         await stream.drain()
@@ -93,7 +105,7 @@ class Stream:
             writer.write(f'HTTP/1.1 200 OK\r\n'
                          f'Content-type: {self.renderer.mime_type}\r\n'
                          f'\r\n'
-                         f'Test with FakeMediaRenderer.'.encode())
+                         f'Test with TestMediaRenderer.'.encode())
 
         except asyncio.CancelledError:
             pass
@@ -126,6 +138,7 @@ class MediaRenderer:
         self.name = None                # NullSink name
         self.encoder = None
         self.mime_type = None
+        self.audio_url = None
         self.stream = Stream(self)
         self.pulse_queue = asyncio.Queue()
 
@@ -211,6 +224,18 @@ class MediaRenderer:
         for evt in avtransport_events:
             self.pulse_queue.put_nowait(evt)
 
+    async def select_encoder(self, udn):
+        """Select an encoder matching the DLNA device supported mime types."""
+
+        if isinstance(self, TestMediaRenderer):
+            mime_types = [self.mime_type]
+        else:
+            protocols = await self.soap_action(CONNECTIONMANAGER,
+                                               'GetProtocolInfo', {})
+            mime_types = protocols # XXX
+
+        return select_encoder(self.control_point.encoders, mime_types, udn)
+
     async def soap_action(self, serviceId, action, args):
         """Send a SOAP action.
 
@@ -235,25 +260,20 @@ class MediaRenderer:
         """Run the MediaRenderer task."""
 
         try:
-            # Select an encoder matching the DLNA device supported mime types.
-            if not isinstance(self, FakeMediaRenderer): # XXX
-                protocols = await self.soap_action(CONNECTIONMANAGER,
-                                                   'GetProtocolInfo', {})
-            else:
-                protocols = ['audio/mp3']
-
-            res = select_encoder(self.control_point.encoders, protocols,
-                                 self.root_device.udn)
-            if res is not None:
-                self.encoder = res[0]
-                self.mime_type = res[1]
-                logger.info(f"Select '{self.encoder.__class__.__name__}'"
-                            f" encoder for the '{self.name}' renderer")
-            else:
+            # Select the encoder.
+            udn = self.root_device.udn
+            res = await self.select_encoder(udn)
+            if res is None:
                 logger.error(f'Cannot find an encoder matching the '
                              f"{self.name} supported mime types")
                 await self.close()
                 return
+            self.encoder, self.mime_type = res
+            self.audio_url = (f'http://{self.net_iface.ip}'
+                              f':{self.control_point.port}'
+                              f'/audio-content/{udn}')
+            logger.info(f"New '{self.mime_type}' "
+                        f'{self.name}, with url:\n  {self.audio_url}')
 
             while True:
                 # An AVTransport event is either 'start', 'stop', 'pause' or
@@ -267,22 +287,30 @@ class MediaRenderer:
             logger.exception(f'{e!r}')
             await self.close()
 
-class FakeMediaRenderer(MediaRenderer):
-    """MediaRenderer to be used for testing when no DLNA device available."""
+class TestMediaRenderer(MediaRenderer):
+    """Non UPnP MediaRenderer to be used for testing."""
+
+    LOOPBACK = ipaddress.IPv4Interface('127.0.0.1/8')
 
     class RootDevice:
-        udn = 'uuid:e70e9d0e-bbbb-dddd-eeee-ffffffffffff'
-        ip_source = '127.0.0.1'
-        modelName = 'FakeMediaRenderer'
-        friendlyName = 'This is a FakeMediaRenderer'
+
+        count = 0
+
+        def __init__(self):
+            self.udn = get_udn()
+            self.ip_source = '127.0.0.1'
+
+            TestMediaRenderer.RootDevice.count += 1
+            ext = str(self.count)
+            self.modelName = 'TestMediaRenderer-' + ext
+            self.friendlyName = 'This is TestMediaRenderer-' + ext
 
         def close(self):
             pass
 
-    def __init__(self, control_point):
-        super().__init__(control_point,
-                         ipaddress.IPv4Interface('127.0.0.1/8'),
-                         self.RootDevice())
+    def __init__(self, control_point, mime_type):
+        super().__init__(control_point, self.LOOPBACK, self.RootDevice())
+        self.mime_type = mime_type
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -323,9 +351,10 @@ class AVControlPoint(UPnPApplication):
             self.aio_tasks.cancel_all()
             self.curtask.cancel()
 
-    async def register(self, renderer):
+    async def register(self, renderer, http_server):
         """Load the null-sink module and create the renderer task."""
 
+        http_server.allow_from(renderer.root_device.ip_source)
         if await renderer.register():
             self.aio_tasks.create_task(renderer.run(),
                                        name=renderer.nullsink.sink.name)
@@ -363,16 +392,19 @@ class AVControlPoint(UPnPApplication):
                 self.aio_tasks.create_task(http_server.run(),
                                            name='http_server')
 
-                if use_fake_renderer:
-                    fake_rndr = FakeMediaRenderer(self)
-                    http_server.allow_from(fake_rndr.root_device.ip_source)
-                    await self.register(fake_rndr)
+                # Register the TestMediaRenderer(s).
+                for mtype in (x.strip() for x in
+                              self.renderers_mtype.split(',')):
+                    if not mtype:
+                        continue
+                    rndr = TestMediaRenderer(self, mtype)
+                    await self.register(rndr, http_server)
 
                 # Handle UPnP notifications.
                 while True:
                     notif, root_device = await control_point.get_notification()
-                    logger.info(f'Got notification'
-                                f' {(notif, root_device)}')
+                    logger.info(f"Got '{notif}' notification for "
+                                f' {root_device}')
 
                     # Ignore non MediaRenderer devices.
                     if re.match(rf'{MEDIARENDERER}(1|2)',
@@ -400,9 +432,8 @@ class AVControlPoint(UPnPApplication):
                                 logger.warning(f'{ip_source} does not belong'
                                             ' to one of the enabled networks')
                                 return
-                            http_server.allow_from(ip_source)
-                            await self.register(MediaRenderer(self, net_iface,
-                                                              root_device))
+                            rndr = MediaRenderer(self, net_iface, root_device)
+                            await self.register(rndr, http_server)
                     else:
                         if renderer is not None:
                             renderer.close()

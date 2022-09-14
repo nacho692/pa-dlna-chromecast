@@ -10,7 +10,7 @@ DEFAULT_CONFIG = (
     'FFMpegAacEncoder',
 )
 
-def select_encoder(encoders, protocols, udn):
+def select_encoder(encoders, mime_types, udn):
     """Select the encoder.
 
     Return the selected encoder and the mime type.
@@ -25,9 +25,9 @@ def select_encoder(encoders, protocols, udn):
             return encoder, encoder.mime_types[0]
 
     for encoder in available_encoders(encoders):
-        for protocol in protocols:
-            if protocol.lower() in encoder.mime_types:
-                return encoder, protocol
+        for mime_type in mime_types:
+            if mime_type.lower() in encoder.mime_types:
+                return encoder, mime_type
 
 class Encoder:
     """INI configuration file for pa-dlna.

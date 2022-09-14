@@ -313,7 +313,16 @@ def parse_args(doc):
                         help='write the internal encoders configuration '
                         '(listing the encoders and their options as'
                         ' they are used by the program) to stdout and exit')
-    parser.add_argument('--loglevel', '-l', default='error',
+    parser.add_argument('--renderers', '-r', metavar='MIME-TYPES',
+                        default='', dest='renderers_mtype',
+                        help='MIME-TYPES is a comma separated list of audio '
+                        'mime types - a TestMediaRenderer is instantiated for'
+                        ' each of these mime types and a pulseaudio stream '
+                        'may be run by doing an http GET on the '
+                        'TestMediaRenderer url provided by the logs, the '
+                        'stream is routed to the TestMediaRenderer and '
+                        'collected by the program doing the http GET')
+    parser.add_argument('--loglevel', '-l', default='info',
                         choices=('debug', 'info', 'warning', 'error'),
                         help='set the log level of the stderr logging console'
                         ' (default: %(default)s)')

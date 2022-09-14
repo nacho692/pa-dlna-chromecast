@@ -587,8 +587,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                 while True:
                     notif, root_device = (await
                                           self.control_point.get_notification())
-                    logger.info(f'Got notification'
-                                f' {(notif, root_device)}')
+                    logger.info(f"Got '{notif}' notification for "
+                                f' {root_device}')
                     if notif == 'alive':
                         self.devices.add(root_device)
                     else:
