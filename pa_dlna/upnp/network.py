@@ -84,7 +84,8 @@ def parse_ssdp(datagram, ip_source, is_msearch):
         return None
     start_line = header[0].strip()
     if start_line != req_line:
-        logger.debug(f"Ignore '{start_line}' request" f' from {ip_source}')
+        # Comment out verbose log:
+        # logger.debug(f"Ignore '{start_line}' request" f' from {ip_source}')
         return None
 
     # Parse the HTTP header as a dict.

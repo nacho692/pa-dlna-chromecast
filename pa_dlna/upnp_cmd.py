@@ -591,9 +591,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                                 f' {root_device}')
                     if notif == 'alive':
                         self.devices.add(root_device)
-                    else:
-                        if root_device in self.devices:
-                            self.devices.remove(root_device)
+                    elif root_device in self.devices:
+                        self.devices.remove(root_device)
         except asyncio.CancelledError:
             pass
         except Exception as e:

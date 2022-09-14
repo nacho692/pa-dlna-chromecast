@@ -609,9 +609,9 @@ class UPnPControlPoint:
     def _remove_root_device(self, udn, exc=None):
         root_device = self._devices.get(udn)
         if root_device is not None:
+            del self._devices[udn]
             root_device.close()
             self._put_notification('byebye', root_device)
-            del self._devices[udn]
 
             if exc is not None:
                 self._faulty_devices.add(udn)
