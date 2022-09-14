@@ -604,4 +604,5 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
 
 # The main function.
 if __name__ == '__main__':
-    main_function(UPnPControlCmd, __doc__, inthread=True)
+    main_function(UPnPControlCmd, __doc__, loglevel_default='warning',
+                  inthread=True)

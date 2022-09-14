@@ -289,7 +289,7 @@ def networks_option(ip_interfaces, parser):
 
     return net_ifaces
 
-def parse_args(doc):
+def parse_args(doc, loglevel_default):
     """Parse the command line."""
 
     parser = argparse.ArgumentParser(description=doc)
@@ -322,7 +322,7 @@ def parse_args(doc):
                         'TestMediaRenderer url provided by the logs, the '
                         'stream is routed to the TestMediaRenderer and '
                         'collected by the program doing the http GET')
-    parser.add_argument('--loglevel', '-l', default='info',
+    parser.add_argument('--loglevel', '-l', default=loglevel_default,
                         choices=('debug', 'info', 'warning', 'error'),
                         help='set the log level of the stderr logging console'
                         ' (default: %(default)s)')
@@ -366,7 +366,7 @@ class UPnPApplication:
         raise NotImplementedError
 
 # The main function.
-def main_function(clazz, doc, inthread=False):
+def main_function(clazz, doc, loglevel_default='info', inthread=False):
 
     def run_in_thread(coro):
         """Run the UPnP control point in a thread."""
@@ -378,7 +378,7 @@ def main_function(clazz, doc, inthread=False):
     assert issubclass(clazz, UPnPApplication)
 
     # Parse the arguments.
-    options, logfile_hdler = parse_args(doc)
+    options, logfile_hdler = parse_args(doc, loglevel_default)
 
     # Get the encoders configuration.
     try:
