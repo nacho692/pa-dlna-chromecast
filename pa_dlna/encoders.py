@@ -22,11 +22,11 @@ def select_encoder(encoders, mime_types, udn):
 
     for encoder in available_encoders(encoders):
         if udn in (u.strip() for u in encoder.udns.split(',')):
-            return encoder, encoder.mime_types[0]
+            return encoder, encoder.mime_type
 
     for encoder in available_encoders(encoders):
         for mime_type in mime_types:
-            if mime_type.lower() in encoder.mime_types:
+            if encoder.has_mime_type(mime_type.lower()):
                 return encoder, mime_type
 
 class Encoder:
@@ -65,8 +65,8 @@ class Encoder:
         return self._available
 
     @property
-    def mime_types(self):
-        return self._mime_types
+    def mime_type(self):
+        return self._mime_types[0]
 
     @property
     def command(self):
@@ -99,6 +99,9 @@ class FFMpegEncoder(Encoder):
                      f' -f {codec}')
         if encoder is not None:
             self.args += f' -c:a {encoder}'
+
+    def has_mime_type(self, mime_type):
+        return mime_type in self._mime_types
 
     def add_args(self, cmd):
         return cmd
@@ -139,14 +142,19 @@ class FFMpegL16Encoder(FFMpegEncoder):
         self.rate = 44100
         self.channels = 2
 
-    def is_mime_type(self, protocol):
+    @property
+    def mime_type(self):
+        return (f'{self._mime_types[0]};channels={self.channels};'
+                f'rate={self.rate}')
+
+    def has_mime_type(self, mime_type):
         # For example 'audio/L16;rate=44100;channels=2'.
-        protocol = [p.strip() for p in protocol.lower().split(';')]
-        if protocol[0] != self._mime_types[0]:
+        mime_type = [p.strip() for p in mime_type.lower().split(';')]
+        if mime_type[0] != self._mime_types[0]:
             return False
 
         rate_channels = [0, 0]
-        for param in protocol[1:]:
+        for param in mime_type[1:]:
             for (n, prefix) in enumerate(['rate=', 'channels=']):
                 if param.startswith(prefix):
                     try:
@@ -154,10 +162,7 @@ class FFMpegL16Encoder(FFMpegEncoder):
                     except ValueError:
                         return False
                     break
-        if rate_channels[0] != 0:
-            self.rate = rate_channels[0]
-            if rate_channels[1] != 0:
-                self.channels = rate_channels[1]
+        if rate_channels == [self.rate, self.channels]:
             return True
 
     def add_args(self, cmd):
