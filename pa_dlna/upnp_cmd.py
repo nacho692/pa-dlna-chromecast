@@ -105,15 +105,6 @@ class _Cmd(cmd.Cmd):
     def __init__(self):
         super().__init__()
 
-    def device_help(self, kind):
-        return _dedent(f"""Select {kind} device
-
-        Use the command 'device IDX' to select the device at index IDX
-        (starting at zero) in the list printed by the 'device_list' command.
-        With no argument, do this for the device at index 0.
-
-        """)
-
     def select_device(self, devices, idx):
         """Select a device in a list and print some device attributes."""
 
@@ -406,15 +397,21 @@ class UPnPDeviceCmd(_Cmd):
         # Stop the current interpreter and return to the previous one.
         return True
 
-    def do_device_list(self, unused):
+    def do_embedded_list(self, unused):
         """List the embedded UPnP devices"""
         print([device_name(dev) for dev in
                self.upnp_device.deviceList.values()])
 
-    def help_device(self):
-        print(self.device_help('an embedded'))
+    def help_embedded(self):
+        print(_dedent(f"""Select an embedded device
 
-    def do_device(self, idx):
+        Use the command 'embedded IDX' to select the device at index IDX
+        (starting at zero) in the list printed by the 'embedded_list' command.
+        With no argument, do this for the device at index 0.
+
+        """))
+
+    def do_embedded(self, idx):
         dev_list = list(self.upnp_device.deviceList.values())
         selected = self.select_device(dev_list, idx)
         if selected is not None:
@@ -540,7 +537,13 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         print([device_name(dev) for dev in self.devices])
 
     def help_device(self):
-        print(self.device_help('a discovered'))
+        print(_dedent(f"""Select a discovered device
+
+        Use the command 'device IDX' to select the device at index IDX
+        (starting at zero) in the list printed by the 'device_list' command.
+        With no argument, do this for the device at index 0.
+
+        """))
 
     def do_device(self, idx):
         dev_list = list(self.devices)
