@@ -15,7 +15,7 @@ from .pulseaudio import Pulse
 from .http_server import HTTPServer
 from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
-                   UPnPSoapFaultError)
+                   UPnPSoapFaultError, shorten)
 
 logger = logging.getLogger('pa-dlna')
 
@@ -24,9 +24,12 @@ AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
 CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 
-SinkInputMetaData = namedtuple('SinkInputMetaData', ['application',
-                                                     'artist',
-                                                     'title'])
+class SinkInputMetaData(namedtuple('SinkInputMetaData', ['application',
+                                                         'artist',
+                                                         'title'])):
+    def __str__(self):
+        return shorten(repr(self), head_len=18, tail_len=32)
+
 random.seed()
 def get_udn():
     """Build a random UPnP udn."""
@@ -99,7 +102,7 @@ class Stream:
             return
 
         self.writer = writer
-        logger.debug(f"Start '{self.renderer.name}' stream")
+        logger.debug(f'Start the {self.renderer.name} stream  processes')
         try:
             # start the processes - write 200 OK and headers - pipe to socket
             writer.write(f'HTTP/1.1 200 OK\r\n'
@@ -175,7 +178,7 @@ class MediaRenderer:
             sink_input = self.nullsink.sink_input
 
         logger.debug(f"Sink-input {sink_input.index} '{event}' event for"
-                    f" sink '{sink.name}' state '{sink.state._value}'")
+                     f" sink {self.name} state '{sink.state._value}'")
 
     async def on_pulse_event(self, event, sink=None, sink_input=None):
         """Handle a PulseAudio event.
@@ -195,7 +198,7 @@ class MediaRenderer:
         # Process the event and set the new attributes values of nullsink.
         if event in self.PULSE_RM_EVENTS:
             avtransport_events.append('stop')
-            logger.info(f"Stop the streaming to '{self.nullsink.sink.name}'")
+            logger.debug(f'Stop the streaming to {self.name}')
             self.nullsink.sink_input = None
 
         else:
@@ -204,13 +207,13 @@ class MediaRenderer:
             if curstate == 'running':
                 if prevstate != 'running':
                     avtransport_events.append('start')
-                    logger.info(f"Start the streaming to '{sink.name}'")
+                    logger.debug(f'Start the streaming to {self.name}')
                 elif self.nullsink.sink_input is None:
                     avtransport_events.append('start')
-                    logger.info(f"Back to the streaming to '{sink.name}'")
+                    logger.debug(f'Back to the streaming to {self.name}')
             elif curstate == 'idle' and prevstate == 'running':
                 avtransport_events.append('pause')
-                logger.info(f"Pause the streaming to '{sink.name}'")
+                logger.debug(f'Pause the streaming to {self.name}')
 
             if event == 'change':
                 prev_metadata = sink_input_meta(self.nullsink.sink_input)
@@ -224,20 +227,6 @@ class MediaRenderer:
 
         for evt in avtransport_events:
             self.pulse_queue.put_nowait(evt)
-
-    async def select_encoder(self, udn):
-        """Select an encoder matching the DLNA device supported mime types."""
-
-        if isinstance(self, TestMediaRenderer):
-            mime_types = [self.mime_type]
-        else:
-            protocol = await self.soap_action(CONNECTIONMANAGER,
-                                               'GetProtocolInfo', {})
-            mime_types = [proto.split(':')[2] for proto in
-                          (x for x in protocol['Sink'].split(','))]
-            logger.info(f'{self.name} renderer mime types:\n  {mime_types}')
-
-        return select_encoder(self.control_point.encoders, mime_types, udn)
 
     async def soap_action(self, serviceId, action, args):
         """Send a SOAP action.
@@ -259,30 +248,91 @@ class MediaRenderer:
             logger.exception(f'{e!r}')
             await self.close()
 
+    async def select_encoder(self, udn):
+        """Select an encoder matching the DLNA device supported mime types."""
+
+        protocol = await self.soap_action(CONNECTIONMANAGER,
+                                          'GetProtocolInfo', {})
+        mime_types = [proto.split(':')[2] for proto in
+                      (x for x in protocol['Sink'].split(','))]
+        logger.info(f'{self.name} renderer mime types:\n'
+                    f'        {mime_types}')
+        res = select_encoder(self.control_point.encoders, mime_types, udn)
+
+        if res is None:
+            logger.error(f'Cannot find an encoder matching the {self.name}'
+                         f' supported mime types')
+            await self.close()
+            return False
+
+        self.encoder, self.mime_type = res
+        return True
+
+    async def set_avtransporturi(self, metadata):
+
+        logger.info(f"{self.name} run soap 'SetAVTransportURI' action")
+
+        # DIDL-Lite XML CurrentURIMetaData not implemented for now.
+        await self.soap_action(AVTRANSPORT, 'SetAVTransportURI',
+                               {'InstanceID': 0,
+                                'CurrentURI': self.audio_url,
+                                'CurrentURIMetaData': ''})
+
+    async def get_transport_state(self):
+        res = await self.soap_action(AVTRANSPORT, 'GetTransportInfo',
+                                     {'InstanceID': 0})
+        state = res['CurrentTransportState']
+        logger.info(f'{self.name} CurrentTransportState: {state}')
+        return state
+
     async def run(self):
         """Run the MediaRenderer task."""
 
         try:
-            # Select the encoder.
             udn = self.root_device.udn
-            res = await self.select_encoder(udn)
-            if res is None:
-                logger.error(f'Cannot find an encoder matching the '
-                             f"{self.name} supported mime types")
-                await self.close()
+            if not await self.select_encoder(udn):
                 return
-            self.encoder, self.mime_type = res
             self.audio_url = (f'http://{self.net_iface.ip}'
                               f':{self.control_point.port}'
                               f'/audio-content/{udn}')
             logger.info(f"New '{self.mime_type}' "
-                        f'{self.name} renderer, with url:\n  {self.audio_url}')
+                        f'{self.name} renderer, with url:\n'
+                        f'        {self.audio_url}')
 
             while True:
                 # An AVTransport event is either 'start', 'stop', 'pause' or
                 # an instance of SinkInputMetaData.
                 avtransport_event = await self.pulse_queue.get()
-                logger.debug(f'XXX {avtransport_event}')
+                logger.info(f'{self.name} pulse event: {avtransport_event}')
+
+                # Get the stream state.
+                timeout = 1.0
+                try:
+                    state = await asyncio.wait_for(self.get_transport_state(),
+                                                   timeout=timeout)
+                except asyncio.TimeoutError:
+                    state = ('PLAYING' if self.stream.writer is not None else
+                             'STOPPED')
+                    logger.info(f'{self.name} stream state: {state} '
+                                f'(GetTransportInfo timed out after {timeout}'
+                                f' second)')
+
+                # Run an AVTransport action if needed.
+                if state in ('PLAYING', 'TRANSITIONING'):
+                    if avtransport_event in ('stop', 'pause'):
+                        logger.info(f"{self.name} run soap 'Stop' action")
+                        await self.soap_action(AVTRANSPORT, 'Stop', {'InstanceID': 0})
+                        continue
+                else:
+                    if isinstance(avtransport_event, SinkInputMetaData):
+                        await self.set_avtransporturi(avtransport_event)
+                        continue
+                    elif avtransport_event == 'start':
+                        logger.info(f"{self.name} run soap 'Play' action")
+                        await self.soap_action(AVTRANSPORT, 'Play', {'InstanceID': 0, 'Speed': 1})
+                        continue
+
+                logger.info(f"{self.name} ignoring {avtransport_event} event")
 
         except asyncio.CancelledError:
             await self.close()
@@ -314,6 +364,14 @@ class TestMediaRenderer(MediaRenderer):
     def __init__(self, control_point, mime_type):
         super().__init__(control_point, self.LOOPBACK, self.RootDevice())
         self.mime_type = mime_type
+
+    async def soap_action(self, serviceId, action, args):
+        if action == 'GetProtocolInfo':
+            return {'Source': None,
+                    'Sink': f'http-get:*:{self.mime_type}:*'
+                    }
+        elif action == 'GetTransportInfo':
+            return 'PLAYING' if self.stream.writer is not None else 'STOPPED'
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -440,7 +498,7 @@ class AVControlPoint(UPnPApplication):
                     else:
                         if renderer is not None:
                             if not renderer.closed:
-                                renderer.close()
+                                await renderer.close()
                             else:
                                 del self.renderers[renderer.nullsink.sink.index]
                         else:
