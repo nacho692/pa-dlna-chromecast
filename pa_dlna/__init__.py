@@ -19,7 +19,7 @@ from . import encoders as encoders_module
 logger = logging.getLogger('init')
 
 __version__ = '0.1'
-MIN_PYTHON_VERSION = (3, 7)
+MIN_PYTHON_VERSION = (3, 8)
 
 VERSION = sys.version_info
 if VERSION[0] != MIN_PYTHON_VERSION[0] or VERSION < MIN_PYTHON_VERSION:
