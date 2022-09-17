@@ -89,8 +89,8 @@ class AsyncioTasks:
 
     def cancel_all(self):
         for task in self:
-            if not task.cancelled():
-                task.cancel()
+            assert not task.cancelled()
+            task.cancel()
 
     def __iter__(self):
         for t in self._tasks:

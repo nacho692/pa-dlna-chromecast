@@ -82,12 +82,14 @@ class Stream:
     def __init__(self, renderer):
         self.renderer = renderer
         self.writer = None
+        self.stream_tasks = AsyncioTasks()
 
     async def stop(self):
         if self.writer is not None:
             try:
                 logger.debug(f"Stop '{self.renderer.name}' stream")
                 await close_stream(self.writer)
+                self.stream_tasks.cancel_all()
             finally:
                 self.writer = None
 
@@ -147,14 +149,16 @@ class MediaRenderer:
         self.audio_url = None
         self.stream = Stream(self)
         self.pulse_queue = asyncio.Queue()
-        self.stream_tasks = AsyncioTasks()
 
     async def close(self):
         if not self.closed:
             self.closed = True
             logger.info(f"Close '{self.name}' renderer")
+            await self.stream.stop()
+
             if self.nullsink is not None:
                 await self.control_point.pulse.unregister(self)
+
             # Closing the root device will trigger a 'byebye' notification and
             # the renderer will be removed from self.control_point.renderers.
             self.root_device.close()
