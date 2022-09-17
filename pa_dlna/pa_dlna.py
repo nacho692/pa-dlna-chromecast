@@ -147,6 +147,7 @@ class MediaRenderer:
         self.audio_url = None
         self.stream = Stream(self)
         self.pulse_queue = asyncio.Queue()
+        self.stream_tasks = AsyncioTasks()
 
     async def close(self):
         if not self.closed:
@@ -171,7 +172,7 @@ class MediaRenderer:
 
         if uri_path.strip('/') == self.root_device.udn:
             task_name = f'stream-{self.name}'
-            self.control_point.aio_tasks.create_task(
+            self.control_point.cp_tasks.create_task(
                                 self.stream.start(writer), name=task_name)
             return True
 
@@ -407,7 +408,7 @@ class AVControlPoint(UPnPApplication):
         self.curtask = None     # task running run_control_point()
         self.pulse = None       # Pulse instance
         self.start_event = asyncio.Event()
-        self.aio_tasks = AsyncioTasks()
+        self.cp_tasks = AsyncioTasks()
 
     async def shutdown(self, end_event):
         try:
@@ -429,7 +430,7 @@ class AVControlPoint(UPnPApplication):
             if self.pulse is not None:
                 await self.pulse.close()
 
-            self.aio_tasks.cancel_all()
+            self.cp_tasks.cancel_all()
             self.curtask.cancel()
 
     async def register(self, renderer, http_server):
@@ -437,8 +438,8 @@ class AVControlPoint(UPnPApplication):
 
         http_server.allow_from(renderer.root_device.ip_source)
         if await renderer.register():
-            self.aio_tasks.create_task(renderer.run(),
-                                       name=renderer.nullsink.sink.name)
+            self.cp_tasks.create_task(renderer.run(),
+                                      name=renderer.nullsink.sink.name)
 
     async def run_control_point(self):
         if not any(enc.available for enc in self.encoders.values()):
@@ -462,7 +463,7 @@ class AVControlPoint(UPnPApplication):
                                         self.ttl) as control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
-                self.aio_tasks.create_task(self.pulse.run(), name='pulse')
+                self.cp_tasks.create_task(self.pulse.run(), name='pulse')
 
                 # Wait for the connection to PulseAudio to be ready.
                 await self.start_event.wait()
@@ -470,8 +471,8 @@ class AVControlPoint(UPnPApplication):
                 # Create the http_server task.
                 http_server = HTTPServer(self.renderers, self.net_ifaces,
                                          self.port)
-                self.aio_tasks.create_task(http_server.run(),
-                                           name='http_server')
+                self.cp_tasks.create_task(http_server.run(),
+                                          name='http_server')
 
                 # Register the TestMediaRenderer(s).
                 for mtype in (x.strip() for x in

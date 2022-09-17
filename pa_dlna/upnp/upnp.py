@@ -153,7 +153,6 @@ class UPnPService(UPnPElement):
         self.actionList = {}
         self.serviceStateTable = {}
         self.description = None
-        self._aio_tasks = root_device._aio_tasks
 
     async def soap_action(self, action, args):
         """Send a SOAP action.
@@ -409,7 +408,6 @@ class UPnPRootDevice(UPnPDevice):
 
         self._closed = True
         self._curtask = None
-        self._aio_tasks = AsyncioTasks()
 
     def close(self, exc=None):
         """Close the root device.
@@ -420,7 +418,6 @@ class UPnPRootDevice(UPnPDevice):
 
         if not self._closed:
             self._closed = True
-            self._aio_tasks.cancel_all()
             logger.info(f'{self} is closed')
             self._control_point._remove_root_device(self.udn, exc=exc)
             if self._curtask is not None:
@@ -518,7 +515,7 @@ class UPnPControlPoint:
         self._faulty_devices = set()    # set of the udn of root devices
                                         # having raised an exception
         self._curtask = None            # task running UPnPControlPoint.open()
-        self._aio_tasks = AsyncioTasks()
+        self._upnp_tasks = AsyncioTasks()
 
     async def open(self):
         """Start the UPnP Control Point."""
@@ -529,10 +526,10 @@ class UPnPControlPoint:
         self._curtask = asyncio.current_task()
 
         # Start the msearch task.
-        self._aio_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
+        self._upnp_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
 
         # Start the notify task.
-        self._aio_tasks.create_task(self._ssdp_notify(), name='ssdp notify')
+        self._upnp_tasks.create_task(self._ssdp_notify(), name='ssdp notify')
 
     def close(self, exc=None):
         """Close the UPnP Control Point."""
@@ -548,7 +545,7 @@ class UPnPControlPoint:
                 self._curtask.cancel(msg=errmsg)
                 self._curtask = None
 
-            self._aio_tasks.cancel_all()
+            self._upnp_tasks.cancel_all()
             logger.debug('UPnPControlPoint is closed')
 
     async def get_notification(self):
@@ -585,8 +582,8 @@ class UPnPControlPoint:
             # Instantiate the UPnPDevice and start its task.
             root_device = UPnPRootDevice(self, udn, ip_source,
                                          header['LOCATION'], max_age)
-            self._aio_tasks.create_task(root_device._run(),
-                                               name=str(root_device))
+            self._upnp_tasks.create_task(root_device._run(),
+                                         name=str(root_device))
             self._devices[udn] = root_device
             logger.info(f'New {root_device} at {ip_source}')
             logger.debug(f'UPnPRootDevice UDN {udn}')
