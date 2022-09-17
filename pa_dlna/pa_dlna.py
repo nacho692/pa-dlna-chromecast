@@ -303,6 +303,14 @@ class MediaRenderer:
         logger.info(f'{self.name} CurrentTransportState: {state}')
         return state
 
+    async def make_transition(self, transition, speed=None):
+        logger.info(f"{self.name} run soap '{transition}' action")
+        args = {'InstanceID': 0}
+        if speed is not None:
+            args['Speed'] = speed
+
+        await self.soap_action(AVTRANSPORT, transition, args)
+
     async def run(self):
         """Run the MediaRenderer task."""
 
@@ -338,15 +346,18 @@ class MediaRenderer:
                 # Run an AVTransport action if needed.
                 try:
                     if state in ('PLAYING', 'TRANSITIONING'):
-                        if avtransport_event in ('stop', 'pause'):
-                            logger.info(f"{self.name} run soap 'Stop' action")
+                        if avtransport_event == 'stop':
+                            await self.make_transition('Stop')
+                            continue
+                        elif avtransport_event == 'pause':
+                            await self.make_transition('Pause')
                             continue
                     else:
                         if isinstance(avtransport_event, SinkInputMetaData):
                             await self.set_avtransporturi(avtransport_event)
                             continue
                         elif avtransport_event == 'start':
-                            logger.info(f"{self.name} run soap 'Play' action")
+                            await self.make_transition('Play', speed=1)
                             continue
                 except UPnPSoapFaultError as e:
                     error_code = e.args[0].errorCode
