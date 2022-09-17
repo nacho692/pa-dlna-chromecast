@@ -1,4 +1,4 @@
-"""An Upnp control point that forwards PulseAudio streams to DLNA devices."""
+"""An UPnP control point that forwards PulseAudio streams to DLNA devices."""
 
 import sys
 import shutil
@@ -23,6 +23,8 @@ MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
 AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
 CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
+IGNORED_SOAPFAULTS = {'701': 'Transition not available',
+                      '715': "Content 'BUSY'"}
 
 class SinkInputMetaData(namedtuple('SinkInputMetaData', ['application',
                                                          'artist',
@@ -255,14 +257,9 @@ class MediaRenderer:
         try:
             service = self.root_device.serviceList[serviceId]
             return await service.soap_action(action, args)
-        except UPnPSoapFaultError as e:
-            return e.args[0]
         except UPnPClosedDeviceError:
             logger.error(f'soap_action(): root device {self.root_device} is'
                          f' closed')
-        except Exception as e:
-            logger.exception(f'{e!r}')
-            await self.close()
 
     async def select_encoder(self, udn):
         """Select an encoder matching the DLNA device supported mime types."""
@@ -334,19 +331,25 @@ class MediaRenderer:
                                 f' second)')
 
                 # Run an AVTransport action if needed.
-                if state in ('PLAYING', 'TRANSITIONING'):
-                    if avtransport_event in ('stop', 'pause'):
-                        logger.info(f"{self.name} run soap 'Stop' action")
-                        await self.soap_action(AVTRANSPORT, 'Stop', {'InstanceID': 0})
-                        continue
-                else:
-                    if isinstance(avtransport_event, SinkInputMetaData):
-                        await self.set_avtransporturi(avtransport_event)
-                        continue
-                    elif avtransport_event == 'start':
-                        logger.info(f"{self.name} run soap 'Play' action")
-                        await self.soap_action(AVTRANSPORT, 'Play', {'InstanceID': 0, 'Speed': 1})
-                        continue
+                try:
+                    if state in ('PLAYING', 'TRANSITIONING'):
+                        if avtransport_event in ('stop', 'pause'):
+                            logger.info(f"{self.name} run soap 'Stop' action")
+                            continue
+                    else:
+                        if isinstance(avtransport_event, SinkInputMetaData):
+                            await self.set_avtransporturi(avtransport_event)
+                            continue
+                        elif avtransport_event == 'start':
+                            logger.info(f"{self.name} run soap 'Play' action")
+                            continue
+                except UPnPSoapFaultError as e:
+                    error_code = e.args[0].errorCode
+                    if error_code in IGNORED_SOAPFAULTS:
+                        error_msg = IGNORED_SOAPFAULTS[error_code]
+                        logger.warning(f"Ignoring SOAP error '{error_msg}'")
+                    else:
+                        raise
 
                 logger.info(f'{self.name} ignoring {avtransport_event} event:'
                             f' transition not needed')
