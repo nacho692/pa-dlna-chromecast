@@ -15,7 +15,7 @@ from collections import namedtuple
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
 from .http_server import HTTPServer
-from .encoders import select_encoder
+from .encoders import select_encoder, FFMpegEncoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError, shorten)
 
@@ -116,6 +116,29 @@ class Stream:
             except Exception as e:
                 logger.exception(f'{e!r}')
 
+    async def log_stderr(self, name, stderr):
+        logger = logging.getLogger(name)
+
+        remove_env = False
+        if (name == 'encoder' and
+                isinstance(self.renderer.encoder, FFMpegEncoder) and
+                'AV_LOG_FORCE_NOCOLOR' not in os.environ):
+            os.environ['AV_LOG_FORCE_NOCOLOR'] = '1'
+            remove_env = True
+        try:
+            while True:
+                msg = await stderr.readline()
+                if msg == b'':
+                    break
+                logger.error(msg.decode().strip())
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+        finally:
+            if remove_env:
+                del os.environ['AV_LOG_FORCE_NOCOLOR']
+
     async def run_parec(self, parec_pgm, pipe_w):
         try:
             monitor = self.renderer.nullsink.sink.monitor_source_name
@@ -123,8 +146,13 @@ class Stream:
             logger.debug(f"Spawn: {' '.join(parec_cmd)}")
             self.parec_proc = await asyncio.create_subprocess_exec(
                                     *parec_cmd,
-                                    stdin=None, stdout=pipe_w, stderr=None)
+                                    stdin=None, stdout=pipe_w,
+                                    stderr=asyncio.subprocess.PIPE)
             os.close(pipe_w)
+            self.stream_tasks.create_task(self.log_stderr('parec',
+                                                    self.parec_proc.stderr),
+                                          name='parec_stderr')
+
             ret = await self.parec_proc.wait()
             status = ret if ret >= 0 else signal.strsignal(-ret)
             logger.debug(f'Exit status of parec process: {status}')
@@ -144,8 +172,12 @@ class Stream:
             self.encoder_proc = await asyncio.create_subprocess_exec(
                                     *encoder_cmd, stdin=pipe_r,
                                     stdout=writer._transport._sock,
-                                    stderr=None)
+                                    stderr=asyncio.subprocess.PIPE)
             os.close(pipe_r)
+            self.stream_tasks.create_task(self.log_stderr('encoder',
+                                                    self.encoder_proc.stderr),
+                                          name='encoder_stderr')
+
             ret = await self.encoder_proc.wait()
             status = ret if ret >= 0 else signal.strsignal(-ret)
             logger.debug(f'Exit status of encoder process: {status}')

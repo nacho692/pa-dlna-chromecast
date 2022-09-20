@@ -75,6 +75,7 @@ class Encoder:
 ROOT_ENCODER = Encoder
 
 class FFMpegEncoder(Encoder):
+    """See https://www.ffmpeg.org/ffmpeg.html."""
 
     PGM = None
     ENCODERS = None
@@ -94,7 +95,7 @@ class FFMpegEncoder(Encoder):
         # End of setting options as comments.
 
         super().__init__()
-        self.args = (f'-loglevel fatal -hide_banner -nostats'
+        self.args = (f'-loglevel error -hide_banner -nostats'
                      f' -ac 2 -ar 44100 -f s16le -i -'
                      f' -f {codec}')
         if encoder is not None:
