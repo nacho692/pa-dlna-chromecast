@@ -1,6 +1,8 @@
 """An UPnP control point that forwards PulseAudio streams to DLNA devices."""
 
 import sys
+import os
+import signal
 import shutil
 import asyncio
 import logging
@@ -19,6 +21,7 @@ from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
 
 logger = logging.getLogger('pa-dlna')
 
+AUDIO_URI_PREFIX = '/audio-content'
 MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
 AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
@@ -54,6 +57,14 @@ async def close_stream(stream):
     except Exception:
         pass
 
+async def kill_process(process):
+    # First try a plain termination.
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=1.0)
+    except asyncio.TimeoutError:
+        process.kill()
+
 def sink_input_meta(sink_input):
     if sink_input is None:
         return None
@@ -72,7 +83,7 @@ class Stream:
 
     The stream is made of two processes and an asyncio Stream Writer connected
     through pipes:
-        - 'parec' records the audio from the nullsink monitor and forwards it
+        - 'parec' records the audio from the nullsink monitor and pipes it
           to the encoder program.
         - The encoder program encodes the audio according to the encoder
           protocol and forwards it to the Stream Writer.
@@ -82,44 +93,107 @@ class Stream:
     def __init__(self, renderer):
         self.renderer = renderer
         self.writer = None
+        self.parec_proc = None
+        self.encoder_proc = None
         self.stream_tasks = AsyncioTasks()
 
-    async def stop(self):
+    async def close(self):
         if self.writer is not None:
+            writer = self.writer
+            self.writer = None
+
+            # Instantiate a new Stream.
+            self.renderer.stream = Stream(self.renderer)
+            logger.debug(f"Stop '{self.renderer.name}' stream")
+
             try:
-                logger.debug(f"Stop '{self.renderer.name}' stream")
-                await close_stream(self.writer)
                 self.stream_tasks.cancel_all()
-            finally:
-                self.writer = None
+                await close_stream(writer)
+                if self.parec_proc is not None:
+                    await kill_process(self.parec_proc)
+                if self.encoder_proc is not None:
+                    await kill_process(self.encoder_proc)
+            except Exception as e:
+                logger.exception(f'{e!r}')
+
+    async def run_parec(self, parec_pgm, pipe_w):
+        try:
+            monitor = self.renderer.nullsink.sink.monitor_source_name
+            parec_cmd = [parec_pgm, f'--device={monitor}', '--format=s16le']
+            logger.debug(f"Spawn: {' '.join(parec_cmd)}")
+            self.parec_proc = await asyncio.create_subprocess_exec(
+                                    *parec_cmd,
+                                    stdin=None, stdout=pipe_w, stderr=None)
+            os.close(pipe_w)
+            ret = await self.parec_proc.wait()
+            status = ret if ret >= 0 else signal.strsignal(-ret)
+            logger.debug(f'Exit status of parec process: {status}')
+            self.parec_proc = None
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+        finally:
+            await self.close()
+
+    async def run_encoder(self, encoder_cmd, writer, pipe_r):
+        try:
+            logger.debug(f"Spawn: {' '.join(encoder_cmd)}")
+            # Use _transport and  _sock private attributes to avoid the copy
+            # from an stdout.PIPE to the StreamWriter.
+            self.encoder_proc = await asyncio.create_subprocess_exec(
+                                    *encoder_cmd, stdin=pipe_r,
+                                    stdout=writer._transport._sock,
+                                    stderr=None)
+            os.close(pipe_r)
+            ret = await self.encoder_proc.wait()
+            status = ret if ret >= 0 else signal.strsignal(-ret)
+            logger.debug(f'Exit status of encoder process: {status}')
+            self.encoder_proc = None
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+        finally:
+            await self.close()
 
     async def start(self, writer):
-        monitor = self.renderer.nullsink.sink.monitor_source_name
-        parec_pgm = self.renderer.control_point.parec_pgm
-        parec_cmd = [parec_pgm, f'--device={monitor}', '--format=s16le']
-        encoder_cmd = self.renderer.encoder.command
-
-        if self.writer is not None:
-            logger.debug(f"Cannot start '{self.renderer.name}' stream "
-                         f'(a stream is already running)')
-            await close_stream(writer)
-            return
-
-        self.writer = writer
-        logger.debug(f'Start the {self.renderer.name} stream  processes')
         try:
-            # start the processes - write 200 OK and headers - pipe to socket
-            writer.write(f'HTTP/1.1 200 OK\r\n'
-                         f'Content-type: {self.renderer.mime_type}\r\n'
-                         f'\r\n'
-                         f'Test with TestMediaRenderer.'.encode())
+            if self.writer is not None:
+                logger.debug(f"Cannot start '{self.renderer.name}' stream "
+                             f'(a stream is already running)')
+                await close_stream(writer)
+                return
+            self.writer = writer
+
+            logger.debug(f'Start the {self.renderer.name} stream  processes')
+            query = (f'HTTP/1.1 200 OK\r\n'
+                     f'Content-type: {self.renderer.mime_type}\r\n'
+                     f'\r\n')
+            writer.write(query.encode('latin-1'))
+            writer.flush()
+
+            # Start the parec task.
+            pipe_r, pipe_w = os.pipe()
+            parec_pgm = self.renderer.control_point.parec_pgm
+            self.stream_tasks.create_task(self.run_parec(parec_pgm, pipe_w),
+                                          name=parec_pgm)
+
+            # Start the encoder task.
+            encoder_cmd = self.renderer.encoder.command
+            self.stream_tasks.create_task(self.run_encoder(encoder_cmd,
+                                                           writer, pipe_r),
+                                          name=encoder_cmd[0])
+
+            await asyncio.wait(self.stream_tasks,
+                               return_when=asyncio.FIRST_COMPLETED)
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.exception(f'{e!r}')
         finally:
-            await self.stop()
+            await self.close()
 
 class MediaRenderer:
     """A DLNA MediaRenderer.
@@ -154,7 +228,7 @@ class MediaRenderer:
         if not self.closed:
             self.closed = True
             logger.info(f"Close '{self.name}' renderer")
-            await self.stream.stop()
+            await self.stream.close()
 
             if self.nullsink is not None:
                 await self.control_point.pulse.unregister(self)
@@ -174,7 +248,7 @@ class MediaRenderer:
     def start_stream(self, writer, uri_path):
         """Start the streaming task."""
 
-        if uri_path.strip('/') == self.root_device.udn:
+        if uri_path == f'{AUDIO_URI_PREFIX}/{self.root_device.udn}':
             task_name = f'stream-{self.name}'
             self.control_point.cp_tasks.create_task(
                                 self.stream.start(writer), name=task_name)
@@ -289,7 +363,6 @@ class MediaRenderer:
     async def set_avtransporturi(self, metadata):
 
         logger.info(f"{self.name} run soap 'SetAVTransportURI' action")
-
         # DIDL-Lite XML CurrentURIMetaData not implemented for now.
         await self.soap_action(AVTRANSPORT, 'SetAVTransportURI',
                                {'InstanceID': 0,
@@ -308,7 +381,6 @@ class MediaRenderer:
         args = {'InstanceID': 0}
         if speed is not None:
             args['Speed'] = speed
-
         await self.soap_action(AVTRANSPORT, transition, args)
 
     async def run(self):
@@ -320,7 +392,7 @@ class MediaRenderer:
                 return
             self.audio_url = (f'http://{self.net_iface.ip}'
                               f':{self.control_point.port}'
-                              f'/audio-content/{udn}')
+                              f'{AUDIO_URI_PREFIX}/{udn}')
             logger.info(f"New '{self.mime_type}' "
                         f'{self.name} renderer, with url:\n'
                         f'        {self.audio_url}')
@@ -407,7 +479,8 @@ class TestMediaRenderer(MediaRenderer):
                     'Sink': f'http-get:*:{self.mime_type}:*'
                     }
         elif action == 'GetTransportInfo':
-            return 'PLAYING' if self.stream.writer is not None else 'STOPPED'
+            state = 'PLAYING' if self.stream.writer is not None else 'STOPPED'
+            return {'CurrentTransportState': state}
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
@@ -541,8 +614,11 @@ class AVControlPoint(UPnPApplication):
                             logger.warning("Got a 'byebye' notification for"
                                            ' no existing MediaRenderer')
 
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
+        finally:
             await self.close()
 
     def __str__(self):

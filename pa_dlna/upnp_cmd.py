@@ -4,6 +4,7 @@ import io
 import cmd
 import logging
 import asyncio
+import threading
 import textwrap
 import traceback
 
@@ -564,11 +565,13 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         print('Print the the IP packets time to live')
 
     def close(self):
-        if (self.loop is not None and not self.loop.is_closed() and
-                self.control_point is not None):
-            self.loop.call_soon_threadsafe(self.control_point.close)
-        if self.cp_thread is not None:
-            self.cp_thread.join(timeout=10)
+        if self.control_point is not None:
+            if threading.current_thread() is not self.cp_thread:
+                if self.loop is not None and not self.loop.is_closed():
+                    self.loop.call_soon_threadsafe(self.control_point.close)
+                self.cp_thread.join(timeout=5)
+            else:
+                self.control_point.close()
 
     def run(self, cp_thread, event):
         self.cp_thread = cp_thread
@@ -600,6 +603,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
             pass
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
+        finally:
+            self.close()
 
     def __str__(self):
         return 'upnp-control'
