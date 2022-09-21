@@ -180,7 +180,13 @@ class Stream:
 
             ret = await self.encoder_proc.wait()
             status = ret if ret >= 0 else signal.strsignal(-ret)
+            # ffmpeg exit code is 255 when the process is killed with SIGTERM.
+            # See https://gitlab.com/fflabs/ffmpeg/-/blob/0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
+            if (isinstance(self.renderer.encoder, FFMpegEncoder) and
+                    status == 255):
+                status = 'Terminated'
             logger.debug(f'Exit status of encoder process: {status}')
+
             self.encoder_proc = None
         except asyncio.CancelledError:
             pass
@@ -504,6 +510,11 @@ class TestMediaRenderer(MediaRenderer):
     def __init__(self, control_point, mime_type):
         super().__init__(control_point, self.LOOPBACK, self.RootDevice())
         self.mime_type = mime_type
+
+    async def make_transition(self, transition, speed=None):
+        logger.debug(f"{self.name} make '{transition}' transition")
+        if transition == 'Stop':
+            await self.stream.close()
 
     async def soap_action(self, serviceId, action, args):
         if action == 'GetProtocolInfo':
