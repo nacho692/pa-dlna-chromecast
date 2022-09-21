@@ -115,7 +115,7 @@ class HTTPServer:
                                                  self.networks, self.port)
         addrs = ', '.join(str(sock.getsockname())
                           for sock in self.server.sockets)
-        logger.info(f'Serving HTTP requests on {addrs}')
+        logger.info(f'Serve HTTP requests on {addrs}')
 
         async with self.server:
             try:
@@ -123,4 +123,4 @@ class HTTPServer:
             except asyncio.CancelledError:
                 pass
             finally:
-                logger.info('HTTP server is closed')
+                logger.info('Close HTTP server')

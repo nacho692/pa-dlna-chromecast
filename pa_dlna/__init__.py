@@ -314,21 +314,22 @@ def parse_args(doc, loglevel_default):
                         '(listing the encoders and their options as'
                         ' they are used by the program) to stdout and exit')
     parser.add_argument('--renderers', '-r', metavar='MIME-TYPES',
-                        default='', dest='renderers_mtype',
+                        default='', dest='renderers_mtypes',
                         help='MIME-TYPES is a comma separated list of audio '
                         'mime types - a TestMediaRenderer is instantiated for'
                         ' each of these mime types and a pulseaudio stream '
                         'may be run by doing an http GET on the '
                         'TestMediaRenderer url provided by the logs, the '
                         'stream is routed to the TestMediaRenderer and '
-                        'collected by the program doing the http GET')
+                        'collected by the program doing the http GET (curl'
+                        ' for example)')
     parser.add_argument('--loglevel', '-l', default=loglevel_default,
                         choices=('debug', 'info', 'warning', 'error'),
                         help='set the log level of the stderr logging console'
                         ' (default: %(default)s)')
     parser.add_argument('--logfile', '-f', metavar='PATH',
-                        help='add a PATH logging file handler set at '
-                        "'debug' log level")
+                        help='add a file logging handler set at '
+                        "'debug' log level whose path name is PATH")
     parser.add_argument('--logaio', '-a', action='store_true',
                         help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"
@@ -399,7 +400,7 @@ def main_function(clazz, doc, loglevel_default='info', inthread=False):
 
     # Run the UPnPApplication instance.
     app = clazz(encoders=encoders, **options)
-    logger.info(f'Starting {app}')
+    logger.info(f'Start {app}')
     try:
         if inthread:
             event = threading.Event()

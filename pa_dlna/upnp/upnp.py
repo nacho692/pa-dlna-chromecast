@@ -418,7 +418,7 @@ class UPnPRootDevice(UPnPDevice):
 
         if not self._closed:
             self._closed = True
-            logger.info(f'{self} is closed')
+            logger.info(f'Close {self}')
             self._control_point._remove_root_device(self.udn, exc=exc)
             if self._curtask is not None:
                 self._curtask.cancel()
@@ -546,7 +546,7 @@ class UPnPControlPoint:
                 self._curtask = None
 
             self._upnp_tasks.cancel_all()
-            logger.debug('UPnPControlPoint is closed')
+            logger.debug('Close UPnPControlPoint')
 
     async def get_notification(self):
         """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance).

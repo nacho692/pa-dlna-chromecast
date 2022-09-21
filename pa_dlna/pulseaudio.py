@@ -63,7 +63,7 @@ class Pulse:
         if not self.closed:
             self.closed = True
             await self.av_control_point.close()
-            logger.debug('Pulse is closed')
+            logger.info('Close pulse')
 
     async def register(self, renderer):
         """Load a null-sink module."""
@@ -86,8 +86,8 @@ class Pulse:
         # Find the index of the null-sink.
         for sink in await self.pulse_ctl.sink_list():
             if sink.name == name:
-                logger.debug(f"Loaded null-sink module '{name}',"
-                             f" description='{description}'")
+                logger.info(f"Load null-sink module '{name}',"
+                            f" description='{description}'")
                 return NullSink(sink, module_index)
 
         await self.pulse_ctl.module_unload(module_index)
@@ -96,8 +96,8 @@ class Pulse:
     async def unregister(self, renderer):
         if self.pulse_ctl is None:
             return
-        logger.debug(f'Unload null-sink module'
-                     f" '{renderer.nullsink.sink.name}'")
+        logger.info(f'Unload null-sink module'
+                    f" '{renderer.nullsink.sink.name}'")
         await self.pulse_ctl.module_unload(renderer.nullsink.module_index)
 
     def find_previous_renderer(self, event):

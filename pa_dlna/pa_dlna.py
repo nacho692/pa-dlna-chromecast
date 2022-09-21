@@ -1,4 +1,4 @@
-"""An UPnP control point that forwards PulseAudio streams to DLNA devices."""
+"""An UPnP control point to route PulseAudio streams to DLNA devices."""
 
 import sys
 import os
@@ -103,16 +103,16 @@ class Stream:
             self.writer = None
 
             # Instantiate a new Stream.
+            logger.info(f"Stop '{self.renderer.name}' stream")
             self.renderer.stream = Stream(self.renderer)
-            logger.debug(f"Stop '{self.renderer.name}' stream")
 
             try:
-                self.stream_tasks.cancel_all()
                 await close_stream(writer)
                 if self.parec_proc is not None:
                     await kill_process(self.parec_proc)
                 if self.encoder_proc is not None:
                     await kill_process(self.encoder_proc)
+                self.stream_tasks.cancel_all()
             except Exception as e:
                 logger.exception(f'{e!r}')
 
@@ -143,7 +143,7 @@ class Stream:
         try:
             monitor = self.renderer.nullsink.sink.monitor_source_name
             parec_cmd = [parec_pgm, f'--device={monitor}', '--format=s16le']
-            logger.debug(f"Spawn: {' '.join(parec_cmd)}")
+            logger.info(f"{self.renderer.name}: {' '.join(parec_cmd)}")
             self.parec_proc = await asyncio.create_subprocess_exec(
                                     *parec_cmd,
                                     stdin=None, stdout=pipe_w,
@@ -166,7 +166,7 @@ class Stream:
 
     async def run_encoder(self, encoder_cmd, writer, pipe_r):
         try:
-            logger.debug(f"Spawn: {' '.join(encoder_cmd)}")
+            logger.info(f"{self.renderer.name}: {' '.join(encoder_cmd)}")
             # Use _transport and  _sock private attributes to avoid the copy
             # from an stdout.PIPE to the StreamWriter.
             self.encoder_proc = await asyncio.create_subprocess_exec(
@@ -204,7 +204,7 @@ class Stream:
                 return
             self.writer = writer
 
-            logger.debug(f'Start the {self.renderer.name} stream  processes')
+            logger.info(f'Start the {self.renderer.name} stream  processes')
             query = (f'HTTP/1.1 200 OK\r\n'
                      f'Content-type: {self.renderer.mime_type}\r\n'
                      f'\r\n')
@@ -223,6 +223,7 @@ class Stream:
                                                            writer, pipe_r),
                                           name=encoder_cmd[0])
 
+            # self.stream_tasks is an iterable of asyncio tasks.
             await asyncio.wait(self.stream_tasks,
                                return_when=asyncio.FIRST_COMPLETED)
 
@@ -297,8 +298,8 @@ class MediaRenderer:
             sink = self.nullsink.sink
             sink_input = self.nullsink.sink_input
 
-        logger.debug(f"Sink-input {sink_input.index} '{event}' event for"
-                     f" sink {self.name} state '{sink.state._value}'")
+        logger.debug(f"Sink-input {sink_input.index} '{event}' pulse event for"
+                     f" sink {self.name} - state '{sink.state._value}'")
 
     async def on_pulse_event(self, event, sink=None, sink_input=None):
         """Handle a PulseAudio event.
@@ -333,7 +334,7 @@ class MediaRenderer:
         # Process the event and set the new attributes values of nullsink.
         if event in self.PULSE_RM_EVENTS:
             avtransport_events.append('stop')
-            logger.debug(f'Stop the streaming to {self.name}')
+            # logger.debug(f'Stop the streaming to {self.name}')
             self.nullsink.sink_input = None
 
         else:
@@ -342,20 +343,20 @@ class MediaRenderer:
             if curstate == 'running':
                 if prevstate != 'running':
                     avtransport_events.append('start')
-                    logger.debug(f'Start the streaming to {self.name}')
+                    # logger.debug(f'Start the streaming to {self.name}')
                 elif self.nullsink.sink_input is None:
                     avtransport_events.append('start')
-                    logger.debug(f'Back to the streaming to {self.name}')
+                    # logger.debug(f'Back to the streaming to {self.name}')
             elif curstate == 'idle' and prevstate == 'running':
                 avtransport_events.append('pause')
-                logger.debug(f'Pause the streaming to {self.name}')
+                # logger.debug(f'Pause the streaming to {self.name}')
 
             if event == 'change':
                 prev_metadata = sink_input_meta(self.nullsink.sink_input)
                 cur_metadata = sink_input_meta(sink_input)
                 if cur_metadata is not None and cur_metadata != prev_metadata:
                     avtransport_events.append(cur_metadata)
-                    logger.debug(f'Playing {cur_metadata}')
+                    # logger.debug(f'Playing {cur_metadata}')
 
             self.nullsink.sink = sink
             self.nullsink.sink_input = sink_input
@@ -400,7 +401,7 @@ class MediaRenderer:
 
     async def set_avtransporturi(self, metadata):
 
-        logger.info(f"{self.name} run soap 'SetAVTransportURI' action")
+        logger.debug(f"{self.name} run soap 'SetAVTransportURI' action")
         # DIDL-Lite XML CurrentURIMetaData not implemented for now.
         await self.soap_action(AVTRANSPORT, 'SetAVTransportURI',
                                {'InstanceID': 0,
@@ -411,11 +412,11 @@ class MediaRenderer:
         res = await self.soap_action(AVTRANSPORT, 'GetTransportInfo',
                                      {'InstanceID': 0})
         state = res['CurrentTransportState']
-        logger.info(f'{self.name} CurrentTransportState: {state}')
+        logger.debug(f"{self.name} UPnP CurrentTransportState: '{state}'")
         return state
 
     async def make_transition(self, transition, speed=None):
-        logger.info(f"{self.name} run soap '{transition}' action")
+        logger.debug(f"{self.name} run soap '{transition}' action")
         args = {'InstanceID': 0}
         if speed is not None:
             args['Speed'] = speed
@@ -439,7 +440,7 @@ class MediaRenderer:
                 # An AVTransport event is either 'start', 'stop', 'pause' or
                 # an instance of SinkInputMetaData.
                 avtransport_event = await self.pulse_queue.get()
-                logger.info(f'{self.name} pulse event: {avtransport_event}')
+                logger.debug(f'{self.name} pulse event: {avtransport_event}')
 
                 # Get the stream state.
                 timeout = 1.0
@@ -477,8 +478,8 @@ class MediaRenderer:
                     else:
                         raise
 
-                logger.info(f'{self.name} ignoring {avtransport_event} event:'
-                            f' transition not needed')
+                logger.debug(f'{self.name} ignoring {avtransport_event}'
+                             f' event: transition not needed')
 
         except asyncio.CancelledError:
             await self.close()
@@ -607,7 +608,7 @@ class AVControlPoint(UPnPApplication):
 
                 # Register the TestMediaRenderer(s).
                 for mtype in (x.strip() for x in
-                              self.renderers_mtype.split(',')):
+                              self.renderers_mtypes.split(',')):
                     if not mtype:
                         continue
                     rndr = TestMediaRenderer(self, mtype)
