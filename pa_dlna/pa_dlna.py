@@ -15,7 +15,7 @@ from collections import namedtuple
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
 from .http_server import HTTPServer
-from .encoders import select_encoder, FFMpegEncoder
+from .encoders import select_encoder, FFMpegEncoder, L16Encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError, shorten)
 
@@ -139,16 +139,25 @@ class Stream:
             if remove_env:
                 del os.environ['AV_LOG_FORCE_NOCOLOR']
 
-    async def run_parec(self, parec_pgm, pipe_w):
+    async def run_parec(self, encoder, parec_pgm, stdout):
         try:
+            if not isinstance(encoder, L16Encoder):
+                format = encoder._pulse_format
+            else:
+                format = encoder.format
             monitor = self.renderer.nullsink.sink.monitor_source_name
-            parec_cmd = [parec_pgm, f'--device={monitor}', '--format=s16le']
+            parec_cmd = [parec_pgm, f'--device={monitor}',
+                         f'--format={format}',
+                         f'--rate={encoder.rate}',
+                         f'--channels={encoder.channels}']
             logger.info(f"{self.renderer.name}: {' '.join(parec_cmd)}")
             self.parec_proc = await asyncio.create_subprocess_exec(
                                     *parec_cmd,
-                                    stdin=None, stdout=pipe_w,
+                                    stdin=asyncio.subprocess.DEVNULL,
+                                    stdout=stdout,
                                     stderr=asyncio.subprocess.PIPE)
-            os.close(pipe_w)
+            if not isinstance(encoder, L16Encoder):
+                os.close(stdout)
             self.stream_tasks.create_task(self.log_stderr('parec',
                                                     self.parec_proc.stderr),
                                           name='parec_stderr')
@@ -164,14 +173,15 @@ class Stream:
         finally:
             await self.close()
 
-    async def run_encoder(self, encoder_cmd, writer, pipe_r):
+    async def run_encoder(self, encoder_cmd, pipe_r, stdout):
         try:
             logger.info(f"{self.renderer.name}: {' '.join(encoder_cmd)}")
             # Use _transport and  _sock private attributes to avoid the copy
             # from an stdout.PIPE to the StreamWriter.
             self.encoder_proc = await asyncio.create_subprocess_exec(
-                                    *encoder_cmd, stdin=pipe_r,
-                                    stdout=writer._transport._sock,
+                                    *encoder_cmd,
+                                    stdin=pipe_r,
+                                    stdout=stdout,
                                     stderr=asyncio.subprocess.PIPE)
             os.close(pipe_r)
             self.stream_tasks.create_task(self.log_stderr('encoder',
@@ -181,7 +191,8 @@ class Stream:
             ret = await self.encoder_proc.wait()
             status = ret if ret >= 0 else signal.strsignal(-ret)
             # ffmpeg exit code is 255 when the process is killed with SIGTERM.
-            # See https://gitlab.com/fflabs/ffmpeg/-/blob/0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
+            # See ffmpeg main() at https://gitlab.com/fflabs/ffmpeg/-/blob/
+            # 0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
             if (isinstance(self.renderer.encoder, FFMpegEncoder) and
                     status == 255):
                 status = 'Terminated'
@@ -212,16 +223,24 @@ class Stream:
             writer.flush()
 
             # Start the parec task.
-            pipe_r, pipe_w = os.pipe()
+            # An L16Encoder stream only runs the parec program.
+            encoder = self.renderer.encoder
+            if isinstance(encoder, L16Encoder):
+                stdout = writer._transport._sock
+            else:
+                pipe_r, stdout = os.pipe()
             parec_pgm = self.renderer.control_point.parec_pgm
-            self.stream_tasks.create_task(self.run_parec(parec_pgm, pipe_w),
+            self.stream_tasks.create_task(self.run_parec(encoder, parec_pgm,
+                                                         stdout),
                                           name=parec_pgm)
 
             # Start the encoder task.
-            encoder_cmd = self.renderer.encoder.command
-            self.stream_tasks.create_task(self.run_encoder(encoder_cmd,
-                                                           writer, pipe_r),
-                                          name=encoder_cmd[0])
+            if not isinstance(encoder, L16Encoder):
+                encoder_cmd = encoder.command
+                stdout = writer._transport._sock
+                self.stream_tasks.create_task(self.run_encoder(encoder_cmd,
+                                                               pipe_r, stdout),
+                                              name=encoder_cmd[0])
 
             # self.stream_tasks is an iterable of asyncio tasks.
             await asyncio.wait(self.stream_tasks,
