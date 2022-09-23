@@ -112,9 +112,9 @@ class L16Encoder(StandAloneEncoder):
     To play and check the result obtained using a TestMediaRenderer with the
     '--renderers audio/L16;rate=44100;channels=2' command line argument, one may
     use the 'ffplay' tool from ffmpeg and, for example when the 'format' option
-    is 's16be', run the command:
+    is 's16le', run the command:
 
-        $ ffplay -f s16be -ac 2 -ar 44100 output_file
+        $ ffplay -f s16le -ac 2 -ar 44100 output_file
 
     See also https://datatracker.ietf.org/doc/html/rfc2586.
     """
@@ -123,7 +123,7 @@ class L16Encoder(StandAloneEncoder):
         self._available = True
         self._mime_types = ['audio/l16']
         super().__init__()
-        self.format = 's16be'
+        self.format = 's16le'
 
     @property
     def mime_type(self):
