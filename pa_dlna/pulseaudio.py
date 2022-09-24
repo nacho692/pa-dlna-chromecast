@@ -103,7 +103,7 @@ class Pulse:
     def find_previous_renderer(self, event):
         """Find the renderer that was last connected to this sink-input."""
 
-        for renderer in self.av_control_point.renderers.values():
+        for renderer in self.av_control_point.renderers:
             if (renderer.nullsink is not None and
                     renderer.nullsink.sink_input is not None and
                     renderer.nullsink.sink_input.index == event.index):
@@ -128,7 +128,7 @@ class Pulse:
 
                 # Find the corresponding sink when it is the null-sink of a
                 # MediaRenderer.
-                for renderer in self.av_control_point.renderers.values():
+                for renderer in self.av_control_point.renderers:
                     if (renderer.nullsink is not None and
                             renderer.nullsink.sink.index == sink_input.sink):
                         return renderer, sink_input

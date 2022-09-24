@@ -92,8 +92,7 @@ class HTTPServer:
                 # 'iso-8859-1' encoded, now unquote the uri path.
                 uri_path = urllib.parse.unquote(handler.path)
 
-                renderers = http_server.renderers
-                for renderer in renderers.values():
+                for renderer in http_server.renderers:
                     res = renderer.start_stream(writer, uri_path)
                     if res is True:
                         do_close = False

@@ -300,7 +300,7 @@ class MediaRenderer:
         if nullsink is not None:
             self.nullsink = nullsink
             self.name = nullsink.sink.name
-            self.control_point.renderers[nullsink.sink.index] = self
+            self.control_point.renderers.add(self)
             return True
 
     def start_stream(self, writer, uri_path):
@@ -555,7 +555,7 @@ class AVControlPoint(UPnPApplication):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.closed = False
-        self.renderers = {}     # dict {nullsink.sink.index: MediaRenderer}
+        self.renderers = set()
         self.curtask = None     # task running run_control_point()
         self.pulse = None       # Pulse instance
         self.start_event = asyncio.Event()
@@ -575,7 +575,7 @@ class AVControlPoint(UPnPApplication):
     async def close(self):
         if not self.closed:
             self.closed = True
-            for renderer in list(self.renderers.values()):
+            for renderer in list(self.renderers):
                 await renderer.close()
 
             if self.pulse is not None:
@@ -645,7 +645,7 @@ class AVControlPoint(UPnPApplication):
                         continue
 
                     # Find an existing MediaRenderer instance.
-                    for rndr in self.renderers.values():
+                    for rndr in self.renderers:
                         if rndr.root_device is root_device:
                             renderer = rndr
                             break
@@ -672,7 +672,7 @@ class AVControlPoint(UPnPApplication):
                             if not renderer.closed:
                                 await renderer.close()
                             else:
-                                del self.renderers[renderer.nullsink.sink.index]
+                                self.renderers.remove(renderer)
                         else:
                             logger.warning("Got a 'byebye' notification for"
                                            ' no existing MediaRenderer')
