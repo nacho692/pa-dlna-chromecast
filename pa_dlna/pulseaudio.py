@@ -7,6 +7,8 @@ from pulsectl import PulseEventMaskEnum, PulseEventTypeEnum
 
 logger = logging.getLogger('pulse')
 
+DEFAULT_SINK_NAME = 'default_sink_name'
+
 async def sink_unique_name(name_prefix, pulse_ctl):
     """Return a sink unique name.
 
@@ -58,6 +60,7 @@ class Pulse:
         self.av_control_point = av_control_point
         self.closed = False
         self.pulse_ctl = None
+        self.default_sink = None
 
     async def close(self):
         if not self.closed:
@@ -158,9 +161,62 @@ class Pulse:
             # sink_input.
             await previous.on_pulse_event('exit')
 
+    async def _default_sink_name(self):
+        """Get the default sink."""
+
+        server_info = await self.pulse_ctl.server_info()
+        for item in (info.strip() for info in str(server_info).split(',')):
+            name, value = item.split('=')
+            if name == DEFAULT_SINK_NAME:
+                logger.debug(f'Default sink name: {value}')
+                return value.strip("'")
+
+    async def _default_sink(self):
+        """Get the default sink."""
+
+        name = await self._default_sink_name()
+        if name is None:
+            return
+
+        sinks = await self.pulse_ctl.sink_list()
+        for sink in sinks:
+            if sink.name == name:
+                return sink
+
+    async def link_sink_input_to(self, sink_input, sink):
+        """Link 'sink_input' to 'sink'."""
+
+        if sink is not None and sink_input is not None:
+            application = sink_input.proplist['application.name']
+            if sink_input.sink != sink.index:
+                msg = (f"Redirect '{application}' sink-input to"
+                       f" '{sink.description}' sink")
+                logger.debug(msg)
+                try:
+                    await self.pulse_ctl.sink_input_move(sink_input.index,
+                                                     sink.index)
+                except Exception as e:
+                    logger.error('Cannot r' + msg[1:] +
+                                 f':\n        {e!r}')
+            else:
+                logger.error(f'Cannot link sink_input to sink: already set')
+
+    async def link_sink_input_to_default(self, sink_input):
+        """Link 'sink_input' to the default sink."""
+        await self.link_sink_input_to(sink_input, self.default_sink)
+
     async def run(self):
         try:
             async with PulseAsync('pa-dlna') as self.pulse_ctl:
+                # Get the default_sink.
+                sink = await self._default_sink()
+                if sink is None:
+                    logger.error('Cannot find a default sink.')
+                else:
+                    self.default_sink = sink
+                    logger.info(f'Default sink: index: {sink.index},'
+                                f' description: {sink.description}')
+
                 self.av_control_point.start_event.set()
                 try:
                     async for event in self.pulse_ctl.subscribe_events(
