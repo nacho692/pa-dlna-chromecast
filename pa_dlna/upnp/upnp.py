@@ -87,11 +87,6 @@ class AsyncioTasks:
         task.add_done_callback(lambda t: self._tasks.remove(t))
         return task
 
-    def cancel_all(self):
-        for task in self:
-            assert not task.cancelled()
-            task.cancel()
-
     def __iter__(self):
         for t in self._tasks:
             yield t
@@ -545,7 +540,6 @@ class UPnPControlPoint:
                 self._curtask.cancel(msg=errmsg)
                 self._curtask = None
 
-            self._upnp_tasks.cancel_all()
             logger.debug('Close UPnPControlPoint')
 
     async def get_notification(self):

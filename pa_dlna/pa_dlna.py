@@ -2,14 +2,13 @@
 
 import sys
 import os
-import signal
 import shutil
 import asyncio
 import logging
 import re
 import ipaddress
 import random
-from signal import SIGINT, SIGTERM
+from signal import strsignal, SIGINT, SIGTERM
 from collections import namedtuple
 
 from . import main_function, UPnPApplication
@@ -116,8 +115,6 @@ class Stream:
                     await kill_process(self.parec_proc)
                 if self.encoder_proc is not None:
                     await kill_process(self.encoder_proc)
-                # BUG in pulsectl_asyncio, see the issue.
-                # self.stream_tasks.cancel_all()
             except Exception as e:
                 logger.exception(f'{e!r}')
 
@@ -201,7 +198,7 @@ class Stream:
                                           name='parec_stderr')
 
             ret = await self.parec_proc.wait()
-            status = ret if ret >= 0 else signal.strsignal(-ret)
+            status = ret if ret >= 0 else strsignal(-ret)
             logger.debug(f'Exit status of parec process: {status}')
             self.parec_proc = None
         except asyncio.CancelledError:
@@ -227,7 +224,7 @@ class Stream:
                                           name='encoder_stderr')
 
             ret = await self.encoder_proc.wait()
-            status = ret if ret >= 0 else signal.strsignal(-ret)
+            status = ret if ret >= 0 else strsignal(-ret)
             # ffmpeg exit code is 255 when the process is killed with SIGTERM.
             # See ffmpeg main() at https://gitlab.com/fflabs/ffmpeg/-/blob/
             # 0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
@@ -622,7 +619,6 @@ class AVControlPoint(UPnPApplication):
             if self.pulse is not None:
                 await self.pulse.close()
 
-            self.cp_tasks.cancel_all()
             self.curtask.cancel()
 
     async def register(self, renderer, http_server):
@@ -645,8 +641,10 @@ class AVControlPoint(UPnPApplication):
         try:
             self.curtask = asyncio.current_task()
 
+            # Add the signal handlers.
             end_event = asyncio.Event()
-            asyncio.create_task(self.shutdown(end_event))
+            self.cp_tasks.create_task(self.shutdown(end_event),
+                                      name='shutdown')
             loop = asyncio.get_running_loop()
             for sig in (SIGINT, SIGTERM):
                 loop.add_signal_handler(sig, end_event.set)

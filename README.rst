@@ -18,6 +18,7 @@ Asyncio tasks:
                                     * create the pulse task, the http_server task
                                       and the renderer tasks
                                     * handle UPnP notifications
+      shutdown task                 wait on event pushed by the signal handlers
       pulse task                    monitor puseaudio sink-input events
       http_server task              serve DLNA requests and start the streaming tasks
       n x renderer tasks            act upon pulseaudio events and run UPnP soap
@@ -26,6 +27,7 @@ Asyncio tasks:
                                     pulseaudio null-sink monitor to the http socket
                                     via 'parec | encoder program | http socket'
 
-    Streaming processes tasks owned by each MediaRenderer instance:
+    Stream tasks:
       parec process
-      encoder program
+      encoder process
+      log_stderr task
