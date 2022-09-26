@@ -400,9 +400,7 @@ class UPnPRootDevice(UPnPDevice):
         self.ip_source = ip_source
         self.location = location
         self._set_valid_until(max_age)
-
         self._closed = True
-        self._curtask = None
 
     def close(self, exc=None):
         """Close the root device.
@@ -415,8 +413,6 @@ class UPnPRootDevice(UPnPDevice):
             self._closed = True
             logger.info(f'Close {self}')
             self._control_point._remove_root_device(self.udn, exc=exc)
-            if self._curtask is not None:
-                self._curtask.cancel()
 
     def _set_valid_until(self, max_age):
         # The '_valid_until' attribute is the monotonic date when the root
@@ -449,7 +445,6 @@ class UPnPRootDevice(UPnPDevice):
 
     async def _run(self):
         try:
-            self._curtask = asyncio.current_task()
             description = await http_get(self.location)
             description = description.decode()
 
@@ -472,8 +467,6 @@ class UPnPRootDevice(UPnPDevice):
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
-        finally:
-            logger.debug(f'End of {self} task')
 
     def __str__(self):
         """Return a short representation of udn."""
@@ -540,7 +533,7 @@ class UPnPControlPoint:
                 self._curtask.cancel(msg=errmsg)
                 self._curtask = None
 
-            logger.debug('Close UPnPControlPoint')
+            logger.info('Close UPnPControlPoint')
 
     async def get_notification(self):
         """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance).
