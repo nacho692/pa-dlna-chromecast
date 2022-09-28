@@ -71,8 +71,11 @@ def sink_input_meta(sink_input):
     except KeyError:
         pass
 
-def log_action(name, action, state, msg=None):
-    txt = f"'{action}' UPnP action [{name} prev state: {state}]"
+def log_action(name, action, state, ignored=False, msg=None):
+    txt = f"'{action}' UPnP action "
+    if ignored:
+        txt += 'ignored '
+    txt += f'[{name} prev state: {state}]'
     if msg is not None:
         txt += NL_INDENT + msg
     logger.debug(txt)
@@ -509,7 +512,7 @@ class MediaRenderer:
                     else:
                         if isinstance(action, MetaData):
                             log_action(self.name, 'SetAVTransportURI', state,
-                                       str(action))
+                                       msg=str(action))
                             await self.set_avtransporturi(action)
                             continue
                         elif action == 'Play':
@@ -524,8 +527,7 @@ class MediaRenderer:
                     else:
                         raise
 
-                logger.debug(f'{self.name} ignoring {action}'
-                             f' event: transition not needed')
+                log_action(self.name, action, state, ignored=True)
 
         except asyncio.CancelledError:
             await self.close()

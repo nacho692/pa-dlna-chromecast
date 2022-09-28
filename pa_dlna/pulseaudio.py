@@ -174,14 +174,14 @@ class Pulse:
             log_pulse_event(evt, renderer, sink, sink_input)
             await renderer.on_pulse_event(evt, sink, sink_input)
 
-        # The sink_input has been re-routed to another sink.
         previous = self.find_previous_renderer(event)
+        # The sink_input has been re-routed to another sink.
         if previous is not None and previous is not renderer:
             # Build our own 'exit' event (pulseaudio does not provide one)
             # for the sink that had been previously connected to this
             # sink_input.
             evt = 'exit'
-            log_pulse_event(evt, renderer)
+            log_pulse_event(evt, previous)
             await previous.on_pulse_event(evt)
 
     async def _default_sink_name(self):
