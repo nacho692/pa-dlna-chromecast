@@ -5,6 +5,6 @@ class UPnPError(Exception): pass
 from .upnp import (UPnPControlPointError, UPnPClosedDeviceError,
                    UPnPInvalidSoapError, UPnPSoapFaultError,
                    UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
-                   AsyncioTasks, shorten)
+                   AsyncioTasks, NL_INDENT, shorten)
 from .network import (UPnPInvalidSsdpError, UPnPInvalidHttpError)
 from .xml import (UPnPXMLError, pprint_xml)

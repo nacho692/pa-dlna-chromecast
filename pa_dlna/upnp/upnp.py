@@ -59,6 +59,7 @@ logger = logging.getLogger('upnp')
 MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
+NL_INDENT = '\n        '
 
 class UPnPClosedControlPointError(UPnPError): pass
 class UPnPControlPointError(UPnPError): pass
@@ -149,7 +150,7 @@ class UPnPService(UPnPElement):
         self.serviceStateTable = {}
         self.description = None
 
-    async def soap_action(self, action, args):
+    async def soap_action(self, action, args, log_debug=True):
         """Send a SOAP action.
 
         'action'    action name
@@ -201,17 +202,22 @@ class UPnPService(UPnPElement):
         # Send the soap action.
         is_fault, body =  await http_soap(self.controlURL, header, body)
 
+        # The specification of the serviceType format is
+        # 'urn:schemas-upnp-org:device:serviceType:ver'.
+        serviceType = self.serviceType.split(':')[-2]
+
         # Handle the response.
         body = body.decode()
         if is_fault:
             fault = parse_soap_fault(body)
-            logger.warning(f"soap_action('{action}', '{self.serviceType}') ="
+            logger.warning(f"soap_action('{action}', '{serviceType}') ="
                            f' {fault}')
             raise UPnPSoapFaultError(fault)
 
         response = parse_soap_response(body, action)
-        logger.debug(f"soap_action('{action}', '{self.serviceType}') ="
-                     f' {response}')
+        if log_debug:
+            logger.debug(f'soap_action({action}, {serviceType}, {args}) ='
+                         f' {response}')
         return response
 
     async def _run(self):
@@ -301,6 +307,7 @@ class UPnPDevice(UPnPElement):
         if services is None:
             return
 
+        service_ids = []
         for element in services:
             if element.tag != f'{namespace!r}service':
                 raise UPnPXMLFatalError(f"Found '{element.tag}' instead"
@@ -315,7 +322,13 @@ class UPnPDevice(UPnPElement):
             serviceId = d['serviceId']
             self.serviceList[serviceId] = await (
                                 UPnPService(self, self.root_device, d)._run())
-            logger.debug(f'New service - serviceId: {serviceId}')
+
+            # The specification of the serviceId format is
+            # 'urn:upnp-org:serviceId:service'.
+            service = serviceId.split(':')[-1]
+            service_ids.append(service)
+
+        return service_ids
 
     async def _create_devices(self, devices, namespace):
         """Instantiate the embedded UPnPDevice(s)."""
@@ -357,13 +370,19 @@ class UPnPDevice(UPnPElement):
 
         if not hasattr(self, 'deviceType'):
             raise UPnPXMLFatalError("Missing 'deviceType' element")
-        logger.info(f'New device - deviceType: {self.deviceType}')
+        if not isinstance(self, UPnPRootDevice):
+            # The specification of the deviceType format is
+            # 'urn:schemas-upnp-org:device:deviceType:ver'.
+            deviceType = self.deviceType.split(':')[-2]
+            logger.info(f'New {deviceType} embedded device')
 
         icons = device_etree.find(f'{namespace!r}iconList')
         self._create_icons(icons, namespace)
 
         services = device_etree.find(f'{namespace!r}serviceList')
-        await self._create_services(services, namespace)
+        services  = await self._create_services(services, namespace)
+        if services:
+            logger.info(f"New UPnP services: {', '.join(services)}")
 
         # Recursion here: _create_devices() calls _parse_description()
         devices = device_etree.find(f'{namespace!r}deviceList')
@@ -459,6 +478,13 @@ class UPnPRootDevice(UPnPDevice):
                 raise UPnPXMLFatalError("Missing 'device' subelement in root"
                                         ' device description')
             await self._parse_description(device_description)
+
+            # The specification of the deviceType format is
+            # 'urn:schemas-upnp-org:device:deviceType:ver'.
+            deviceType = self.deviceType.split(':')[-2]
+            logger.info(f'New {deviceType} root device at {self.ip_source}'
+                        f' with UDN:' + NL_INDENT + f'{self.udn}')
+
             self._closed = False
             self._control_point._put_notification('alive', self)
             await self._age_root_device()
@@ -572,8 +598,6 @@ class UPnPControlPoint:
             self._upnp_tasks.create_task(root_device._run(),
                                          name=str(root_device))
             self._devices[udn] = root_device
-            logger.info(f'New {root_device} at {ip_source}')
-            logger.debug(f'UPnPRootDevice UDN {udn}')
 
         else:
             root_device = self._devices[udn]

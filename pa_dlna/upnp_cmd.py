@@ -9,7 +9,7 @@ import textwrap
 import traceback
 
 from . import (main_function, UPnPApplication, pprint_pprint)
-from .upnp import (UPnPControlPoint, UPnPDevice, UPnPSoapFaultError,
+from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
                    UPnPClosedDeviceError, pprint_xml)
 
 logger = logging.getLogger('upnpctl')

@@ -347,8 +347,8 @@ def parse_args(doc, loglevel_default):
     logfile_hdler = setup_logging(options)
 
     # Run networks_option() once logging has been setup.
-    options['net_ifaces'] = networks_option(options['ip_interfaces'], parser)
     logger.info(f'Options {options}')
+    options['net_ifaces'] = networks_option(options['ip_interfaces'], parser)
 
     return options, logfile_hdler
 

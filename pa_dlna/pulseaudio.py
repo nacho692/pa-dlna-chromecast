@@ -5,6 +5,8 @@ import logging
 from pulsectl_asyncio import PulseAsync
 from pulsectl import PulseEventMaskEnum, PulseEventTypeEnum
 
+from .upnp import NL_INDENT
+
 logger = logging.getLogger('pulse')
 
 DEFAULT_SINK_NAME = 'default_sink_name'
@@ -40,6 +42,22 @@ async def sink_unique_name(name_prefix, pulse_ctl):
         return f'{name_prefix}-{suffix}'
     else:
         return name_prefix
+
+def log_pulse_event(event, renderer, sink=None, sink_input=None):
+    if sink is None:
+        sink = renderer.nullsink.sink
+        sink_state = f'previous state: {sink.state._value}'
+    else:
+        prev_sink = renderer.nullsink.sink
+        prev_state = prev_sink.state._value if prev_sink is not None else None
+        new_state = sink.state._value
+        sink_state = f'prev/new state: {prev_state}/{new_state}'
+
+    if sink_input is None:
+        sink_input = renderer.nullsink.sink_input
+
+    logger.debug(f"'{event}' pulseaudio event [{renderer.name} "
+                 f'sink: idx {sink_input.index}, {sink_state}]')
 
 # Classes.
 class NullSink:
@@ -141,17 +159,20 @@ class Pulse:
     async def handle_event(self, event):
         """Dispatch the event."""
 
+        evt = event.t._value
         if event.t == PulseEventTypeEnum.remove:
             renderer = self.find_previous_renderer(event)
             if renderer is not None:
-                await renderer.on_pulse_event(event.t._value)
+                log_pulse_event(evt, renderer)
+                await renderer.on_pulse_event(evt)
             return
 
         renderer, sink_input = await self.find_renderer(event)
         if renderer is not None:
             sink = await self.pulse_ctl.get_sink_by_name(
                                             renderer.nullsink.sink.name)
-            await renderer.on_pulse_event(event.t._value, sink, sink_input)
+            log_pulse_event(evt, renderer, sink, sink_input)
+            await renderer.on_pulse_event(evt, sink, sink_input)
 
         # The sink_input has been re-routed to another sink.
         previous = self.find_previous_renderer(event)
@@ -159,7 +180,9 @@ class Pulse:
             # Build our own 'exit' event (pulseaudio does not provide one)
             # for the sink that had been previously connected to this
             # sink_input.
-            await previous.on_pulse_event('exit')
+            evt = 'exit'
+            log_pulse_event(evt, renderer)
+            await previous.on_pulse_event(evt)
 
     async def _default_sink_name(self):
         """Get the default sink."""
@@ -196,8 +219,8 @@ class Pulse:
                     await self.pulse_ctl.sink_input_move(sink_input.index,
                                                      sink.index)
                 except Exception as e:
-                    logger.error('Cannot r' + msg[1:] +
-                                 f':\n        {e!r}')
+                    logger.error('Cannot r' + msg[1:] + ':' + NL_INDENT +
+                                 f'{e!r}')
             else:
                 logger.error(f'Cannot link sink_input to sink: already set')
 
@@ -214,8 +237,8 @@ class Pulse:
                     logger.error('Cannot find a default sink.')
                 else:
                     self.default_sink = sink
-                    logger.info(f'Default sink: index: {sink.index},'
-                                f' description: {sink.description}')
+                    logger.info(f'Default pulseaudio sink: {sink.description}'
+                                f' (index: {sink.index})')
 
                 self.av_control_point.start_event.set()
                 try:

@@ -8,6 +8,7 @@ import logging
 from http import HTTPStatus
 
 from . import pprint_pformat
+from .upnp import NL_INDENT
 
 logger = logging.getLogger('http')
 
@@ -40,8 +41,8 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         logger.info(f'{self.request_version} GET request from '
-                    f'{self.client_address[0]}\n'
-                    f"        uri path: '{self.path}'")
+                    f'{self.client_address[0]}' + NL_INDENT +
+                    f"uri path: '{self.path}'")
         logger.debug(f'Request headers:\n'
                      f"{pprint_pformat(dict(self.headers.items()))}")
         if self.request_version != 'HTTP/1.1':
