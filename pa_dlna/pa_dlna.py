@@ -72,10 +72,10 @@ def sink_input_meta(sink_input):
         pass
 
 def log_action(name, action, state, ignored=False, msg=None):
-    txt = f"'{action}' UPnP action "
+    txt = f"'{action}' "
     if ignored:
         txt += 'ignored '
-    txt += f'[{name} prev state: {state}]'
+    txt += f'UPnP action [{name} prev state: {state}]'
     if msg is not None:
         txt += NL_INDENT + msg
     logger.debug(txt)
@@ -369,8 +369,8 @@ class MediaRenderer:
         # song.
         if sink_input is not None:
             if sink_input.index == self.previous_idx:
-                logger.debug(f'Ignoring event from previous Sink-input'
-                               f' {sink_input.index}')
+                logger.debug(f"'{event}' ignored pulseaudio event related to"
+                             f' previous sink-input of {self.name}')
                 return
 
             if (self.nullsink.sink_input is not None  and
@@ -527,7 +527,11 @@ class MediaRenderer:
                     else:
                         raise
 
-                log_action(self.name, action, state, ignored=True)
+                if isinstance(action, MetaData):
+                    log_action(self.name, 'SetAVTransportURI', state,
+                               ignored=True, msg=str(action))
+                else:
+                    log_action(self.name, action, state, ignored=True)
 
         except asyncio.CancelledError:
             await self.close()
