@@ -61,9 +61,9 @@ def log_pulse_event(event, renderer, sink=None, sink_input=None):
 
 # Classes.
 class NullSink:
-    """A connection between a sink_input and the null-sink of a MediaRenderer.
+    """A connection between a sink_input and the null-sink of a Renderer.
 
-    A NullSink is instantiated upon registering a MediaRenderer instance.
+    A NullSink is instantiated upon registering a Renderer instance.
     """
 
     def __init__(self, sink, module_index):
@@ -76,13 +76,13 @@ class Pulse:
 
     def __init__(self, av_control_point):
         self.av_control_point = av_control_point
-        self.closed = False
+        self.closing = False
         self.pulse_ctl = None
         self.default_sink = None
 
     async def close(self):
-        if not self.closed:
-            self.closed = True
+        if not self.closing:
+            self.closing = True
             await self.av_control_point.close()
             logger.info('Close pulse')
 
@@ -148,7 +148,7 @@ class Pulse:
                     return notfound
 
                 # Find the corresponding sink when it is the null-sink of a
-                # MediaRenderer.
+                # Renderer.
                 for renderer in self.av_control_point.renderers:
                     if (renderer.nullsink is not None and
                             renderer.nullsink.sink.index == sink_input.sink):

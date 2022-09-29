@@ -102,7 +102,7 @@ class Stream:
         self.writer = None
         self.parec_proc = None
         self.encoder_proc = None
-        self.closed = False
+        self.closing = False
         self.stream_tasks = AsyncioTasks()
 
     async def stop(self):
@@ -137,8 +137,8 @@ class Stream:
         # renderer is set with a new stream, preventing calls to self.close()
         # to call self.stop().
         renderer = self.renderer
-        if renderer.stream is self and not self.closed:
-            self.closed = True
+        if renderer.stream is self and not self.closing:
+            self.closing = True
             await self.stop()
 
             # Redirect the sink input to the default sink found on start-up.
@@ -297,7 +297,7 @@ class Stream:
         finally:
             await self.close()
 
-class MediaRenderer:
+class Renderer:
     """A DLNA MediaRenderer.
 
     Attributes:
@@ -314,7 +314,7 @@ class MediaRenderer:
         self.control_point = control_point
         self.net_iface = net_iface
         self.root_device = root_device
-        self.closed = False
+        self.closing = False
         self.nullsink = None            # NullSink instance
         self.name = None                # NullSink name
         self.previous_idx = None        # index of previous sink input
@@ -325,8 +325,8 @@ class MediaRenderer:
         self.pulse_queue = asyncio.Queue()
 
     async def close(self):
-        if not self.closed:
-            self.closed = True
+        if not self.closing:
+            self.closing = True
             logger.info(f"Close '{self.name}' renderer")
             await self.stream.close()
 
@@ -466,7 +466,7 @@ class MediaRenderer:
         await self.soap_action(AVTRANSPORT, transition, args)
 
     async def run(self):
-        """Run the MediaRenderer task."""
+        """Run the Renderer task."""
 
         try:
             udn = self.root_device.udn
@@ -539,8 +539,8 @@ class MediaRenderer:
             logger.exception(f'{e!r}')
             await self.close()
 
-class TestMediaRenderer(MediaRenderer):
-    """Non UPnP MediaRenderer to be used for testing."""
+class TestRenderer(Renderer):
+    """Non UPnP Renderer to be used for testing."""
 
     LOOPBACK = ipaddress.IPv4Interface('127.0.0.1/8')
 
@@ -552,10 +552,10 @@ class TestMediaRenderer(MediaRenderer):
             self.udn = get_udn()
             self.ip_source = '127.0.0.1'
 
-            TestMediaRenderer.RootDevice.count += 1
+            TestRenderer.RootDevice.count += 1
             ext = str(self.count)
-            self.modelName = 'TestMediaRenderer-' + ext
-            self.friendlyName = 'This is TestMediaRenderer-' + ext
+            self.modelName = 'TestRenderer-' + ext
+            self.friendlyName = 'This is TestRenderer-' + ext
 
         def close(self):
             pass
@@ -586,7 +586,7 @@ class AVControlPoint(UPnPApplication):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.closed = False
+        self.closing = False
         self.renderers = set()
         self.curtask = None     # task running run_control_point()
         self.pulse = None       # Pulse instance
@@ -605,8 +605,8 @@ class AVControlPoint(UPnPApplication):
                 loop.remove_signal_handler(sig)
 
     async def close(self):
-        if not self.closed:
-            self.closed = True
+        if not self.closing:
+            self.closing = True
             for renderer in list(self.renderers):
                 await renderer.close()
 
@@ -659,12 +659,12 @@ class AVControlPoint(UPnPApplication):
                 self.cp_tasks.create_task(http_server.run(),
                                           name='http_server')
 
-                # Register the TestMediaRenderer(s).
+                # Register the TestRenderer(s).
                 for mtype in (x.strip() for x in
                               self.renderers_mtypes.split(',')):
                     if not mtype:
                         continue
-                    rndr = TestMediaRenderer(self, mtype)
+                    rndr = TestRenderer(self, mtype)
                     await self.register(rndr, http_server)
 
                 # Handle UPnP notifications.
@@ -673,12 +673,12 @@ class AVControlPoint(UPnPApplication):
                     logger.info(f"Got '{notif}' notification for"
                                 f' {root_device}')
 
-                    # Ignore non MediaRenderer devices.
+                    # Ignore non Renderer devices.
                     if re.match(rf'{MEDIARENDERER}(1|2)',
                                 root_device.deviceType) is None:
                         continue
 
-                    # Find an existing MediaRenderer instance.
+                    # Find an existing Renderer instance.
                     for rndr in self.renderers:
                         if rndr.root_device is root_device:
                             renderer = rndr
@@ -699,17 +699,17 @@ class AVControlPoint(UPnPApplication):
                                 logger.warning(f'{ip_source} does not belong'
                                             ' to one of the enabled networks')
                                 return
-                            rndr = MediaRenderer(self, net_iface, root_device)
+                            rndr = Renderer(self, net_iface, root_device)
                             await self.register(rndr, http_server)
                     else:
                         if renderer is not None:
-                            if not renderer.closed:
+                            if not renderer.closing:
                                 await renderer.close()
                             else:
                                 self.renderers.remove(renderer)
                         else:
                             logger.warning("Got a 'byebye' notification for"
-                                           ' no existing MediaRenderer')
+                                           ' no existing Renderer')
 
         except asyncio.CancelledError:
             pass

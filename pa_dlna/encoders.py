@@ -108,7 +108,7 @@ class L16Encoder(StandAloneEncoder):
     'format' may be set to 's16be' or 's16le'. Use the 's16be' format on a big
     endian DLNA device and 's16le' on a little endian one.
 
-    To play and check the result obtained using a TestMediaRenderer with the
+    To play and check the result obtained using a TestRenderer with the
     '--renderers audio/L16;rate=44100;channels=2' command line argument, one may
     use the 'ffplay' tool from ffmpeg and, for example when the 'format' option
     is 's16le', run the command:

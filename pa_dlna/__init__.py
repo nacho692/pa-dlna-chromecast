@@ -316,11 +316,11 @@ def parse_args(doc, loglevel_default):
     parser.add_argument('--renderers', '-r', metavar='MIME-TYPES',
                         default='', dest='renderers_mtypes',
                         help='MIME-TYPES is a comma separated list of audio '
-                        'mime types - a TestMediaRenderer is instantiated for'
+                        'mime types - a TestRenderer is instantiated for'
                         ' each of these mime types and a pulseaudio stream '
                         'may be run by doing an http GET on the '
-                        'TestMediaRenderer url provided by the logs, the '
-                        'stream is routed to the TestMediaRenderer and '
+                        'TestRenderer url provided by the logs, the '
+                        'stream is routed to the TestRenderer and '
                         'collected by the program doing the http GET (curl'
                         ' for example)')
     parser.add_argument('--loglevel', '-l', default=loglevel_default,
