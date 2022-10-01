@@ -141,24 +141,6 @@ class Stream:
             self.closing = True
             await self.stop()
 
-            # Redirect the sink input to the default sink found on start-up.
-            # Otherwise the audio stream may still be directed to this
-            # renderer null-sink and discarded by the null-sink when the
-            # closing of the stream is caused by one of the parec and encoder
-            # processes aborting.
-            #
-            # This has the negative effect of causing  pulseaudio to forget
-            # the association between the application running this stream and
-            # the DLNA device.
-            task_name = asyncio.current_task().get_name()
-            if task_name not in ('parec', 'parec_stderr', 'encoder'):
-                return
-
-            sink_input = renderer.nullsink.sink_input
-            if sink_input is not None:
-                pulse = renderer.control_point.pulse
-                await pulse.link_sink_input_to_default(sink_input)
-
     async def log_stderr(self, name, stderr):
         logger = logging.getLogger(name)
 
