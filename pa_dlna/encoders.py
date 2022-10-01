@@ -33,7 +33,7 @@ def select_encoder(encoders, mime_types, udn):
             # supported by this encoder and return the encoder and this mime
             # type.
             for mime_type in mime_types:
-                if encoder.has_mime_type(mime_type.lower()):
+                if encoder.has_mime_type(mime_type):
                     return encoder, encoder.mime_type
             else:
                 logger.error(f'No matching mime type for the udn configured'
@@ -42,7 +42,7 @@ def select_encoder(encoders, mime_types, udn):
 
     for encoder in available_encoders(encoders):
         for mime_type in mime_types:
-            if encoder.has_mime_type(mime_type.lower()):
+            if encoder.has_mime_type(mime_type):
                 return encoder, encoder.mime_type
 
 class Encoder:
@@ -105,15 +105,14 @@ class StandAloneEncoder(Encoder):
 class L16Encoder(StandAloneEncoder):
     """L16 encoder.
 
-    'format' may be set to 's16be' or 's16le'. Use the 's16be' format on a big
-    endian DLNA device and 's16le' on a little endian one.
-
     To play and check the result obtained using a TestRenderer with the
-    '--renderers audio/L16;rate=44100;channels=2' command line argument, one may
-    use the 'ffplay' tool from ffmpeg and, for example when the 'format' option
-    is 's16le', run the command:
+    '--renderers audio/L16\;rate=44100\;channels=2' command line argument,
+    one may use the 'ffplay' tool from ffmpeg and run the command:
 
-        $ ffplay -f s16le -ac 2 -ar 44100 output_file
+        $ ffplay -f s16be -ac 2 -ar 44100 output_file
+
+    Note that the ';' character must be escaped on the command line or the
+    value of the '--renderers' option must be quoted.
 
     See also https://datatracker.ietf.org/doc/html/rfc2586.
     """
@@ -121,8 +120,8 @@ class L16Encoder(StandAloneEncoder):
     def __init__(self):
         self._available = True
         self._mime_types = ['audio/l16']
+        self._network_format = 's16be'
         super().__init__()
-        self.format = 's16le'
 
     @property
     def mime_type(self):
@@ -191,7 +190,7 @@ class FFMpegEncoder(Encoder):
         return self.requested_mtype
 
     def has_mime_type(self, mime_type):
-        if mime_type in self._mime_types:
+        if mime_type.lower() in self._mime_types:
             self.requested_mtype = mime_type
             return True
 

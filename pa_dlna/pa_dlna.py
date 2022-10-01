@@ -187,7 +187,7 @@ class Stream:
             if not isinstance(encoder, L16Encoder):
                 format = encoder._pulse_format
             else:
-                format = encoder.format
+                format = encoder._network_format
             monitor = self.renderer.nullsink.sink.monitor_source_name
             parec_cmd = [parec_pgm, f'--device={monitor}',
                          f'--format={format}',
