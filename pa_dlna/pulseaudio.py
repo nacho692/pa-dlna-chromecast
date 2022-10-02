@@ -83,15 +83,16 @@ class Pulse:
             await self.av_control_point.close()
             logger.info('Close pulse')
 
-    async def register(self, renderer):
+    async def register(self, renderer, name=None):
         """Load a null-sink module."""
 
         if self.pulse_ctl is None:
             return
 
         device = renderer.root_device
-        name = device.modelName.replace(' ', r'_')
-        name = await sink_unique_name(name, self.pulse_ctl)
+        if name is None:
+            name = device.modelName.replace(' ', r'_')
+            name = await sink_unique_name(name, self.pulse_ctl)
 
         description = device.friendlyName
         _description = description.replace(' ', r'\ ')
@@ -111,12 +112,12 @@ class Pulse:
         await self.pulse_ctl.module_unload(module_index)
         logger.error('Cannot find the index of the created null-sink')
 
-    async def unregister(self, renderer):
+    async def unregister(self, nullsink):
         if self.pulse_ctl is None:
             return
         logger.info(f'Unload null-sink module'
-                    f" '{renderer.nullsink.sink.name}'")
-        await self.pulse_ctl.module_unload(renderer.nullsink.module_index)
+                    f" '{nullsink.sink.name}'")
+        ret = await self.pulse_ctl.module_unload(nullsink.module_index)
 
     def find_previous_renderer(self, event):
         """Find the renderer that was last connected to this sink-input."""
@@ -161,15 +162,16 @@ class Pulse:
             renderer = self.find_previous_renderer(event)
             if renderer is not None:
                 log_pulse_event(evt, renderer)
-                await renderer.on_pulse_event(evt)
+                renderer.on_pulse_event(evt)
             return
 
         renderer, sink_input = await self.find_renderer(event)
         if renderer is not None:
             sink = await self.pulse_ctl.get_sink_by_name(
                                             renderer.nullsink.sink.name)
-            log_pulse_event(evt, renderer, sink, sink_input)
-            await renderer.on_pulse_event(evt, sink, sink_input)
+            if sink is not None:
+                log_pulse_event(evt, renderer, sink, sink_input)
+                renderer.on_pulse_event(evt, sink, sink_input)
 
         previous = self.find_previous_renderer(event)
         # The sink_input has been re-routed to another sink.
@@ -179,7 +181,7 @@ class Pulse:
             # sink_input.
             evt = 'exit'
             log_pulse_event(evt, previous)
-            await previous.on_pulse_event(evt)
+            previous.on_pulse_event(evt)
 
     async def run(self):
         try:

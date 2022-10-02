@@ -95,10 +95,16 @@ class HTTPServer:
 
                 for renderer in http_server.renderers:
                     res = renderer.start_stream(writer, uri_path)
+                    if res is None:
+                        continue
                     if res is True:
                         do_close = False
                         return
-                handler.send_error(HTTPStatus.NOT_FOUND)
+                    else:
+                        handler.send_error(HTTPStatus.TOO_EARLY)
+                        break
+                else:
+                    handler.send_error(HTTPStatus.NOT_FOUND)
 
             # Flush the error response.
             await writer.drain()
