@@ -372,7 +372,7 @@ class Renderer:
         self.previous_idx = None        # index of previous sink input
         self.encoder = None
         self.mime_type = None
-        self.audio_url = None
+        self.current_uri = None
         self.stream = Stream(self)
         self.pulse_queue = asyncio.Queue()
 
@@ -507,7 +507,7 @@ class Renderer:
         # DIDL-Lite XML CurrentURIMetaData not implemented for now.
         await self.soap_action(AVTRANSPORT, 'SetAVTransportURI',
                                {'InstanceID': 0,
-                                'CurrentURI': self.audio_url,
+                                'CurrentURI': self.current_uri,
                                 'CurrentURIMetaData': ''})
 
     async def get_transport_state(self):
@@ -533,12 +533,10 @@ class Renderer:
             udn = self.root_device.udn
             if not await self.select_encoder(udn):
                 return
-            self.audio_url = (f'http://{self.net_iface.ip}'
-                              f':{self.control_point.port}'
-                              f'{AUDIO_URI_PREFIX}/{udn}')
-            logger.info(f"New '{self.mime_type}' "
-                        f'{self.name} renderer, with url:' + NL_INDENT +
-                        f'{self.audio_url}')
+            self.current_uri = (f'http://{self.net_iface.ip}'
+                                f':{self.control_point.port}'
+                                f'{AUDIO_URI_PREFIX}/{udn}')
+            logger.info(f"New '{self.mime_type}' {self.name} renderer")
 
             while True:
                 # An action is either 'Play', 'Stop', 'Pause' or
@@ -574,6 +572,7 @@ class Renderer:
                         if isinstance(action, MetaData):
                             log_action(self.name, 'SetAVTransportURI', state,
                                        msg=str(action))
+                            logger.info(f'URL: {self.current_uri}')
                             await self.set_avtransporturi(action)
                             continue
                         elif action == 'Play':
