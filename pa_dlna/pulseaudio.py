@@ -105,7 +105,7 @@ class Pulse:
         # Find the index of the null-sink.
         for sink in await self.pulse_ctl.sink_list():
             if sink.name == name:
-                logger.info(f"Load null-sink module '{name}',"
+                logger.info(f'Load null-sink module {name},'
                             f" description='{description}'")
                 return NullSink(sink, module_index)
 
@@ -115,8 +115,7 @@ class Pulse:
     async def unregister(self, nullsink):
         if self.pulse_ctl is None:
             return
-        logger.info(f'Unload null-sink module'
-                    f" '{nullsink.sink.name}'")
+        logger.info(f'Unload null-sink module {nullsink.sink.name}')
         ret = await self.pulse_ctl.module_unload(nullsink.module_index)
 
     def find_previous_renderer(self, event):

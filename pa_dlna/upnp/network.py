@@ -40,8 +40,10 @@ def http_header_as_dict(header):
         """Return a normalized (key, value) tuple."""
         return args[0].strip().upper(), args[1].strip()
 
-    # RFC 2616 section 4.2: Header fields can be extended over multiple
-    # lines by preceding each extra line with at least one SP or HT.
+    # RFC 2616 (obsoleted) section 4.2: Header fields can be extended over
+    # multiple lines by preceding each extra line with at least one SP or HT.
+    # But see RFC 7230 section 3.2.4: A server that receives an obs-fold ...
+    # [may] replace each received obs-fold with one or more SP octets.
     compacted = ''
     for line in header:
         sep = '' if not compacted or line.startswith((' ', '\t')) else '\n'
@@ -85,7 +87,7 @@ def parse_ssdp(datagram, ip_source, is_msearch):
     start_line = header[0].strip()
     if start_line != req_line:
         # Comment out verbose log:
-        # logger.debug(f"Ignore '{start_line}' request" f' from {ip_source}')
+        # logger.debug(f"Ignore '{start_line}' request from {ip_source}")
         return None
 
     # Parse the HTTP header as a dict.

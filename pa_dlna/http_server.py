@@ -53,7 +53,7 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 class HTTPServer:
     """HHTP server accepting connections only from 'allowed_ips'.
 
-    Reference: Hypertext Transfer Protocol -- HTTP/1.1 - RFC 2616.
+    Reference: Hypertext Transfer Protocol -- HTTP/1.1 - RFC 7230.
     """
 
     http_server = None
