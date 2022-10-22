@@ -48,13 +48,13 @@ def get_udn():
         p += n
     return ''.join(udn)
 
-async def close_stream(stream):
+async def close_aiostream(writer):
     try:
         # Write the last chunk.
-        if not stream.is_closing():
-            stream.write('0\r\n\r\n'.encode())
-        await stream.drain()
-        stream.close()
+        if not writer.is_closing():
+            writer.write('0\r\n\r\n'.encode())
+        await writer.drain()
+        writer.close()
         await writer.wait_closed()
     except Exception:
         pass
@@ -112,86 +112,79 @@ class Stream:
         self.encoder_proc = None
         self.stream_tasks = AsyncioTasks()
 
-    async def stop(self, disable_renderer=False):
-        """Stop the stream and instantiate a new one.
-
-        If 'disable_renderer' is True, disable temporarily the renderer.
-        """
+    async def stop(self):
+        """Stop the stream and instantiate a new one."""
 
         if self.writer is None:
             return
 
         writer = self.writer
         # Prevent recursing in Stream.stop() and tell the task running the
-        # Stream.write_stream() coroutine to terminate.
+        # Stream.write_aiostream() coroutine to terminate.
         self.writer = None
         renderer = self.renderer
-        nullsink = renderer.nullsink
 
+        # Instantiate a new Stream.
+        logger.info(f'Terminate the {renderer.name} stream processes')
+        renderer.stream = Stream(renderer)
+
+        await close_aiostream(writer)
         try:
-            if disable_renderer:
-                # Pulse events related to this sink are now discarded.
-                renderer.nullsink = None
+            if self.parec_proc is not None:
+                await kill_process(self.parec_proc)
 
-            # Instantiate a new Stream.
-            logger.info(f'Terminate the {renderer.name} stream processes')
-            renderer.stream = Stream(renderer)
+            if self.encoder_proc is not None:
+                # Prevent verbose error logs from ffmpeg upon SIGTERM.
+                if isinstance(renderer.encoder, FFMpegEncoder):
+                    for task in self.stream_tasks:
+                        if task.get_name() == 'encoder_stderr':
+                            task.cancel()
+                            break
+                await kill_process(self.encoder_proc)
+        except Exception as e:
+            logger.exception(f'{e!r}')
 
-            try:
-                await close_stream(writer)
-                if self.parec_proc is not None:
-                    await kill_process(self.parec_proc)
+    async def disable_renderer(self):
+        """Disable temporarily the renderer."""
 
-                if self.encoder_proc is not None:
-                    # Prevent verbose error logs from ffmpeg upon SIGTERM.
-                    if isinstance(renderer.encoder, FFMpegEncoder):
-                        for task in self.stream_tasks:
-                            if task.get_name() == 'encoder_stderr':
-                                task.cancel()
-                                break
-                    await kill_process(self.encoder_proc)
-            except Exception as e:
-                logger.exception(f'{e!r}')
+        renderer = self.renderer
+        nullsink = renderer.nullsink
+        # Pulse events related to this sink are now discarded.
+        renderer.nullsink = None
 
-        finally:
-            # Unload the null-sink module, sleep RENDERER_DISABLE_PERIOD
-            # seconds and load a new module. During  the sleep period, the
-            # stream that was routed to this null-sink will be routed to
-            # the default sink instead of being silently discarded by the
-            # null-sink.
-            if disable_renderer and nullsink is not None:
-                pulse = renderer.control_point.pulse
-                await pulse.unregister(nullsink)
-                logger.info(f'Wait {RENDERER_DISABLE_PERIOD} seconds before'
-                            f' re-enabling {renderer.name}')
-                await asyncio.sleep(RENDERER_DISABLE_PERIOD)
-                nullsink = await pulse.register(renderer, renderer.name)
-                if nullsink is not None:
-                    renderer.nullsink = nullsink
-                else:
-                    logger.error(f'Cannot load a new null-sink module'
-                                 f' for {renderer.name}')
-                    self.close()
-
-    async def close(self, exit=None):
+        # Stop the stream.
         await self.stop()
 
-        # Close the renderer except when closed by one of the subprocesses
-        # after a normal exit or killed by SIGTERM.
-        if exit not in (0, 'Terminated'):
-            await self.renderer.close()
+        # Unload the null-sink module, sleep RENDERER_DISABLE_PERIOD
+        # seconds and load a new module. During  the sleep period, the
+        # stream that was routed to this null-sink will be routed to
+        # the default sink instead of being silently discarded by the
+        # null-sink.
+        if nullsink is not None:
+            pulse = renderer.control_point.pulse
+            await pulse.unregister(nullsink)
+            logger.info(f'Wait {RENDERER_DISABLE_PERIOD} seconds before'
+                        f' re-enabling {renderer.name}')
+            await asyncio.sleep(RENDERER_DISABLE_PERIOD)
+            nullsink = await pulse.register(renderer, renderer.name)
+            if nullsink is not None:
+                renderer.nullsink = nullsink
+            else:
+                logger.error(f'Cannot load a new null-sink module'
+                             f' for {renderer.name}')
+                await self.close()
 
-    async def write_stream(self, stdout):
+    async def close(self):
+        """Stop the stream and disable permanently the root device."""
+
+        await self.stop()
+        await self.renderer.disable_root_device()
+
+    async def write_aiostream(self, stdout):
+        """Write to the Stream Writer what is read from a subprocess stdout."""
+
         logger = logging.getLogger('writer')
         rdr_name = self.renderer.name
-
-        # Return from the coroutine with the 'return' statement when:
-        #   1) the renderer is closed or one of the subprocesses terminates.
-        #   2) the stream is stopped by the sink-input in
-        #      Renderer.make_transition()
-        # Invoke Stream.stop(disable_renderer=True) when:
-        #   1) the HTTP socket connection is closed by the peer
-        #   2) the subprocess pipe we are reading from is unexpectedly closed
         try:
             while True:
                 if self.writer is None:
@@ -210,15 +203,17 @@ class Stream:
                 self.writer.write('\r\n'.encode())
                 await self.writer.drain()
         except (asyncio.CancelledError, asyncio.IncompleteReadError):
-            return
+            pass
         except ConnectionError as e:
             logger.debug(f'{rdr_name} HTTP socket is closed: {e!r}')
+            await self.disable_renderer()
+            return
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.close()
+            return
 
-        # Connection closed by peer.
-        await self.stop(disable_renderer=True)
+        await self.stop()
 
     async def log_stderr(self, name, stderr):
         logger = logging.getLogger(name)
@@ -267,7 +262,7 @@ class Stream:
             if not isinstance(encoder, L16Encoder):
                 os.close(stdout)
             else:
-                self.stream_tasks.create_task(self.write_stream(
+                self.stream_tasks.create_task(self.write_aiostream(
                                                     self.parec_proc.stdout),
                                               name='parec_writer')
             self.stream_tasks.create_task(self.log_stderr('parec',
@@ -278,13 +273,15 @@ class Stream:
             exit_status = ret if ret >= 0 else strsignal(-ret)
             logger.debug(f'Exit status of parec process: {exit_status}')
             self.parec_proc = None
+            if exit_status in (0, 'Terminated'):
+                await self.stop()
+                return
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.exception(f'{e!r}')
-            exit_status = 126
-        finally:
-            await self.close(exit_status)
+
+        await self.close()
 
     async def run_encoder(self, encoder_cmd, pipe_r):
         try:
@@ -297,7 +294,7 @@ class Stream:
                                     stdout=asyncio.subprocess.PIPE,
                                     stderr=asyncio.subprocess.PIPE)
             os.close(pipe_r)
-            self.stream_tasks.create_task(self.write_stream(
+            self.stream_tasks.create_task(self.write_aiostream(
                                                 self.encoder_proc.stdout),
                                           name='encoder_writer')
             self.stream_tasks.create_task(self.log_stderr('encoder',
@@ -315,13 +312,15 @@ class Stream:
             logger.debug(f'Exit status of encoder process: {exit_status}')
 
             self.encoder_proc = None
+            if exit_status in (0, 'Terminated'):
+                await self.stop()
+                return
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.exception(f'{e!r}')
-            exit_status = 126
-        finally:
-            await self.close(exit_status)
+
+        await self.close()
 
     async def start(self, writer):
         renderer = self.renderer
@@ -329,7 +328,7 @@ class Stream:
             if self.writer is not None:
                 logger.debug(f"Cannot start '{renderer.name}' stream "
                              f'(a stream is already running)')
-                await close_stream(writer)
+                await close_aiostream(writer)
                 return
             self.writer = writer
 
@@ -363,7 +362,7 @@ class Stream:
             pass
         except Exception as e:
             logger.exception(f'{e!r}')
-            await self.close(126)
+            await self.close()
 
 class Renderer:
     """A DLNA MediaRenderer.
@@ -373,9 +372,9 @@ class Renderer:
                     interface that the DLNA device belongs to
 
     See the Standardized DCP (SDCP) specifications:
-      AVTransport:3 Service
-      RenderingControl:3 Service
-      ConnectionManager:3 Service
+      'AVTransport:3 Service'
+      'RenderingControl:3 Service'
+      'ConnectionManager:3 Service'
     """
 
     def __init__(self, control_point, net_iface, root_device):
@@ -399,11 +398,17 @@ class Renderer:
             if self.nullsink is not None:
                 await self.control_point.pulse.unregister(self.nullsink)
                 self.nullsink = None
-            await self.stream.close()
+            await self.stream.stop()
 
             # Closing the root device will trigger a 'byebye' notification and
             # the renderer will be removed from self.control_point.renderers.
             self.root_device.close()
+
+    async def disable_root_device(self):
+        """Close the renderer and disable its root device."""
+
+        await self.close()
+        self.control_point.disable_root_device(self)
 
     async def register(self):
         nullsink = await self.control_point.pulse.register(self)
@@ -416,7 +421,8 @@ class Renderer:
         """Start the streaming task.
 
         Return True     if 'uri_path' matches the renderer one,
-               False    if 'uri_path' matches and the renderer is not ready,
+               False    if 'uri_path' matches and the renderer is temporarily
+                        disabled,
                None     if no match
         """
 
@@ -512,7 +518,7 @@ class Renderer:
         if res is None:
             logger.error(f'Cannot find an encoder matching the {self.name}'
                          f' supported mime types')
-            await self.close()
+            await self.disable_root_device()
             return False
 
         self.encoder, self.mime_type = res
@@ -613,7 +619,7 @@ class Renderer:
             await self.close()
         except Exception as e:
             logger.exception(f'{e!r}')
-            await self.close()
+            await self.disable_root_device()
 
 class TestRenderer(Renderer):
     """Non UPnP Renderer to be used for testing."""
@@ -664,9 +670,11 @@ class AVControlPoint(UPnPApplication):
         super().__init__(**kwargs)
         self.closing = False
         self.renderers = set()
-        self.curtask = None     # task running run_control_point()
-        self.pulse = None       # Pulse instance
+        self.curtask = None             # task running run_control_point()
+        self.pulse = None               # Pulse instance
         self.start_event = asyncio.Event()
+        self.faulty_devices = set()     # set of the udn of root devices
+                                        # having been disabled
         self.cp_tasks = AsyncioTasks()
 
     async def shutdown(self, end_event):
@@ -691,14 +699,66 @@ class AVControlPoint(UPnPApplication):
 
             self.curtask.cancel()
 
+    def disable_root_device(self, renderer):
+        logger.info(f'Disable the {renderer.name} device permanently')
+        self.faulty_devices.add(renderer.root_device.udn)
+
     async def register(self, renderer, http_server):
         """Load the null-sink module and create the renderer task."""
 
-        http_server.allow_from(renderer.root_device.ip_source)
         if await renderer.register():
+            http_server.allow_from(renderer.root_device.ip_source)
             self.renderers.add(renderer)
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
+
+    async def handle_upnp_notifications(self, upn_control_point):
+        while True:
+            notif, root_device = await upn_control_point.get_notification()
+            logger.info(f"Got '{notif}' notification for {root_device}")
+
+            # Ignore non Renderer devices.
+            if re.match(rf'{MEDIARENDERER}(1|2)',
+                        root_device.deviceType) is None:
+                continue
+
+            # Find an existing Renderer instance.
+            for rndr in self.renderers:
+                if rndr.root_device is root_device:
+                    renderer = rndr
+                    break
+            else:
+                renderer = None
+
+            if notif == 'alive':
+                if root_device.udn in self.faulty_devices:
+                    assert renderer is None
+                    logger.debug(f'Ignore disabled {root_device}')
+                    continue
+
+                if renderer is None:
+                    # Check that ip_source belongs to one of the
+                    # net_ifaces networks.
+                    ip_source = root_device.ip_source
+                    ip_obj = ipaddress.IPv4Address(ip_source)
+                    for net_iface in self.net_ifaces:
+                        if ip_obj in net_iface.network:
+                            break
+                    else:
+                        logger.warning(f'{ip_source} does not belong to one'
+                                       f' of the enabled networks')
+                        continue
+                    rndr = Renderer(self, net_iface, root_device)
+                    await self.register(rndr, http_server)
+            else:
+                if renderer is not None:
+                    if not renderer.closing:
+                        await renderer.close()
+                    else:
+                        self.renderers.remove(renderer)
+                else:
+                    logger.warning("Got a 'byebye' notification for no"
+                                   ' existing Renderer')
 
     async def run_control_point(self):
         if not any(enc.available for enc in self.encoders.values()):
@@ -721,7 +781,7 @@ class AVControlPoint(UPnPApplication):
 
             # Run the UPnP control point.
             async with UPnPControlPoint(self.net_ifaces,
-                                        self.ttl) as control_point:
+                                        self.ttl) as upn_control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
                 self.cp_tasks.create_task(self.pulse.run(), name='pulse')
@@ -735,7 +795,7 @@ class AVControlPoint(UPnPApplication):
                 self.cp_tasks.create_task(http_server.run(),
                                           name='http_server')
 
-                # Register the TestRenderer(s).
+                # Register the TestRenderers.
                 for mtype in (x.strip() for x in
                               self.renderers_mtypes.split(',')):
                     if not mtype:
@@ -743,49 +803,8 @@ class AVControlPoint(UPnPApplication):
                     rndr = TestRenderer(self, mtype)
                     await self.register(rndr, http_server)
 
-                # Handle UPnP notifications.
-                while True:
-                    notif, root_device = await control_point.get_notification()
-                    logger.info(f"Got '{notif}' notification for"
-                                f' {root_device}')
-
-                    # Ignore non Renderer devices.
-                    if re.match(rf'{MEDIARENDERER}(1|2)',
-                                root_device.deviceType) is None:
-                        continue
-
-                    # Find an existing Renderer instance.
-                    for rndr in self.renderers:
-                        if rndr.root_device is root_device:
-                            renderer = rndr
-                            break
-                    else:
-                        renderer = None
-
-                    if notif == 'alive':
-                        if renderer is None:
-                            # Check that ip_source belongs to one of the
-                            # net_ifaces networks.
-                            ip_source = root_device.ip_source
-                            ip_obj = ipaddress.IPv4Address(ip_source)
-                            for net_iface in self.net_ifaces:
-                                if ip_obj in net_iface.network:
-                                    break
-                            else:
-                                logger.warning(f'{ip_source} does not belong'
-                                            ' to one of the enabled networks')
-                                return
-                            rndr = Renderer(self, net_iface, root_device)
-                            await self.register(rndr, http_server)
-                    else:
-                        if renderer is not None:
-                            if not renderer.closing:
-                                await renderer.close()
-                            else:
-                                self.renderers.remove(renderer)
-                        else:
-                            logger.warning("Got a 'byebye' notification for"
-                                           ' no existing Renderer')
+                # Handle UPnP notifications for ever.
+                await self.handle_upnp_notifications(upn_control_point)
 
         except asyncio.CancelledError:
             pass

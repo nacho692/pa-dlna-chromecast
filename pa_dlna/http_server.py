@@ -98,9 +98,11 @@ class HTTPServer:
                     if res is None:
                         continue
                     if res is True:
+                        # Handle the request.
                         do_close = False
                         return
                     else:
+                        # The renderer is temporarily disabled.
                         handler.send_error(HTTPStatus.TOO_EARLY)
                         break
                 else:
