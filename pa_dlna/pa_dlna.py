@@ -325,11 +325,6 @@ class Stream:
     async def start(self, writer):
         renderer = self.renderer
         try:
-            if self.writer is not None:
-                logger.debug(f"Cannot start '{renderer.name}' stream "
-                             f'(a stream is already running)')
-                await close_aiostream(writer)
-                return
             self.writer = writer
 
             logger.info(f'Start the {renderer.name} stream  processes')
@@ -417,22 +412,13 @@ class Renderer:
             self.name = nullsink.sink.name
             return True
 
-    def start_stream(self, writer, uri_path):
-        """Start the streaming task.
+    def match(self, uri_path):
+        return uri_path == f'{AUDIO_URI_PREFIX}/{self.root_device.udn}'
 
-        Return True     if 'uri_path' matches the renderer one,
-               False    if 'uri_path' matches and the renderer is temporarily
-                        disabled,
-               None     if no match
-        """
-
-        if uri_path == f'{AUDIO_URI_PREFIX}/{self.root_device.udn}':
-            if self.nullsink is None:
-                return False
-            task_name = f'stream-{self.name}'
-            self.control_point.cp_tasks.create_task(
-                                self.stream.start(writer), name=task_name)
-            return True
+    def start_stream(self, writer):
+        task_name = f'stream-{self.name}'
+        self.control_point.cp_tasks.create_task(
+                            self.stream.start(writer), name=task_name)
 
     def on_pulse_event(self, event, sink=None, sink_input=None):
         """Handle a PulseAudio event.
@@ -630,7 +616,9 @@ class TestRenderer(Renderer):
 
         count = 0
 
-        def __init__(self):
+        def __init__(self, control_point, renderer):
+            self.control_point = control_point
+            self.renderer = renderer
             self.udn = get_udn()
             self.ip_source = '127.0.0.1'
 
@@ -640,10 +628,11 @@ class TestRenderer(Renderer):
             self.friendlyName = 'This is TestRenderer-' + ext
 
         def close(self):
-            pass
+            self.control_point.renderers.remove(self.renderer)
 
     def __init__(self, control_point, mime_type):
-        super().__init__(control_point, self.LOOPBACK, self.RootDevice())
+        super().__init__(control_point, self.LOOPBACK,
+                         self.RootDevice(control_point, self))
         self.mime_type = mime_type
 
     async def make_transition(self, transition, speed=None):
@@ -712,7 +701,7 @@ class AVControlPoint(UPnPApplication):
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
 
-    async def handle_upnp_notifications(self, upn_control_point):
+    async def handle_upnp_notifications(self, upn_control_point, http_server):
         while True:
             notif, root_device = await upn_control_point.get_notification()
             logger.info(f"Got '{notif}' notification for {root_device}")
@@ -790,7 +779,7 @@ class AVControlPoint(UPnPApplication):
                 await self.start_event.wait()
 
                 # Create the http_server task.
-                http_server = HTTPServer(self.renderers, self.net_ifaces,
+                http_server = HTTPServer(self, self.net_ifaces,
                                          self.port)
                 self.cp_tasks.create_task(http_server.run(),
                                           name='http_server')
@@ -804,7 +793,7 @@ class AVControlPoint(UPnPApplication):
                     await self.register(rndr, http_server)
 
                 # Handle UPnP notifications for ever.
-                await self.handle_upnp_notifications(upn_control_point)
+                await self.handle_upnp_notifications(upn_control_point, http_server)
 
         except asyncio.CancelledError:
             pass

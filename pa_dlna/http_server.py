@@ -18,7 +18,6 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         self._reader = reader
         self.wfile = writer
         self.client_address = peername
-        self.has_error = True
 
         # BaseHTTPRequestHandler invokes self.wfile.flush().
         def flush():
@@ -45,10 +44,6 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
                     f"uri path: '{self.path}'")
         logger.debug(f'Request headers:\n'
                      f"{pprint_pformat(dict(self.headers.items()))}")
-        if self.request_version != 'HTTP/1.1':
-            self.send_error(HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
-        else:
-            self.has_error = False
 
 class HTTPServer:
     """HHTP server accepting connections only from 'allowed_ips'.
@@ -58,11 +53,13 @@ class HTTPServer:
 
     http_server = None
 
-    def __init__(self, renderers, net_ifaces, port):
-        self.renderers = renderers
+    def __init__(self, control_point, net_ifaces, port):
+        self.control_point = control_point
         self.networks = [str(iface.ip) for iface in net_ifaces]
         self.port = port
         self.allowed_ips = set()
+
+        # HTTPServer is only instantiated once.
         HTTPServer.http_server = self
 
     def allow_from(self, ip_addr):
@@ -88,25 +85,38 @@ class HTTPServer:
 
             # Start the stream in a new task if the GET request is valid and
             # the uri path matches one of the encoder's.
-            if not handler.has_error:
-                # BaseHTTPRequestHandler has decoded the received bytes as
-                # 'iso-8859-1' encoded, now unquote the uri path.
-                uri_path = urllib.parse.unquote(handler.path)
 
-                for renderer in http_server.renderers:
-                    res = renderer.start_stream(writer, uri_path)
-                    if res is None:
-                        continue
-                    if res is True:
-                        # Handle the request.
-                        do_close = False
-                        return
-                    else:
-                        # The renderer is temporarily disabled.
-                        handler.send_error(HTTPStatus.TOO_EARLY)
-                        break
-                else:
-                    handler.send_error(HTTPStatus.NOT_FOUND)
+            # BaseHTTPRequestHandler has decoded the received bytes as
+            # 'iso-8859-1' encoded, now unquote the uri path.
+            uri_path = urllib.parse.unquote(handler.path)
+
+            for renderer in http_server.control_point.renderers:
+                if not renderer.match(uri_path):
+                    continue
+
+                if handler.request_version != 'HTTP/1.1':
+                    handler.send_error(
+                                HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
+                    await renderer.disable_root_device()
+                    break
+                if renderer.stream.writer is not None:
+                    handler.send_error(HTTPStatus.CONFLICT,
+                                       f'Cannot start {renderer.name} stream'
+                                       f' (already running)')
+                    break
+                if renderer.nullsink is None:
+                    handler.send_error(HTTPStatus.CONFLICT,
+                                       f'{renderer.name} temporarily disabled')
+                    break
+
+                # Ok, handle the request.
+                renderer.start_stream(writer)
+                do_close = False
+                return
+
+            else:
+                handler.send_error(HTTPStatus.NOT_FOUND,
+                                   'Cannot find a matching renderer')
 
             # Flush the error response.
             await writer.drain()
