@@ -13,7 +13,7 @@ from collections import namedtuple
 
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
-from .http_server import HTTPServer
+from .http_server import HTTPServer, run_httpserver
 from .encoders import select_encoder, FFMpegEncoder, L16Encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError, NL_INDENT, shorten)
@@ -781,7 +781,7 @@ class AVControlPoint(UPnPApplication):
                 # Create the http_server task.
                 http_server = HTTPServer(self, self.net_ifaces,
                                          self.port)
-                self.cp_tasks.create_task(http_server.run(),
+                self.cp_tasks.create_task(run_httpserver(http_server),
                                           name='http_server')
 
                 # Register the TestRenderers.

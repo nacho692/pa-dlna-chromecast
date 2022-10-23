@@ -12,6 +12,21 @@ from .upnp import NL_INDENT
 
 logger = logging.getLogger('http')
 
+async def run_httpserver(server):
+    aio_server = await asyncio.start_server(server.client_connected,
+                                            server.networks, server.port)
+    addrs = ', '.join(str(sock.getsockname())
+                      for sock in aio_server.sockets)
+    logger.info(f'Serve HTTP requests on {addrs}')
+
+    async with aio_server:
+        try:
+            await aio_server.serve_forever()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            logger.info('Close HTTP server')
+
 class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def __init__(self, reader, writer, peername):
@@ -51,26 +66,19 @@ class HTTPServer:
     Reference: Hypertext Transfer Protocol -- HTTP/1.1 - RFC 7230.
     """
 
-    http_server = None
-
     def __init__(self, control_point, net_ifaces, port):
         self.control_point = control_point
         self.networks = [str(iface.ip) for iface in net_ifaces]
         self.port = port
         self.allowed_ips = set()
 
-        # HTTPServer is only instantiated once.
-        HTTPServer.http_server = self
-
     def allow_from(self, ip_addr):
         self.allowed_ips.add(ip_addr)
 
-    @staticmethod
-    async def client_connected(reader, writer):
-        http_server = HTTPServer.http_server
+    async def client_connected(self, reader, writer):
         peername = writer.get_extra_info('peername')
         ip_source = peername[0]
-        if ip_source not in http_server.allowed_ips:
+        if ip_source not in self.allowed_ips:
             sockname = writer.get_extra_info('sockname')
             logger.warning(f'Discarded TCP connection from {ip_source} (not'
                            f' allowed) received on {sockname[0]}')
@@ -90,7 +98,7 @@ class HTTPServer:
             # 'iso-8859-1' encoded, now unquote the uri path.
             uri_path = urllib.parse.unquote(handler.path)
 
-            for renderer in http_server.control_point.renderers:
+            for renderer in self.control_point.renderers:
                 if not renderer.match(uri_path):
                     continue
 
@@ -127,18 +135,3 @@ class HTTPServer:
             if do_close:
                 writer.close()
                 await writer.wait_closed()
-
-    async def run(self):
-        self.server = await asyncio.start_server(self.client_connected,
-                                                 self.networks, self.port)
-        addrs = ', '.join(str(sock.getsockname())
-                          for sock in self.server.sockets)
-        logger.info(f'Serve HTTP requests on {addrs}')
-
-        async with self.server:
-            try:
-                await self.server.serve_forever()
-            except asyncio.CancelledError:
-                pass
-            finally:
-                logger.info('Close HTTP server')
