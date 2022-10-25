@@ -218,7 +218,10 @@ def setup_logging(options):
     stream_hdler.setFormatter(formatter)
     root.addHandler(stream_hdler)
 
-    if not options['logaio']:
+    if options['nolog_upnp']:
+        logging.getLogger('upnp').addFilter(FilterDebug())
+        logging.getLogger('network').addFilter(FilterDebug())
+    if not options['log_aio']:
         logging.getLogger('asyncio').addFilter(FilterDebug())
 
     # Add a file handler set at the debug level.
@@ -305,11 +308,11 @@ def parse_args(doc, loglevel_default):
     parser.add_argument('--ttl', type=int, default=2,
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')
-    parser.add_argument('--encoder-default', '-d', action='store_true',
+    parser.add_argument('--encoders-default', '-d', action='store_true',
                         help='write the default encoders configuration to'
                         ' stdout and exit - use the output of this command '
                         'to customize a pa_dlna.ini configuration file')
-    parser.add_argument('--encoder-internal', '-i', action='store_true',
+    parser.add_argument('--encoders-internal', '-i', action='store_true',
                         help='write the internal encoders configuration '
                         '(listing the encoders and their options as'
                         ' they are used by the program) to stdout and exit')
@@ -330,7 +333,9 @@ def parse_args(doc, loglevel_default):
     parser.add_argument('--logfile', '-f', metavar='PATH',
                         help='add a file logging handler set at '
                         "'debug' log level whose path name is PATH")
-    parser.add_argument('--logaio', '-a', action='store_true',
+    parser.add_argument('--nolog-upnp', '-u', action='store_true',
+                        help="ignore upnp log entries at 'debug' log level")
+    parser.add_argument('--log-aio', '-a', action='store_true',
                         help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"
                         ' verbose logs')
@@ -338,10 +343,10 @@ def parse_args(doc, loglevel_default):
     # Options as a dict.
     options = vars(parser.parse_args())
 
-    if options['encoder_default'] and options['encoder_internal']:
+    if options['encoders_default'] and options['encoders_internal']:
         parser.error(f"Cannot set both '--encoder-default' and "
                      f"'--encoder-internal' arguments simultaneously")
-    if options['encoder_default'] or options['encoder_internal']:
+    if options['encoders_default'] or options['encoders_internal']:
         return options, None
 
     logfile_hdler = setup_logging(options)
@@ -383,11 +388,11 @@ def main_function(clazz, doc, loglevel_default='info', inthread=False):
 
     # Get the encoders configuration.
     try:
-        if options['encoder_default']:
+        if options['encoders_default']:
             EncodersConfig().write(sys.stdout)
             sys.exit(0)
         encoders = encoders_config()
-        if options['encoder_internal']:
+        if options['encoders_internal']:
             _encoders = {}
             for name, instance in encoders.items():
                 _encoders[name] = instance.__dict__
