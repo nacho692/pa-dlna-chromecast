@@ -83,7 +83,7 @@ def log_action(name, action, state, ignored=False, msg=None):
     txt = f"'{action}' "
     if ignored:
         txt += 'ignored '
-    txt += f'UPnP action [{name} prev state: {state}]'
+    txt += f'UPnP action [{name} device prev state: {state}]'
     if msg is not None:
         txt += NL_INDENT + msg
     logger.debug(txt)
@@ -205,7 +205,7 @@ class Stream:
         except (asyncio.CancelledError, asyncio.IncompleteReadError):
             pass
         except ConnectionError as e:
-            logger.debug(f'{rdr_name} HTTP socket is closed: {e!r}')
+            logger.info(f'{rdr_name} HTTP socket is closed: {e!r}')
             await self.disable_renderer()
             return
         except Exception as e:
@@ -451,23 +451,26 @@ class Renderer:
         if event in ('remove', 'exit'):
             actions.append('Stop')
             self.nullsink.sink_input = None
-
         else:
             curstate = sink.state._value
             prevstate = self.nullsink.sink.state._value
-            if curstate == 'running':
-                if prevstate != 'running':
-                    actions.append('Play')
-                elif self.nullsink.sink_input is None:
-                    actions.append('Play')
-            elif curstate == 'idle' and prevstate == 'running':
-                actions.append('Pause')
 
+            # Handle the metadata first. When the device current state is
+            # 'STOPPED', if a 'Play' action is incorrectly pushed first on the
+            # pulse_queue then a 'SetNextAVTransportURI' action is triggered
+            # instead of the correct 'SetAVTransportURI' action.
             if event == 'change':
                 prev_metadata = sink_input_meta(self.nullsink.sink_input)
                 cur_metadata = sink_input_meta(sink_input)
                 if cur_metadata is not None and cur_metadata != prev_metadata:
                     actions.append(cur_metadata)
+
+            if (curstate == 'running' and
+                        (prevstate != 'running' or
+                         self.nullsink.sink_input is None)):
+                    actions.append('Play')
+            elif curstate == 'idle' and prevstate == 'running':
+                actions.append('Pause')
 
             self.nullsink.sink = sink
             self.nullsink.sink_input = sink_input
@@ -510,13 +513,30 @@ class Renderer:
         self.encoder, self.mime_type = res
         return True
 
-    async def set_avtransporturi(self, metadata):
+    async def set_avtransporturi(self, name, metadata, state):
 
         # DIDL-Lite XML CurrentURIMetaData not implemented for now.
-        await self.soap_action(AVTRANSPORT, 'SetAVTransportURI',
-                               {'InstanceID': 0,
-                                'CurrentURI': self.current_uri,
-                                'CurrentURIMetaData': ''})
+        action = 'SetAVTransportURI'
+        args = {'InstanceID': 0,
+                'CurrentURI': self.current_uri,
+                'CurrentURIMetaData': ''}
+
+        log_action(name, action, state, msg=str(metadata))
+        logger.info(f'URL: {self.current_uri}')
+        await self.soap_action(AVTRANSPORT, action, args)
+
+    async def set_avtnextransporturi(self, name, metadata, state):
+
+        # DIDL-Lite XML CurrentURIMetaData not implemented for now.
+        action = 'SetNextAVTransportURI'
+        args = {'InstanceID': 0,
+                'NextURI': self.current_uri,
+                'NextURIMetaData': ''}
+
+        await self.stream.stop()
+        log_action(name, action, state, msg=str(metadata))
+        logger.info(f'URL: {self.current_uri}')
+        await self.soap_action(AVTRANSPORT, action, args)
 
     async def get_transport_state(self):
         res = await self.soap_action(AVTRANSPORT, 'GetTransportInfo',
@@ -566,7 +586,11 @@ class Renderer:
                 # Run an AVTransport action if needed.
                 try:
                     if state in ('PLAYING', 'TRANSITIONING'):
-                        if action == 'Stop':
+                        if isinstance(action, MetaData):
+                            await self.set_avtnextransporturi(self.name,
+                                                              action, state)
+                            continue
+                        elif action == 'Stop':
                             log_action(self.name, action, state)
                             await self.make_transition('Stop')
                             continue
@@ -575,13 +599,11 @@ class Renderer:
                         # Also pulseaudio generate very short lived 'Pause'
                         # events that are annoying.
                         elif action == 'Pause':
-                            continue
+                            pass
                     else:
                         if isinstance(action, MetaData):
-                            log_action(self.name, 'SetAVTransportURI', state,
-                                       msg=str(action))
-                            logger.info(f'URL: {self.current_uri}')
-                            await self.set_avtransporturi(action)
+                            await self.set_avtransporturi(self.name, action,
+                                                          state)
                             continue
                         elif action == 'Play':
                             log_action(self.name, action, state)

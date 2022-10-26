@@ -153,8 +153,8 @@ class Pulse:
                 break
         return notfound
 
-    async def handle_event(self, event):
-        """Dispatch the event."""
+    async def dispatch_event(self, event):
+        """Dispatch the event to a renderer."""
 
         evt = event.t._value
         if event.t == PulseEventTypeEnum.remove:
@@ -172,15 +172,15 @@ class Pulse:
                 log_pulse_event(evt, renderer, sink, sink_input)
                 renderer.on_pulse_event(evt, sink, sink_input)
 
-        previous = self.find_previous_renderer(event)
+        prev_renderer = self.find_previous_renderer(event)
         # The sink_input has been re-routed to another sink.
-        if previous is not None and previous is not renderer:
+        if prev_renderer is not None and prev_renderer is not renderer:
             # Build our own 'exit' event (pulseaudio does not provide one)
             # for the sink that had been previously connected to this
             # sink_input.
             evt = 'exit'
-            log_pulse_event(evt, previous)
-            previous.on_pulse_event(evt)
+            log_pulse_event(evt, prev_renderer)
+            prev_renderer.on_pulse_event(evt)
 
     async def run(self):
         try:
@@ -189,7 +189,7 @@ class Pulse:
                 try:
                     async for event in self.pulse_ctl.subscribe_events(
                                                 PulseEventMaskEnum.sink_input):
-                        await self.handle_event(event)
+                        await self.dispatch_event(event)
                 except Exception as e:
                     logger.exception(f'{e!r}')
                     await self.close()
