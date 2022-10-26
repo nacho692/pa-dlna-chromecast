@@ -41,22 +41,6 @@ async def sink_unique_name(name_prefix, pulse_ctl):
     else:
         return name_prefix
 
-def log_pulse_event(event, renderer, sink=None, sink_input=None):
-    if sink is None:
-        sink = renderer.nullsink.sink
-        sink_state = f'previous state: {sink.state._value}'
-    else:
-        prev_sink = renderer.nullsink.sink
-        prev_state = prev_sink.state._value if prev_sink is not None else None
-        new_state = sink.state._value
-        sink_state = f'prev/new state: {prev_state}/{new_state}'
-
-    if sink_input is None:
-        sink_input = renderer.nullsink.sink_input
-
-    logger.debug(f"'{event}' pulseaudio event [{renderer.name} "
-                 f'sink: idx {sink_input.index}, {sink_state}]')
-
 # Classes.
 class NullSink:
     """A connection between a sink_input and the null-sink of a Renderer.
@@ -160,7 +144,6 @@ class Pulse:
         if event.t == PulseEventTypeEnum.remove:
             renderer = self.find_previous_renderer(event)
             if renderer is not None:
-                log_pulse_event(evt, renderer)
                 renderer.on_pulse_event(evt)
             return
 
@@ -169,7 +152,6 @@ class Pulse:
             sink = await self.pulse_ctl.get_sink_by_name(
                                             renderer.nullsink.sink.name)
             if sink is not None:
-                log_pulse_event(evt, renderer, sink, sink_input)
                 renderer.on_pulse_event(evt, sink, sink_input)
 
         prev_renderer = self.find_previous_renderer(event)
@@ -179,7 +161,6 @@ class Pulse:
             # for the sink that had been previously connected to this
             # sink_input.
             evt = 'exit'
-            log_pulse_event(evt, prev_renderer)
             prev_renderer.on_pulse_event(evt)
 
     async def run(self):
