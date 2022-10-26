@@ -656,23 +656,26 @@ class TestRenderer(Renderer):
 
         count = 0
 
-        def __init__(self, control_point, renderer):
+        def __init__(self, renderer, mime_type, control_point):
             self.control_point = control_point
             self.renderer = renderer
             self.udn = get_udn()
             self.ip_source = '127.0.0.1'
 
+            try:
+                name = mime_type.split('/')[1]
+            except IndexError:
+                name = 'audio'
             TestRenderer.RootDevice.count += 1
-            ext = str(self.count)
-            self.modelName = 'TestRenderer-' + ext
-            self.friendlyName = 'This is TestRenderer-' + ext
+            self.modelName = f'DLNA-{name}-{self.count}'
+            self.friendlyName = self.modelName + ' test device'
 
         def close(self):
             self.control_point.renderers.remove(self.renderer)
 
     def __init__(self, control_point, mime_type):
         super().__init__(control_point, self.LOOPBACK,
-                         self.RootDevice(control_point, self))
+                         self.RootDevice(self, mime_type, control_point))
         self.mime_type = mime_type
 
     async def make_transition(self, transition, speed=None):
