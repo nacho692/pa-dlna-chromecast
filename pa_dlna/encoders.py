@@ -5,7 +5,7 @@ import logging
 
 logger = logging.getLogger('encoder')
 
-DEFAULT_CONFIG = (
+DEFAULT_SELECTION = (
     # Lossless encoders.
     'FFMpegFlacEncoder',
     'L16Encoder',
@@ -46,38 +46,43 @@ def select_encoder(encoders, mime_types, udn):
                 return encoder, encoder.mime_type
 
 class Encoder:
-    """INI configuration file for pa-dlna.
+    """The pa-dlna default configuration.
 
-    This file is used to find an encoder matching one of the mime-types
-    supported by a discovered DLNA device. The selection is made as follows:
+    This is the built-in pa-dlna configuration written as a text. It can be
+    parsed by a Python Configuration parser and consists of sections, each led
+    by a [section] header, followed by option/value entries separated by
+    '='. See https://docs.python.org/3/library/configparser.html.
 
-    1) Use the first encoder whose 'udns' option holds the UDN (Unique Device
-       Name) of the device, 'udns' is a comma separated list of UDNs.
-       An UDN value has the format 'uuid:UUID' and it can be obtained by:
-         - Looking at the logs when running pa_dlna.
-         - Running the pa_dlna upnp_cmd program and entering the
-           'device [IDX]' command followed by the 'udn' command.
+    A section is either [DEFAULT] or [EncoderName]. The options defined in the
+    [DEFAULT] section apply to all the other sections and are overriden when
+    also defined in an [EncoderName] section.
 
-    2) Otherwise use the first matching encoder listed in the 'selection'
-       option of the 'DEFAULT' section. The 'selection' option is a comma
-       separated list of encoders. This option can be customized as all other
-       options.
+    The options defined in the pa-dlna.conf user configuration file (also
+    parseable by a Python Configuration parser) override the options of the
+    default configuration listed here. The pa-dlna.conf file also allows the
+    specification of options per device, see the pa-dlna documentation.
+
+    The 'selection' option is an ordered comma separated list of
+    encoders. This list is used to select the first encoder matching one of
+    the mime-types supported by a discovered DLNA device when there is no
+    specific configuration for the given device.
 
     Notes:
-    The 'udns' and 'selection' options may be written as a multi-line in which
-    case all the lines after the first line MUST START with a white space.
+    The 'selection' option is written as a multi-line in which case all the
+    lines after the first line start with a white space.
 
-    The default value of 'selection' (before any customization) lists first
-    the lossless encoders and then the lossy ones.
+    The default value of 'selection' lists first the lossless encoders and
+    then the lossy ones.
     See https://trac.ffmpeg.org/wiki/Encode/HighQualityAudio.
     """
 
     def __init__(self):
         endianess = sys.byteorder
         self._pulse_format = 's16le' if endianess == 'little' else 's16be'
-        self.udns = ''
+        self.selection = DEFAULT_SELECTION
         self.rate = 44100
         self.channels = 2
+        self.udns = ''
 
     @property
     def available(self):

@@ -17,6 +17,8 @@ from configparser import ConfigParser, ParsingError
 from . import encoders as encoders_module
 
 logger = logging.getLogger('init')
+BOOLEAN_PARSE = {'yes': True, 'no': False}
+BOOLEAN_WRITE = {'True': 'yes', 'False': 'no'}
 
 __version__ = '0.1'
 MIN_PYTHON_VERSION = (3, 8)
@@ -43,6 +45,7 @@ def new_cfg_parser(**kwargs):
     parser = ConfigParser(allow_no_value=True, **kwargs)
     # Do not convert option names to lower case in interpolations.
     parser.optionxform = str
+    parser.BOOLEAN_STATES = BOOLEAN_PARSE
     return parser
 
 def comments_from_doc(doc):
@@ -54,7 +57,7 @@ def comments_from_doc(doc):
     for line in doc.splitlines():
         yield '# ' + line if line else '#'
 
-def encoders_config():
+def get_encoders_config():
     """Get encoders configuration."""
 
     # Try to load the user configuration file, otherwise use the default
@@ -62,7 +65,7 @@ def encoders_config():
     xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
     if xdg_config_home is None:
         xdg_config_home = os.path.expanduser('~/.config')
-    encoders_path = os.path.join(xdg_config_home, 'pa-dlna', 'pa-dlna.ini')
+    encoders_path = os.path.join(xdg_config_home, 'pa-dlna', 'pa-dlna.conf')
 
     # Read the user configuration.
     try:
@@ -111,38 +114,53 @@ class EncodersConfig(dict):
         parser.set(section, "#" + self.empty_comment_cnt * ' ')
         self.empty_comment_cnt += 1
 
-    def default_config(self, classes=encoders_module.DEFAULT_CONFIG):
+    def default_config(self):
+        """Build a parser holding the built-in default configuration."""
 
-        parser = new_cfg_parser(defaults={'selection':
-                                        '\n' + ',\n'.join(classes) + ','})
-        for n in sorted(classes):
-            if n not in self.leaves:
-                raise ParsingError(f"'{n}' is not a valid class name")
-            parser.add_section(n)
-            instance = self.leaves[n]()
-            doc = instance.__class__.__doc__
+        def convert_boolean(obj, attr):
+            val = str(getattr(obj, attr))
+            if val in BOOLEAN_WRITE:
+                val = BOOLEAN_WRITE[val]
+            return val
+
+        root = encoders_module.ROOT_ENCODER()
+        sections = root.selection
+        defaults = {'selection': '\n' + ',\n'.join(sections) + ','}
+        for attr in root.__dict__:
+            if attr != 'selection' and not attr.startswith('_'):
+                val = convert_boolean(root, attr)
+                defaults[attr] = val
+        parser = new_cfg_parser(defaults=defaults)
+
+        for section in sorted(sections):
+            if section not in self.leaves:
+                raise ParsingError(f"'{section}' is not a valid class name")
+            parser.add_section(section)
+            encoder = self.leaves[section]()
+            doc = encoder.__class__.__doc__
             if doc:
                 for comment in comments_from_doc(doc):
                     if comment == '#':
-                        self.write_empty_comment(parser, n)
+                        self.write_empty_comment(parser, section)
                     else:
-                        parser.set(n, comment)
-                self.write_empty_comment(parser, n)
+                        parser.set(section, comment)
+                self.write_empty_comment(parser, section)
 
             write_separator = True
-            for attr in instance.__dict__:
+            for attr in encoder.__dict__:
+                val = convert_boolean(encoder, attr)
                 if attr.startswith('_'):
-                    parser.set(n,
-                               f'# {attr[1:]}: {getattr(instance, attr)}')
-                else:
+                    parser.set(section, f'# {attr[1:]}: {val}')
+                elif (not hasattr(root, attr) or
+                      getattr(root, attr) != getattr(encoder, attr)):
                     if write_separator:
                         write_separator = False
-                        self.write_empty_comment(parser, n)
-                    parser.set(n, attr, str(getattr(instance, attr)))
+                        self.write_empty_comment(parser, section)
+                    parser.set(section, attr, val)
         return parser
 
-    def get_value(self, section, instance, option, new_val):
-        old_val = getattr(instance, option)
+    def get_value(self, section, encoder, option, new_val):
+        old_val = getattr(encoder, option)
         if old_val is not True and old_val is not False:
             for t in (int, float):
                 if isinstance(old_val, t):
@@ -164,22 +182,22 @@ class EncodersConfig(dict):
         selection = (s.strip() for s in defaults['selection'].split(','))
         for section in (s for s in selection if s):
             if section in self.leaves:
-                instance = self.leaves[section]()
+                encoder = self.leaves[section]()
                 for option, value in self.parser.items(section):
                     if option.startswith('#'):
                         continue
-                    if (hasattr(instance, option) and
+                    if (hasattr(encoder, option) and
                             not option.startswith('_')):
-                        new_val = self.get_value(section, instance,
+                        new_val = self.get_value(section, encoder,
                                                  option, value)
                         if new_val is not None:
-                            setattr(instance, option, new_val)
+                            setattr(encoder, option, new_val)
                     elif option not in defaults:
                         raise ParsingError(f'Unknown option'
                                            f" '{section}.{option}'")
                 # Python 3.7: Dictionary order is guaranteed to be
                 # insertion order.
-                self[section] = instance
+                self[section] = encoder
             else:
                 raise ParsingError(f"'{section}' not a valid class name")
 
@@ -308,14 +326,6 @@ def parse_args(doc, loglevel_default):
     parser.add_argument('--ttl', type=int, default=2,
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')
-    parser.add_argument('--encoders-default', '-d', action='store_true',
-                        help='write the default encoders configuration to'
-                        ' stdout and exit - use the output of this command '
-                        'to customize a pa_dlna.ini configuration file')
-    parser.add_argument('--encoders-internal', '-i', action='store_true',
-                        help='write the internal encoders configuration '
-                        '(listing the encoders and their options as'
-                        ' they are used by the program) to stdout and exit')
     parser.add_argument('--renderers', '-r', metavar='MIME-TYPES',
                         default='', dest='renderers_mtypes',
                         help='MIME-TYPES is a comma separated list of audio '
@@ -326,6 +336,9 @@ def parse_args(doc, loglevel_default):
                         'stream is routed to the TestRenderer and '
                         'collected by the program doing the http GET (curl'
                         ' for example)')
+    parser.add_argument('--encoders-default', '-d', action='store_true',
+                        help='write to stdout (and exit) the default encoders'
+                        ' configuration')
     parser.add_argument('--loglevel', '-l', default=loglevel_default,
                         choices=('debug', 'info', 'warning', 'error'),
                         help='set the log level of the stderr logging console'
@@ -339,14 +352,18 @@ def parse_args(doc, loglevel_default):
                         help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"
                         ' verbose logs')
+    parser.add_argument('--config-internal', '-i', action='store_true',
+                        help='write to stdout (and exit) the configuration'
+                        '  used internally by the program on startup - mostly'
+                        ' for debugging')
 
     # Options as a dict.
     options = vars(parser.parse_args())
 
-    if options['encoders_default'] and options['encoders_internal']:
+    if options['encoders_default'] and options['config_internal']:
         parser.error(f"Cannot set both '--encoder-default' and "
                      f"'--encoder-internal' arguments simultaneously")
-    if options['encoders_default'] or options['encoders_internal']:
+    if options['encoders_default'] or options['config_internal']:
         return options, None
 
     logfile_hdler = setup_logging(options)
@@ -391,20 +408,24 @@ def main_function(clazz, doc, loglevel_default='info', inthread=False):
         if options['encoders_default']:
             EncodersConfig().write(sys.stdout)
             sys.exit(0)
-        encoders = encoders_config()
-        if options['encoders_internal']:
+        encoders_config = get_encoders_config()
+
+        if options['config_internal']:
             _encoders = {}
-            for name, instance in encoders.items():
-                _encoders[name] = instance.__dict__
+            for name, encoder in encoders_config.items():
+                if hasattr(encoder, 'selection'):
+                    del encoder.selection
+                _encoders[name] = encoder.__dict__
             encoders_repr = pprint_pformat(_encoders, sort_dicts=False,
                                          compact=True)
             sys.stdout.write(f'Encoders configuration:\n{encoders_repr}\n')
             sys.exit(0)
     except Exception as e:
-        sys.exit(f'{e!r}')
+        logger.exception(f'{e!r}')
+        sys.exit(1)
 
     # Run the UPnPApplication instance.
-    app = clazz(encoders=encoders, **options)
+    app = clazz(encoders=encoders_config, **options)
     logger.info(f'Start {app}')
     try:
         if inthread:
