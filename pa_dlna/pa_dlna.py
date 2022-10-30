@@ -520,7 +520,7 @@ class Renderer:
                       (x for x in protocol['Sink'].split(','))]
         logger.debug(f'{self.name} renderer mime types:' + NL_INDENT +
                      f'{mime_types}')
-        res = select_encoder(self.control_point.encoders, mime_types, udn)
+        res = select_encoder(self.control_point.config, mime_types, udn)
 
         if res is None:
             logger.error(f'Cannot find an encoder matching the {self.name}'
@@ -793,7 +793,7 @@ class AVControlPoint(UPnPApplication):
                                    ' existing Renderer')
 
     async def run_control_point(self):
-        if not any(enc.available for enc in self.encoders.values()):
+        if not any(enc.available for enc in self.config.values()):
             sys.exit('Error: No encoder is available')
 
         self.parec_pgm = shutil.which('parec')
