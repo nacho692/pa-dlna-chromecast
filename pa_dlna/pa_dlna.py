@@ -578,6 +578,7 @@ class Renderer:
         try:
             udn = self.root_device.udn
             if not await self.select_encoder(udn):
+                await self.disable_root_device()
                 return
             self.current_uri = (f'http://{self.net_iface.ip}'
                                 f':{self.control_point.port}'
@@ -604,7 +605,8 @@ class Renderer:
                 # Run an AVTransport action if needed.
                 try:
                     if state in ('PLAYING', 'TRANSITIONING'):
-                        if isinstance(action, MetaData):
+                        if (self.encoder.metadata and
+                                isinstance(action, MetaData)):
                             await self.set_avtnextransporturi(self.name,
                                                               action, state)
                             continue
@@ -732,8 +734,10 @@ class AVControlPoint(UPnPApplication):
             self.curtask.cancel()
 
     def disable_root_device(self, renderer):
-        logger.info(f'Disable the {renderer.name} device permanently')
-        self.faulty_devices.add(renderer.root_device.udn)
+        udn = renderer.root_device.udn
+        if udn not in self.faulty_devices:
+            logger.info(f'Disable the {renderer.name} device permanently')
+            self.faulty_devices.add(udn)
 
     async def register(self, renderer, http_server):
         """Load the null-sink module and create the renderer task."""
@@ -765,7 +769,7 @@ class AVControlPoint(UPnPApplication):
             if notif == 'alive':
                 if root_device.udn in self.faulty_devices:
                     assert renderer is None
-                    logger.debug(f'Ignore disabled {root_device}')
+                    logger.info(f'Ignore disabled {root_device}')
                     continue
 
                 if renderer is None:
