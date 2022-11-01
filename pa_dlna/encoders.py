@@ -17,18 +17,24 @@ DEFAULT_SELECTION = (
     'FFMpegAacEncoder',
 )
 
-def select_encoder(encoders, mime_types, udn):
+def select_encoder(config, mime_types, udn):
     """Select the encoder.
 
     Return the selected encoder and the mime type.
     """
 
-    def available_encoders(encoders):
-        return (instance for instance in encoders.values()
-                if instance.available)
+    def available(*, udns):
+        encoders = []
+        for section, instance in config.items():
+            in_list = (section not in config.encoder_list if udns else
+                       section in config.encoder_list)
+            if in_list and instance.available:
+                encoders.append((section, instance))
+        return encoders
 
-    for encoder in available_encoders(encoders):
-        if udn in (u.strip() for u in encoder.udns.split(',')):
+    # Try first the configured udns.
+    for section, encoder in available(udns=True):
+        if section == udn:
             # Check that the list of mime_types holds one of the  mime types
             # supported by this encoder and return the encoder and this mime
             # type.
@@ -40,7 +46,8 @@ def select_encoder(encoders, mime_types, udn):
                              f' on the {encoder} encoder')
                 return None
 
-    for encoder in available_encoders(encoders):
+    # Then the encoders proper.
+    for _, encoder in available(udns=False):
         for mime_type in mime_types:
             if encoder.has_mime_type(mime_type):
                 return encoder, encoder.mime_type
@@ -82,7 +89,6 @@ class Encoder:
         self.selection = DEFAULT_SELECTION
         self.rate = 44100
         self.channels = 2
-        self.udns = ''
 
     @property
     def available(self):
