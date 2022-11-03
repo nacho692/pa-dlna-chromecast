@@ -3,6 +3,8 @@ import subprocess
 import shutil
 import logging
 
+from .upnp import NL_INDENT
+
 logger = logging.getLogger('encoder')
 
 DEFAULT_SELECTION = (
@@ -17,10 +19,10 @@ DEFAULT_SELECTION = (
     'FFMpegAacEncoder',
 )
 
-def select_encoder(config, mime_types, udn):
+def select_encoder(config, renderer_name, pinfo, udn):
     """Select the encoder.
 
-    Return the selected encoder and the mime type.
+    Return the selected encoder, the mime type and protocol info.
     """
 
     def available(*, udns):
@@ -32,15 +34,20 @@ def select_encoder(config, mime_types, udn):
                 encoders.append((section, instance))
         return encoders
 
+    protocol_infos = [x for x in pinfo['Sink'].split(',')]
+    mime_types = [proto.split(':')[2] for proto in protocol_infos]
+    logger.debug(f'{renderer_name} renderer mime types:' + NL_INDENT +
+                 f'{mime_types}')
+
     # Try first the configured udns.
     for section, encoder in available(udns=True):
         if section == udn:
             # Check that the list of mime_types holds one of the  mime types
             # supported by this encoder and return the encoder and this mime
             # type.
-            for mime_type in mime_types:
+            for idx, mime_type in enumerate(mime_types):
                 if encoder.has_mime_type(mime_type):
-                    return encoder, encoder.mime_type
+                    return encoder, encoder.mime_type, protocol_infos[idx]
             else:
                 logger.error(f'No matching mime type for the udn configured'
                              f' on the {encoder} encoder')
@@ -48,9 +55,9 @@ def select_encoder(config, mime_types, udn):
 
     # Then the encoders proper.
     for _, encoder in available(udns=False):
-        for mime_type in mime_types:
+        for idx, mime_type in enumerate(mime_types):
             if encoder.has_mime_type(mime_type):
-                return encoder, encoder.mime_type
+                return encoder, encoder.mime_type, protocol_infos[idx]
 
 class Encoder:
     """The pa-dlna default configuration.

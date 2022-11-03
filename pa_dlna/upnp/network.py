@@ -242,19 +242,23 @@ async def http_query(method, url, header='', body=''):
 
         if not header:
             raise UPnPInvalidHttpError(f'Empty http header from {host}')
+
         header_dict = http_header_as_dict(header[1:])
+        content_length = header_dict.get('CONTENT-LENGTH')
+        if content_length is not None:
+            content_length = int(content_length)
+            if content_length == 0:
+                return header, b'', host
 
         body = await reader.read()
 
         # Check that we have received the whole body.
-        content_length = header_dict.get('CONTENT-LENGTH')
         if content_length is not None:
-            content_length = int(content_length)
             if len(body) != content_length:
                 raise UPnPInvalidHttpError(f'Content-Length and actual length'
-                                f' mismatch ({content_length}-{len(body)})'
+                                f' mismatch ({content_length} != {len(body)})'
                                 f' from {host}')
-        return header, body
+        return header, body, host
 
     finally:
         if writer is not None:
@@ -264,23 +268,26 @@ async def http_query(method, url, header='', body=''):
 async def http_get(url):
     """An HTTP 1.0 GET request."""
 
-    header, body = await http_query('GET', url)
+    header, body, host = await http_query('GET', url)
     line = header[0]
     if re.match(r'HTTP/1\.(0|1) 200 ', line) is None:
-        raise UPnPInvalidHttpError(f'Got "{line}" from {host}')
+        raise UPnPInvalidHttpError(f"Header={header}, Body={body}"
+                                   f" from {host}")
     return body
 
 async def http_soap(url, header, body):
     """HTTP 1.0 POST request used to submit a SOAP action."""
 
-    header, body = await http_query('POST', url, header, body)
+    header, body, host = await http_query('POST', url, header, body)
     line = header[0]
     if re.match(r'HTTP/1\.(0|1) 200 ', line) is not None:
         is_fault = False
+    # HTTP/1.0 500 Internal Server Error.
     elif re.match(r'HTTP/1\.(0|1) 500 ', line) is not None:
         is_fault = True
     else:
-        raise UPnPInvalidHttpError(f'Got "{line}" from {host}')
+        raise UPnPInvalidHttpError(f"Header={header}, Body={body}"
+                                   f" from {host}")
     return is_fault, body
 
 # Network protocols.

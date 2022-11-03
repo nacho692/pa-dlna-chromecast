@@ -89,7 +89,7 @@ def log_action(name, action, state, ignored=False, msg=None):
     logger.debug(txt)
 
 # Classes.
-class MetaData(namedtuple('MetaData', ['app', 'artist', 'title'])):
+class MetaData(namedtuple('MetaData', ['publisher', 'artist', 'title'])):
     def __str__(self):
         return shorten(repr(self), head_len=40, tail_len=40)
 
@@ -382,6 +382,7 @@ class Renderer:
         self.previous_idx = None        # index of previous sink input
         self.encoder = None
         self.mime_type = None
+        self.protocol_info = None
         self.current_uri = None
         self.stream = Stream(self)
         self.pulse_queue = asyncio.Queue()
@@ -496,7 +497,7 @@ class Renderer:
         for action in actions:
             self.pulse_queue.put_nowait(action)
 
-    async def soap_action(self, serviceId, action, args):
+    async def soap_action(self, serviceId, action, args={}):
         """Send a SOAP action.
 
         Return the dict {argumentName: out arg value} if successfull,
@@ -514,45 +515,62 @@ class Renderer:
     async def select_encoder(self, udn):
         """Select an encoder matching the DLNA device supported mime types."""
 
-        protocol = await self.soap_action(CONNECTIONMANAGER,
-                                          'GetProtocolInfo', {})
-        mime_types = [proto.split(':')[2] for proto in
-                      (x for x in protocol['Sink'].split(','))]
-        logger.debug(f'{self.name} renderer mime types:' + NL_INDENT +
-                     f'{mime_types}')
-        res = select_encoder(self.control_point.config, mime_types, udn)
-
+        protocol_info = await self.soap_action(CONNECTIONMANAGER,
+                                               'GetProtocolInfo')
+        res = select_encoder(self.control_point.config, self.name,
+                             protocol_info, udn)
         if res is None:
             logger.error(f'Cannot find an encoder matching the {self.name}'
                          f' supported mime types')
             await self.disable_root_device()
             return False
-
-        self.encoder, self.mime_type = res
+        self.encoder, self.mime_type, self.protocol_info = res
         return True
 
-    async def set_avtransporturi(self, name, metadata, state):
+    def didl_lite_metadata(self, metadata):
+        """Build de didl-lite xml string.
 
-        # DIDL-Lite XML CurrentURIMetaData not implemented for now.
+        The returned string is built with ../tools/build_didl_lite.py.
+        """
+
+        metadata = (
+          f'''
+        <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
+          xmlns:dc="http://purl.org/dc/elements/1.1/"
+          xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+        <item id="0" parentID="0" restricted="0">
+          <dc:title>{metadata.title}</dc:title>
+          <upnp:class>object.item.audioItem.musicTrack</upnp:class>
+          <dc:publisher>{metadata.publisher}</dc:publisher>
+          <upnp:artist>{metadata.artist}</upnp:artist>
+          <res protocolInfo="{self.protocol_info}">
+            {self.current_uri}</res>
+        </item></DIDL-Lite>
+          '''
+        )
+        return metadata.strip()
+
+    async def set_avtransporturi(self, name, metadata, state):
         action = 'SetAVTransportURI'
+        metadata = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
                 'CurrentURI': self.current_uri,
-                'CurrentURIMetaData': ''}
-
-        log_action(name, action, state, msg=str(metadata))
+                'CurrentURIMetaData': metadata
+                }
+        log_action(name, action, state, msg=metadata)
         logger.info(f'URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 
     async def set_avtnextransporturi(self, name, metadata, state):
-
-        # DIDL-Lite XML CurrentURIMetaData not implemented for now.
         action = 'SetNextAVTransportURI'
+        metadata = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
                 'NextURI': self.current_uri,
-                'NextURIMetaData': ''}
+                'NextURIMetaData': metadata
+                }
 
         await self.stream.stop()
-        log_action(name, action, state, msg=str(metadata))
+        log_action(name, action, state, msg=metadata)
         logger.info(f'URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 

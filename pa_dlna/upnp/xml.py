@@ -15,6 +15,13 @@ ENVELOPE_NAMESPACE_BEG = "http://schemas.xmlsoap.org/soap/envelope"
 RESP_NAMESPACE_BEG = "urn:schemas-upnp-org:service:"
 CTRL_NAMESPACE_BEG = "urn:schemas-upnp-org:control"
 
+ESCAPED_XML_CHARS = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+}
+
 class UPnPXMLError(UPnPError): pass
 
 # XML helper functions.
@@ -129,7 +136,16 @@ def scpd_servicestatetable(scpd, namespace):
 def dict_to_xml(arguments):
     """Build an xml string from a dict."""
 
-    return '\n'.join(f'<{arg}>{arguments[arg]}</{arg}>' for arg in arguments)
+    xml = []
+    for tag, element in arguments.items():
+        # Escape control chars in xml elements.
+        if isinstance(element, str):
+            for char, escape in ESCAPED_XML_CHARS.items():
+                if char in element:
+                    element = element.replace(char, escape)
+        xml.append(f'<{tag}>{element}</{tag}>')
+
+    return '\n'.join(xml)
 
 def parse_soap_response(xml, action):
     # Find the 'Body' subelement.
