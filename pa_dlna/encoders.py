@@ -231,8 +231,8 @@ class FFMpegAacEncoder(FFMpegEncoder):
     """
 
     def __init__(self):
-        super().__init__(['audio/aac', 'audio/x-aac'], 'aac',
-                         file_format='adts', encoder='aac')
+        super().__init__(['audio/aac', 'audio/x-aac', 'audio/vnd.dlna.adts'],
+                         'aac', file_format='adts', encoder='aac')
         self.bitrate = 192
 
     def add_args(self, cmd):
