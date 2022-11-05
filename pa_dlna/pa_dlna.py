@@ -67,21 +67,6 @@ async def kill_process(process):
     except asyncio.TimeoutError:
         process.kill()
 
-def sink_input_meta(sink_input):
-    if sink_input is None:
-        return None
-
-    proplist = sink_input.proplist
-    publisher = proplist.get('application.name', '')
-    artist = proplist.get('media.artist', '')
-    title = proplist.get('media.title', '')
-
-    # So that the device may display at least some useful info.
-    if not title:
-        title = publisher
-
-    return MetaData(publisher, artist, title)
-
 def log_action(name, action, state, ignored=False, msg=None):
     txt = f"'{action}' "
     if ignored:
@@ -449,6 +434,24 @@ class Renderer:
         logger.debug(f"'{event}' pulseaudio event [{self.name} "
                      f'sink: idx {sink_input.index}, {sink_state}]')
 
+    def sink_input_meta(self, sink_input):
+        if sink_input is None:
+            return None
+
+        proplist = sink_input.proplist
+        publisher = proplist.get('application.name', '')
+        artist = proplist.get('media.artist', '')
+        title = proplist.get('media.title', '')
+
+        if not self.encoder.http_per_track:
+            title = publisher
+            artist = ''
+        # So that the device may display at least some useful info.
+        elif not title:
+            title = publisher
+
+        return MetaData(publisher, artist, title)
+
     def on_pulse_event(self, event, sink=None, sink_input=None):
         """Handle a PulseAudio event.
 
@@ -491,13 +494,13 @@ class Renderer:
             # 'STOPPED', if a 'Play' action is incorrectly pushed first on the
             # pulse_queue then a 'SetNextAVTransportURI' action is triggered
             # instead of the correct 'SetAVTransportURI' action.
-            cur_metadata = sink_input_meta(sink_input)
+            cur_metadata = self.sink_input_meta(sink_input)
             if (self.new_pulse_session and
                     (prev_state, new_state) == ('idle', 'running')):
                 actions.append(cur_metadata)
                 self.new_pulse_session = False
             elif (prev_state, new_state) == ('running', 'running'):
-                prev_metadata = sink_input_meta(self.nullsink.sink_input)
+                prev_metadata = self.sink_input_meta(self.nullsink.sink_input)
                 if cur_metadata is not None and cur_metadata != prev_metadata:
                     actions.append(cur_metadata)
 
