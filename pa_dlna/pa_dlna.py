@@ -569,26 +569,28 @@ class Renderer:
 
     async def set_avtransporturi(self, name, metadata, state):
         action = 'SetAVTransportURI'
-        metadata = self.didl_lite_metadata(metadata)
+        didl_lite_metadata = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
                 'CurrentURI': self.current_uri,
-                'CurrentURIMetaData': metadata
+                'CurrentURIMetaData': didl_lite_metadata
                 }
-        log_action(name, action, state, msg=metadata)
-        logger.info(f'URL: {self.current_uri}')
+        log_action(name, action, state, msg=didl_lite_metadata)
+        logger.info(f'{metadata}'
+                    f'{NL_INDENT}URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 
     async def set_avtnextransporturi(self, name, metadata, state):
         action = 'SetNextAVTransportURI'
-        metadata = self.didl_lite_metadata(metadata)
+        didl_lite_metadata = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
                 'NextURI': self.current_uri,
-                'NextURIMetaData': metadata
+                'NextURIMetaData': didl_lite_metadata
                 }
 
         await self.stream.stop()
-        log_action(name, action, state, msg=metadata)
-        logger.info(f'URL: {self.current_uri}')
+        log_action(name, action, state, msg=didl_lite_metadata)
+        logger.info(f'{metadata}'
+                    f'{NL_INDENT}URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 
     async def get_transport_state(self):
@@ -640,7 +642,7 @@ class Renderer:
                 # Run an AVTransport action if needed.
                 try:
                     if state in ('PLAYING', 'TRANSITIONING'):
-                        if (self.encoder.metadata and
+                        if (self.encoder.http_per_track and
                                 isinstance(action, MetaData)):
                             await self.set_avtnextransporturi(self.name,
                                                               action, state)

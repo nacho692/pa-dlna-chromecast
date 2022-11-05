@@ -96,7 +96,7 @@ class Encoder:
         self.selection = DEFAULT_SELECTION
         self.rate = 44100
         self.channels = 2
-        self.metadata = True
+        self.http_per_track = True
 
     @property
     def available(self):
