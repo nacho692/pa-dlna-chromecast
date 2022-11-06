@@ -452,13 +452,72 @@ class Renderer:
 
         return MetaData(publisher, artist, title)
 
-    def on_pulse_event(self, event, sink=None, sink_input=None):
+    async def handle_action(self, action):
+        # An action is either 'Play', 'Stop', 'Pause' or # an instance of
+        # MetaData.
+
+        # Get the stream state.
+        timeout = 1.0
+        try:
+            state = await asyncio.wait_for(self.get_transport_state(),
+                                           timeout=timeout)
+        except asyncio.TimeoutError:
+            state = ('PLAYING' if self.stream.writer is not None else
+                     'STOPPED')
+            logger.debug(f'{self.name} stream state: {state} '
+                         f'(GetTransportInfo timed out after {timeout}'
+                         f' second)')
+
+        # Run an AVTransport action if needed.
+        try:
+            if state in ('PLAYING', 'TRANSITIONING'):
+                if (self.encoder.http_per_track and
+                        isinstance(action, MetaData)):
+                    await self.set_avtnextransporturi(self.name,
+                                                      action, state)
+                    return
+                elif action == 'Stop':
+                    log_action(self.name, action, state)
+                    await self.make_transition('Stop')
+                    return
+                # Ignore 'Pause' events as it does not work well with
+                # streaming because of the DLNA buffering the stream.
+                # Also pulseaudio generate very short lived 'Pause'
+                # events that are annoying.
+                elif action == 'Pause':
+                    pass
+            else:
+                if isinstance(action, MetaData):
+                    await self.set_avtransporturi(self.name, action,
+                                                  state)
+                    return
+                elif action == 'Play':
+                    log_action(self.name, action, state)
+                    await self.make_transition('Play', speed=1)
+                    return
+        except UPnPSoapFaultError as e:
+            error_code = e.args[0].errorCode
+            if error_code in IGNORED_SOAPFAULTS:
+                error_msg = IGNORED_SOAPFAULTS[error_code]
+                logger.warning(f"Ignoring SOAP error '{error_msg}'")
+            else:
+                raise
+
+        if isinstance(action, MetaData):
+            log_action(self.name, 'SetAVTransportURI', state,
+                       ignored=True, msg=str(action))
+        else:
+            log_action(self.name, action, state, ignored=True)
+
+    async def handle_pulse_event(self):
         """Handle a PulseAudio event.
 
         This method is run by the 'pulse' task.
         'self.nullsink' holds the state prior to this event. The 'sink' and
         'sink_input' arguments define the new state.
         """
+
+        event, sink, sink_input = await self.pulse_queue.get()
 
         assert self.nullsink is not None
         prev_state, new_state = self.pulse_states(sink)
@@ -515,7 +574,7 @@ class Renderer:
             self.nullsink.sink_input = sink_input
 
         for action in actions:
-            self.pulse_queue.put_nowait(action)
+            await self.handle_action(action)
 
     async def soap_action(self, serviceId, action, args={}):
         """Send a SOAP action.
@@ -627,62 +686,7 @@ class Renderer:
                         f" handling '{self.mime_type}'")
 
             while True:
-                # An action is either 'Play', 'Stop', 'Pause' or
-                # an instance of MetaData.
-                action = await self.pulse_queue.get()
-
-                # Get the stream state.
-                timeout = 1.0
-                try:
-                    state = await asyncio.wait_for(self.get_transport_state(),
-                                                   timeout=timeout)
-                except asyncio.TimeoutError:
-                    state = ('PLAYING' if self.stream.writer is not None else
-                             'STOPPED')
-                    logger.debug(f'{self.name} stream state: {state} '
-                                 f'(GetTransportInfo timed out after {timeout}'
-                                 f' second)')
-
-                # Run an AVTransport action if needed.
-                try:
-                    if state in ('PLAYING', 'TRANSITIONING'):
-                        if (self.encoder.http_per_track and
-                                isinstance(action, MetaData)):
-                            await self.set_avtnextransporturi(self.name,
-                                                              action, state)
-                            continue
-                        elif action == 'Stop':
-                            log_action(self.name, action, state)
-                            await self.make_transition('Stop')
-                            continue
-                        # Ignore 'Pause' events as it does not work well with
-                        # streaming because of the DLNA buffering the stream.
-                        # Also pulseaudio generate very short lived 'Pause'
-                        # events that are annoying.
-                        elif action == 'Pause':
-                            pass
-                    else:
-                        if isinstance(action, MetaData):
-                            await self.set_avtransporturi(self.name, action,
-                                                          state)
-                            continue
-                        elif action == 'Play':
-                            log_action(self.name, action, state)
-                            await self.make_transition('Play', speed=1)
-                            continue
-                except UPnPSoapFaultError as e:
-                    error_code = e.args[0].errorCode
-                    if error_code in IGNORED_SOAPFAULTS:
-                        error_msg = IGNORED_SOAPFAULTS[error_code]
-                        logger.warning(f"Ignoring SOAP error '{error_msg}'")
-                    else:
-                        raise
-
-                if isinstance(action, MetaData):
-                    log_action(self.name, 'SetAVTransportURI', state,
-                               ignored=True, msg=str(action))
-                else:
-                    log_action(self.name, action, state, ignored=True)
+                await self.handle_pulse_event()
 
         except asyncio.CancelledError:
             await self.close()

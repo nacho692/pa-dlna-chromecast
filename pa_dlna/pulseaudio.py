@@ -144,7 +144,7 @@ class Pulse:
         if event.t == PulseEventTypeEnum.remove:
             renderer = self.find_previous_renderer(event)
             if renderer is not None:
-                renderer.on_pulse_event(evt)
+                renderer.pulse_queue.put_nowait((evt, None, None))
             return
 
         renderer, sink_input = await self.find_renderer(event)
@@ -152,7 +152,7 @@ class Pulse:
             sink = await self.pulse_ctl.get_sink_by_name(
                                             renderer.nullsink.sink.name)
             if sink is not None:
-                renderer.on_pulse_event(evt, sink, sink_input)
+                renderer.pulse_queue.put_nowait((evt, sink, sink_input))
 
         prev_renderer = self.find_previous_renderer(event)
         # The sink_input has been re-routed to another sink.
@@ -161,7 +161,7 @@ class Pulse:
             # for the sink that had been previously connected to this
             # sink_input.
             evt = 'exit'
-            prev_renderer.on_pulse_event(evt)
+            prev_renderer.pulse_queue.put_nowait((evt, None, None))
 
     async def run(self):
         try:
