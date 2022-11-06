@@ -11,6 +11,7 @@ DEFAULT_SELECTION = (
     # Lossless encoders.
     'FFMpegL16WavEncoder',
     'L16Encoder',
+    'FFMpegAiffEncoder',
     'FFMpegFlacEncoder',
 
     # Lossy encoders.
@@ -157,15 +158,21 @@ class L16Mixin():
                 return True
 
 class L16Encoder(L16Mixin, StandAloneEncoder):
-    """L16 encoder without a container.
+    """Lossless L16 encoder without a container.
 
-    This encoder only uses the pulseaudio parec program for streaming.
+    This encoder only uses one program for streaming: the pulseaudio parec
+    program.
 
-    To check this encoder using the ffplay program from the ffmpeg suite:
-        Run pa-dlna with the command line option
-        '--renderers audio/L16\;rate=44100\;channels=2' and use curl for
-        example to get the result as an 'output' file.
-        Then run the command:
+    To check this encoder without using a DLNA device, use the ffplay
+    program from the ffmpeg suite.
+    Follow these steps:
+        - set L16Encoder at the highest priority in the pa-dlna.conf file
+        - run pa-dlna with the command line option
+
+            '--renderers audio/L16\;rate=44100\;channels=2'
+
+        - get the result with curl or wget as a file named 'output'
+        - chek the result with the command:
 
             $ ffplay -f s16be -ac 2 -ar 44100 output
 
@@ -266,8 +273,14 @@ class FFMpegAacEncoder(FFMpegEncoder):
         cmd.extend(['-b:a', f'{self.bitrate}k'])
         return cmd
 
+class FFMpegAiffEncoder(FFMpegEncoder):
+    """Lossless Aiff Encoder."""
+
+    def __init__(self):
+        super().__init__(['audio/aiff'], container='aiff')
+
 class FFMpegFlacEncoder(FFMpegEncoder):
-    """Flac encoder.
+    """Lossless Flac encoder.
 
     See also https://ffmpeg.org/ffmpeg-all.html#flac-2.
     """
@@ -276,7 +289,7 @@ class FFMpegFlacEncoder(FFMpegEncoder):
         super().__init__(['audio/flac', 'audio/x-flac'], container='flac')
 
 class FFMpegL16WavEncoder(L16Mixin, FFMpegEncoder):
-    """L16 encoder with a wav container."""
+    """Lossless L16 encoder with a wav container."""
 
     def __init__(self):
         FFMpegEncoder.__init__(self, ['audio/l16'], container='wav',
