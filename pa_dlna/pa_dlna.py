@@ -238,7 +238,7 @@ class Stream:
                          f'--format={format}',
                          f'--rate={encoder.rate}',
                          f'--channels={encoder.channels}']
-            logger.info(f"{self.renderer.name}: {' '.join(parec_cmd)}")
+            logger.debug(f"{self.renderer.name}: {' '.join(parec_cmd)}")
 
             exit_status = 0
             self.parec_proc = await asyncio.create_subprocess_exec(
@@ -273,7 +273,7 @@ class Stream:
 
     async def run_encoder(self, encoder_cmd, pipe_r):
         try:
-            logger.info(f"{self.renderer.name}: {' '.join(encoder_cmd)}")
+            logger.debug(f"{self.renderer.name}: {' '.join(encoder_cmd)}")
 
             exit_status = 0
             self.encoder_proc = await asyncio.create_subprocess_exec(
@@ -473,7 +473,7 @@ class Renderer:
             if state in ('PLAYING', 'TRANSITIONING'):
                 if (self.encoder.http_per_track and
                         isinstance(action, MetaData)):
-                    await self.set_avtnextransporturi(self.name,
+                    await self.set_nextavtransporturi(self.name,
                                                       action, state)
                     return
                 elif action == 'Stop':
@@ -641,7 +641,7 @@ class Renderer:
                     f'{NL_INDENT}URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 
-    async def set_avtnextransporturi(self, name, metadata, state):
+    async def set_nextavtransporturi(self, name, metadata, state):
         action = 'SetNextAVTransportURI'
         didl_lite_metadata = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
@@ -651,8 +651,8 @@ class Renderer:
 
         await self.stream.stop()
         log_action(name, action, state, msg=didl_lite_metadata)
-        logger.info(f'{metadata}'
-                    f'{NL_INDENT}URL: {self.current_uri}')
+        logger.info(f'{metadata}')
+        logger.debug(f'URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 
     async def get_transport_state(self):
