@@ -8,6 +8,8 @@ from .upnp import NL_INDENT
 logger = logging.getLogger('encoder')
 
 DEFAULT_SELECTION = (
+    'FFMpegMp3Encoder',
+
     # Lossless encoders.
     'FFMpegL16WavEncoder',
     'L16Encoder',
@@ -17,7 +19,6 @@ DEFAULT_SELECTION = (
     # Lossy encoders.
     'FFMpegOpusEncoder',
     'FFMpegVorbisEncoder',
-    'FFMpegMp3Encoder',
     'FFMpegAacEncoder',
 )
 
@@ -69,26 +70,30 @@ class Encoder:
     by a [section] header, followed by option/value entries separated by
     '='. See https://docs.python.org/3/library/configparser.html.
 
-    A section is either [DEFAULT] or [EncoderName]. The options defined in the
-    [DEFAULT] section apply to all the other sections and are overriden when
-    also defined in an [EncoderName] section.
+    A section is either [DEFAULT], [EncoderName] or [EncoderName.UDN]. The
+    options defined in the [DEFAULT] section apply to all the other sections
+    and are overriden when also defined in the [EncoderName] or
+    [EncoderName.UDN] sections.
 
     The options defined in the pa-dlna.conf user configuration file (also
     parseable by a Python Configuration parser) override the options of the
     default configuration listed here. The pa-dlna.conf file also allows the
-    specification of options per device, see the pa-dlna documentation.
+    specification of options per device using [EncoderName.UDN], see the
+    pa-dlna documentation.
 
     The 'selection' option is an ordered comma separated list of
     encoders. This list is used to select the first encoder matching one of
     the mime-types supported by a discovered DLNA device when there is no
-    specific configuration for the given device.
+    specific [EncoderName.UDN] configuration for the given device.
 
     Notes:
     The 'selection' option is written as a multi-line in which case all the
     lines after the first line start with a white space.
 
-    The default value of 'selection' lists first the lossless encoders and
-    then the lossy ones.
+    The default value of 'selection' lists the encoders in this order:
+        - FFMpegMp3Encoder first as it is the most common encoder
+        - the lossless encoders
+        - then the lossy encoders
     See https://trac.ffmpeg.org/wiki/Encode/HighQualityAudio.
     """
 
