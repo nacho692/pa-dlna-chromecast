@@ -9,8 +9,9 @@ logger = logging.getLogger('encoder')
 
 DEFAULT_SELECTION = (
     # Lossless encoders.
-    'FFMpegFlacEncoder',
+    'FFMpegL16WavEncoder',
     'L16Encoder',
+    'FFMpegFlacEncoder',
 
     # Lossy encoders.
     'FFMpegOpusEncoder',
@@ -121,26 +122,11 @@ ROOT_ENCODER = Encoder
 class StandAloneEncoder(Encoder):
     """Abstract class for standalone encoders."""
 
-class L16Encoder(StandAloneEncoder):
-    """L16 encoder.
-
-    To play and check the result obtained using a TestRenderer with the
-    '--renderers audio/L16\;rate=44100\;channels=2' command line argument,
-    one may use the 'ffplay' tool from ffmpeg and run the command:
-
-        $ ffplay -f s16be -ac 2 -ar 44100 output_file
-
-    Note that the ';' character must be escaped on the command line or the
-    value of the '--renderers' option must be quoted.
-
-    See also https://datatracker.ietf.org/doc/html/rfc2586.
-    """
-
     def __init__(self):
-        self._available = True
-        self._mime_types = ['audio/l16']
-        self._network_format = 's16be'
         super().__init__()
+
+class L16Mixin():
+    """Mixin class for L16 encoders."""
 
     @property
     def mime_type(self):
@@ -170,6 +156,31 @@ class L16Encoder(StandAloneEncoder):
                 self.requested_mtype = mime_type
                 return True
 
+class L16Encoder(L16Mixin, StandAloneEncoder):
+    """L16 encoder without a container.
+
+    This encoder only uses the pulseaudio parec program for streaming.
+
+    To check this encoder using the ffplay program from the ffmpeg suite:
+        Run pa-dlna with the command line option
+        '--renderers audio/L16\;rate=44100\;channels=2' and use curl for
+        example to get the result as an 'output' file.
+        Then run the command:
+
+            $ ffplay -f s16be -ac 2 -ar 44100 output
+
+    Note that the ';' character must be escaped on the command line or the
+    value of the '--renderers' option must be quoted.
+
+    See also https://datatracker.ietf.org/doc/html/rfc2586.
+    """
+
+    def __init__(self):
+        self._available = True
+        self._mime_types = ['audio/l16']
+        self._network_format = 's16be'
+        StandAloneEncoder.__init__(self)
+
 
 class FFMpegEncoder(Encoder):
     """Abstract class for ffmpeg encoders.
@@ -178,30 +189,46 @@ class FFMpegEncoder(Encoder):
     """
 
     PGM = None
+    FORMATS = None
     ENCODERS = None
 
-    def __init__(self, mime_types, codec, file_format=None, encoder=None):
-        if self.ENCODERS is None:
-            FFMpegEncoder.ENCODERS = ''
+    def __init__(self, mime_types, *, container, encoder=None,
+                 pulse_format=None):
+        if self.FORMATS is None:
+            FFMpegEncoder.FORMATS = ''
             FFMpegEncoder.PGM = shutil.which('ffmpeg')
             if self.PGM is not None:
-                proc = subprocess.run([self.PGM, '-encoders'],
+                proc = subprocess.run([self.PGM, '-formats'],
                                       stdout=subprocess.PIPE,
                                       stderr=subprocess.DEVNULL, text=True)
-                FFMpegEncoder.ENCODERS = proc.stdout
-        self._available = codec in self.ENCODERS
+                FFMpegEncoder.FORMATS = proc.stdout
+        self._available = container in self.FORMATS
         self._pgm = self.PGM
         self._mime_types = mime_types
         # End of setting options as comments.
 
         super().__init__()
-        file_format = codec if file_format is None else file_format
-        self.args = (f'-loglevel error -hide_banner -nostats'
-                     f' -ac {self.channels} -ar {self.rate}'
-                     f' -f {self._pulse_format} -i -'
-                     f' -f {file_format}')
+
+        # Override the default _pulse_format.
+        if pulse_format is not None:
+            self._pulse_format = pulse_format
+
+        self.args = (f'-loglevel error -hide_banner -nostats '
+                     f'-ac {self.channels} -ar {self.rate} '
+                     f'-f {self._pulse_format} -i - '
+                     f'-f {container}')
         if encoder is not None:
             self.args += f' -c:a {encoder}'
+
+            if self.ENCODERS is None:
+                FFMpegEncoder.ENCODERS = ''
+                if self.PGM is not None:
+                    proc = subprocess.run([self.PGM, '-encoders'],
+                                          stdout=subprocess.PIPE,
+                                          stderr=subprocess.DEVNULL,
+                                          text=True)
+                    FFMpegEncoder.ENCODERS = proc.stdout
+            self._available = encoder in self.ENCODERS and self._available
 
     @property
     def mime_type(self):
@@ -232,7 +259,7 @@ class FFMpegAacEncoder(FFMpegEncoder):
 
     def __init__(self):
         super().__init__(['audio/aac', 'audio/x-aac', 'audio/vnd.dlna.adts'],
-                         'aac', file_format='adts', encoder='aac')
+                         container='adts', encoder='aac')
         self.bitrate = 192
 
     def add_args(self, cmd):
@@ -246,7 +273,14 @@ class FFMpegFlacEncoder(FFMpegEncoder):
     """
 
     def __init__(self):
-        super().__init__(['audio/flac', 'audio/x-flac'], 'flac')
+        super().__init__(['audio/flac', 'audio/x-flac'], container='flac')
+
+class FFMpegL16WavEncoder(L16Mixin, FFMpegEncoder):
+    """L16 encoder with a wav container."""
+
+    def __init__(self):
+        FFMpegEncoder.__init__(self, ['audio/l16'], container='wav',
+                               pulse_format='s16be')
 
 class FFMpegMp3Encoder(FFMpegEncoder):
     """Mp3 encoder.
@@ -257,7 +291,7 @@ class FFMpegMp3Encoder(FFMpegEncoder):
     """
 
     def __init__(self):
-        super().__init__(['audio/mp3', 'audio/mpeg'], 'mp3',
+        super().__init__(['audio/mp3', 'audio/mpeg'], container='mp3',
                          encoder='libmp3lame')
         self.bitrate = 256
         self.qscale = 2
@@ -276,7 +310,7 @@ class FFMpegOpusEncoder(FFMpegEncoder):
     """
 
     def __init__(self):
-        super().__init__(['audio/opus', 'audio/x-opus'], 'opus',
+        super().__init__(['audio/opus', 'audio/x-opus'], container='opus',
                          encoder='libopus')
         self.bitrate = 128
 
@@ -293,8 +327,8 @@ class FFMpegVorbisEncoder(FFMpegEncoder):
     """
 
     def __init__(self):
-        super().__init__(['audio/vorbis', 'audio/x-vorbis'], 'vorbis',
-                         file_format='ogg', encoder='libvorbis')
+        super().__init__(['audio/vorbis', 'audio/x-vorbis'], container='ogg',
+                         encoder='libvorbis')
         self.bitrate = 256
         self.qscale = 3.0
 

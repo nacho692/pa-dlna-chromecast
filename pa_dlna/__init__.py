@@ -153,7 +153,7 @@ class DefaultConfig(Config):
             pass
         return new_val
 
-    def override_options(self, encoder, section):
+    def override_options(self, encoder, section, defaults):
         for option, value in self.parser.items(section):
             if option.startswith('#'):
                 continue
@@ -180,7 +180,7 @@ class DefaultConfig(Config):
         for section in (s for s in selection if s):
             if section in self.leaves:
                 encoder = self.leaves[section]()
-                self.override_options(encoder, section)
+                self.override_options(encoder, section, defaults)
 
                 # Python 3.7: Dictionary order is guaranteed to be
                 # insertion order.
@@ -229,6 +229,7 @@ class UserConfig(DefaultConfig):
         super().build_dictionary()
 
         # Update the dict with the [EncoderName.UDN] sections.
+        defaults = self.parser.defaults()
         for section in self.parser:
             encoder_name, sep, udn = section.partition('.')
             # Ignore an encoder section.
@@ -242,7 +243,7 @@ class UserConfig(DefaultConfig):
                 raise ParsingError(f"'{section}' encoder does not exist")
 
             encoder = self.leaves[encoder_name]()
-            self.override_options(encoder, section)
+            self.override_options(encoder, section, defaults)
             self[udn] = encoder
 
     def print_internal_config(self):

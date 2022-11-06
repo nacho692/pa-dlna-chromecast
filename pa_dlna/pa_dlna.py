@@ -623,7 +623,8 @@ class Renderer:
             self.current_uri = (f'http://{self.net_iface.ip}'
                                 f':{self.control_point.port}'
                                 f'{AUDIO_URI_PREFIX}/{udn}')
-            logger.info(f"New '{self.mime_type}' {self.name} renderer")
+            logger.info(f'New {self.name} renderer with {self.encoder}'
+                        f" handling '{self.mime_type}'")
 
             while True:
                 # An action is either 'Play', 'Stop', 'Pause' or
