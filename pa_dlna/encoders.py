@@ -14,6 +14,7 @@ DEFAULT_SELECTION = (
     'FFMpegL16WavEncoder',
     'L16Encoder',
     'FFMpegAiffEncoder',
+    'FlacEncoder',
     'FFMpegFlacEncoder',
 
     # Lossy encoders.
@@ -111,10 +112,13 @@ class Encoder:
 
     @property
     def mime_type(self):
-        raise NotImplementedError
+        assert hasattr(self, 'requested_mtype')
+        return self.requested_mtype
 
     def has_mime_type(self, mime_type):
-        raise NotImplementedError
+        if mime_type.lower() in self._mime_types:
+            self.requested_mtype = mime_type
+            return True
 
     @property
     def command(self):
@@ -193,6 +197,29 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
         self._network_format = 's16be'
         StandAloneEncoder.__init__(self)
 
+class FlacEncoder(StandAloneEncoder):
+    """Lossless Flac encoder.
+
+    See the flac home page at https://xiph.org/flac/
+    See also https://xiph.org/flac/documentation_tools_flac.html
+    """
+
+    def __init__(self):
+        self._pgm = shutil.which('flac')
+        self._available = self._pgm is not None
+        self._mime_types = ['audio/flac', 'audio/x-flac']
+        super().__init__()
+
+        endian = 'little' if self._pulse_format == 's16le' else 'big'
+        self.args = (f'- --silent --channels {self.channels} '
+                     f'--sample-rate {self.rate} '
+                     f'--sign signed --bps 16 --endian {endian}')
+
+    def _command(self):
+        cmd = [self._pgm]
+        cmd.extend(self.args.split())
+        return cmd
+
 
 class FFMpegEncoder(Encoder):
     """Abstract class for ffmpeg encoders.
@@ -241,16 +268,6 @@ class FFMpegEncoder(Encoder):
                                           text=True)
                     FFMpegEncoder.ENCODERS = proc.stdout
             self._available = encoder in self.ENCODERS and self._available
-
-    @property
-    def mime_type(self):
-        assert hasattr(self, 'requested_mtype')
-        return self.requested_mtype
-
-    def has_mime_type(self, mime_type):
-        if mime_type.lower() in self._mime_types:
-            self.requested_mtype = mime_type
-            return True
 
     def add_args(self, cmd):
         return cmd
