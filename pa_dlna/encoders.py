@@ -8,11 +8,12 @@ from .upnp import NL_INDENT
 logger = logging.getLogger('encoder')
 
 DEFAULT_SELECTION = (
+    'Mp3Encoder',
     'FFMpegMp3Encoder',
 
     # Lossless encoders.
-    'FFMpegL16WavEncoder',
     'L16Encoder',
+    'FFMpegL16WavEncoder',
     'FFMpegAiffEncoder',
     'FlacEncoder',
     'FFMpegFlacEncoder',
@@ -166,6 +167,29 @@ class L16Mixin():
                 self.requested_mtype = mime_type
                 return True
 
+class FlacEncoder(StandAloneEncoder):
+    """Lossless Flac encoder.
+
+    See the flac home page at https://xiph.org/flac/
+    See also https://xiph.org/flac/documentation_tools_flac.html
+    """
+
+    def __init__(self):
+        self._pgm = shutil.which('flac')
+        self._available = self._pgm is not None
+        self._mime_types = ['audio/flac', 'audio/x-flac']
+        super().__init__()
+
+        endian = 'little' if self._pulse_format == 's16le' else 'big'
+        self.args = (f'- --silent --channels {self.channels} '
+                     f'--sample-rate {self.rate} '
+                     f'--sign signed --bps 16 --endian {endian}')
+
+    def _command(self):
+        cmd = [self._pgm]
+        cmd.extend(self.args.split())
+        return cmd
+
 class L16Encoder(L16Mixin, StandAloneEncoder):
     """Lossless L16 encoder without a container.
 
@@ -197,27 +221,33 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
         self._network_format = 's16be'
         StandAloneEncoder.__init__(self)
 
-class FlacEncoder(StandAloneEncoder):
-    """Lossless Flac encoder.
+class Mp3Encoder(StandAloneEncoder):
+    """Mp3 encoder from the Lame Project.
 
-    See the flac home page at https://xiph.org/flac/
-    See also https://xiph.org/flac/documentation_tools_flac.html
+    See the Lame Project home page at https://lame.sourceforge.io/
+    See lame command line options at
+        https://svn.code.sf.net/p/lame/svn/trunk/lame/USAGE
     """
 
     def __init__(self):
-        self._pgm = shutil.which('flac')
+        self._pgm = shutil.which('lame')
         self._available = self._pgm is not None
-        self._mime_types = ['audio/flac', 'audio/x-flac']
+        self._mime_types = ['audio/mp3', 'audio/mpeg']
         super().__init__()
+        self.bitrate = 256
+        self.quality = 0
 
+        sampling = self.rate / 1000
         endian = 'little' if self._pulse_format == 's16le' else 'big'
-        self.args = (f'- --silent --channels {self.channels} '
-                     f'--sample-rate {self.rate} '
-                     f'--sign signed --bps 16 --endian {endian}')
+        self.args = (f'-r -s {sampling} --signed --bitwidth 16 '
+                     f'--{endian}-endian ')
 
     def _command(self):
         cmd = [self._pgm]
         cmd.extend(self.args.split())
+        cmd.extend(['-q', f'{self.quality}'])
+        cmd.extend(['-b', f'{self.bitrate}'])
+        cmd.append('-')
         return cmd
 
 
