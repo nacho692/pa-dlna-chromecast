@@ -842,7 +842,7 @@ class AVControlPoint(UPnPApplication):
                                    ' existing Renderer')
 
     async def run_control_point(self):
-        if not any(enc.available for enc in self.config.values()):
+        if not self.config.any_available():
             sys.exit('Error: No encoder is available')
 
         self.parec_pgm = shutil.which('parec')

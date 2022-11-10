@@ -1,11 +1,17 @@
+"""Encoders configuration.
+
+Attributes starting with '__' (mangled by Python as '_classname__attribute')
+are for internal use.
+Attributes starting with '_' are seen by the user as read only options.
+
+"""
+
 import sys
 import subprocess
 import shutil
 import logging
 
 from .upnp import NL_INDENT
-
-logger = logging.getLogger('encoder')
 
 DEFAULT_SELECTION = (
     'Mp3Encoder',
@@ -30,14 +36,11 @@ def select_encoder(config, renderer_name, pinfo, udn):
     Return the selected encoder, the mime type and protocol info.
     """
 
-    def available(*, udns):
-        encoders = []
-        for section, instance in config.items():
-            in_list = (section not in config.encoder_list if udns else
-                       section in config.encoder_list)
-            if in_list and instance.available:
-                encoders.append((section, instance))
-        return encoders
+    def available(config):
+        return ((section, instance) for section, instance in config.items()
+                if instance.available)
+
+    logger = logging.getLogger('encoder')
 
     protocol_infos = [x for x in pinfo['Sink'].split(',')]
     mime_types = [proto.split(':')[2] for proto in protocol_infos]
@@ -45,7 +48,7 @@ def select_encoder(config, renderer_name, pinfo, udn):
                  f'{mime_types}')
 
     # Try first the configured udns.
-    for section, encoder in available(udns=True):
+    for section, encoder in available(config.udns):
         if section == udn:
             # Check that the list of mime_types holds one of the  mime types
             # supported by this encoder and return the encoder and this mime
@@ -59,7 +62,7 @@ def select_encoder(config, renderer_name, pinfo, udn):
                 return None
 
     # Then the encoders proper.
-    for _, encoder in available(udns=False):
+    for _, encoder in available(config.encoders):
         for idx, mime_type in enumerate(mime_types):
             if encoder.has_mime_type(mime_type):
                 return encoder, encoder.mime_type, protocol_infos[idx]
@@ -106,6 +109,7 @@ class Encoder:
         self.rate = 44100
         self.channels = 2
         self.http_per_track = True
+        self.args = None
 
     @property
     def available(self):
@@ -121,9 +125,11 @@ class Encoder:
             self.requested_mtype = mime_type
             return True
 
-    @property
+    def set_args(self):
+        raise NotImplementedError
+
     def command(self):
-        return self._command()
+        raise NotImplementedError
 
     def __str__(self):
         return self.__class__.__name__
@@ -180,12 +186,17 @@ class FlacEncoder(StandAloneEncoder):
         self._mime_types = ['audio/flac', 'audio/x-flac']
         super().__init__()
 
+    def set_args(self):
+        if str(self.args) != 'None':
+            return
+
         endian = 'little' if self._pulse_format == 's16le' else 'big'
         self.args = (f'- --silent --channels {self.channels} '
                      f'--sample-rate {self.rate} '
                      f'--sign signed --bps 16 --endian {endian}')
 
-    def _command(self):
+    @property
+    def command(self):
         cmd = [self._pgm]
         cmd.extend(self.args.split())
         return cmd
@@ -221,6 +232,9 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
         self._network_format = 's16be'
         StandAloneEncoder.__init__(self)
 
+    def set_args(self):
+        pass
+
 class Mp3Encoder(StandAloneEncoder):
     """Mp3 encoder from the Lame Project.
 
@@ -237,17 +251,20 @@ class Mp3Encoder(StandAloneEncoder):
         self.bitrate = 256
         self.quality = 0
 
+    def set_args(self):
+        if str(self.args) != 'None':
+            return
+
         sampling = self.rate / 1000
         endian = 'little' if self._pulse_format == 's16le' else 'big'
         self.args = (f'-r -s {sampling} --signed --bitwidth 16 '
-                     f'--{endian}-endian ')
+                     f'--{endian}-endian '
+                     f'-q {self.quality} -b {self.bitrate} -')
 
-    def _command(self):
+    @property
+    def command(self):
         cmd = [self._pgm]
         cmd.extend(self.args.split())
-        cmd.extend(['-q', f'{self.quality}'])
-        cmd.extend(['-b', f'{self.bitrate}'])
-        cmd.append('-')
         return cmd
 
 
@@ -263,6 +280,9 @@ class FFMpegEncoder(Encoder):
 
     def __init__(self, mime_types, *, container, encoder=None,
                  pulse_format=None):
+        self.__container = container
+        self.__encoder = encoder
+
         if self.FORMATS is None:
             FFMpegEncoder.FORMATS = ''
             FFMpegEncoder.PGM = shutil.which('ffmpeg')
@@ -282,13 +302,7 @@ class FFMpegEncoder(Encoder):
         if pulse_format is not None:
             self._pulse_format = pulse_format
 
-        self.args = (f'-loglevel error -hide_banner -nostats '
-                     f'-ac {self.channels} -ar {self.rate} '
-                     f'-f {self._pulse_format} -i - '
-                     f'-f {container}')
         if encoder is not None:
-            self.args += f' -c:a {encoder}'
-
             if self.ENCODERS is None:
                 FFMpegEncoder.ENCODERS = ''
                 if self.PGM is not None:
@@ -299,14 +313,28 @@ class FFMpegEncoder(Encoder):
                     FFMpegEncoder.ENCODERS = proc.stdout
             self._available = encoder in self.ENCODERS and self._available
 
-    def add_args(self, cmd):
-        return cmd
+    def extra_args(self):
+        return ''
 
-    def _command(self):
+    def set_args(self):
+        if str(self.args) != 'None':
+            return
+
+        self.args = (f'-loglevel error -hide_banner -nostats '
+                     f'-ac {self.channels} -ar {self.rate} '
+                     f'-f {self._pulse_format} -i - '
+                     f'-f {self.__container}')
+        if self.__encoder is not None:
+            self.args += f' -c:a {self.__encoder}'
+        extra = self.extra_args()
+        if extra:
+            self.args += f' {extra}'
+        self.args += ' pipe:1'
+
+    @property
+    def command(self):
         cmd = [self._pgm]
         cmd.extend(self.args.split())
-        cmd = self.add_args(cmd)
-        cmd.append('pipe:1')
         return cmd
 
 class FFMpegAacEncoder(FFMpegEncoder):
@@ -321,9 +349,8 @@ class FFMpegAacEncoder(FFMpegEncoder):
                          container='adts', encoder='aac')
         self.bitrate = 192
 
-    def add_args(self, cmd):
-        cmd.extend(['-b:a', f'{self.bitrate}k'])
-        return cmd
+    def extra_args(self):
+        return f'-b:a {self.bitrate}k'
 
 class FFMpegAiffEncoder(FFMpegEncoder):
     """Lossless Aiff Encoder."""
@@ -361,12 +388,11 @@ class FFMpegMp3Encoder(FFMpegEncoder):
         self.bitrate = 256
         self.qscale = 2
 
-    def add_args(self, cmd):
+    def extra_args(self):
         if self.bitrate != 0:
-            cmd.extend(['-b:a', f'{self.bitrate}k'])
+            return f'-b:a {self.bitrate}k'
         else:
-            cmd.extend(['-qscale:a', str(self.qscale)])
-        return cmd
+            return f'-qscale:a {self.qscale}'
 
 class FFMpegOpusEncoder(FFMpegEncoder):
     """Opus encoder.
@@ -379,9 +405,8 @@ class FFMpegOpusEncoder(FFMpegEncoder):
                          encoder='libopus')
         self.bitrate = 128
 
-    def add_args(self, cmd):
-        cmd.extend(['-b:a', f'{self.bitrate}k'])
-        return cmd
+    def extra_args(self):
+        return f'-b:a {self.bitrate}k'
 
 class FFMpegVorbisEncoder(FFMpegEncoder):
     """Vorbis encoder.
@@ -397,9 +422,8 @@ class FFMpegVorbisEncoder(FFMpegEncoder):
         self.bitrate = 256
         self.qscale = 3.0
 
-    def add_args(self, cmd):
+    def extra_args(self):
         if self.bitrate != 0:
-            cmd.extend(['-b:a', f'{self.bitrate}k'])
+            return f'-b:a {self.bitrate}k'
         else:
-            cmd.extend(['-qscale:a', str(self.qscale)])
-        return cmd
+            return f'-qscale:a {self.qscale}'

@@ -1,4 +1,4 @@
-"""The default and the user configurations."""
+"""Build the default and user configurations."""
 
 import sys
 import os
@@ -37,10 +37,13 @@ def user_config_pathname():
         base_path = os.path.expanduser('~/.config')
     return os.path.join(base_path, 'pa-dlna', 'pa-dlna.conf')
 
-class Config(dict):
+class DefaultConfig:
+    """The default built-in configuration as a dict."""
+
     def __init__(self):
         self.root_class = encoders_module.ROOT_ENCODER
         self.parser = None
+        self.empty_comment_cnt = 0
 
         # Build a dictionary of the leaves of the 'root_class'
         # class hierarchy excluding the direct subclasses.
@@ -51,16 +54,7 @@ class Config(dict):
                                 issubclass(obj, self.root_class) and
                                 obj.__mro__.index(self.root_class) != 1 and
                                 not obj.__subclasses__())
-
-class DefaultConfig(Config):
-    """The default built-in configuration."""
-
-    def __init__(self):
-        super().__init__()
-        self.encoder_list = []
-        self.empty_comment_cnt = 0
         self.default_config()
-        self.build_dictionary()
 
     def write_empty_comment(self, section):
         # Make ConfigParser believe that we are adding each time
@@ -72,7 +66,7 @@ class DefaultConfig(Config):
         """Build a parser holding the built-in default configuration."""
 
         def convert_boolean(obj, attr):
-            val = str(getattr(obj, attr))
+            val = str(getattr(obj, attr)).strip()
             if val in BOOLEAN_WRITE:
                 val = BOOLEAN_WRITE[val]
             return val
@@ -104,6 +98,10 @@ class DefaultConfig(Config):
             for attr in encoder.__dict__:
                 val = convert_boolean(encoder, attr)
                 if attr.startswith('_'):
+                    # Ignore attributes starting with '__', mangled by
+                    # Python as '_classname__spam'.
+                    if '__' in attr:
+                        continue
                     self.parser.set(section, f'# {attr[1:]}: {val}')
                 elif (not hasattr(root, attr) or
                       getattr(root, attr) != getattr(encoder, attr)):
@@ -111,6 +109,10 @@ class DefaultConfig(Config):
                         write_separator = False
                         self.write_empty_comment(section)
                     self.parser.set(section, attr, val)
+            if isinstance(self, DefaultConfig):
+                encoder.set_args()
+                if encoder.args:
+                    self.parser.set(section, 'args', encoder.args)
 
     def get_value(self, section, encoder, option, new_val):
         old_val = getattr(encoder, option)
@@ -140,28 +142,7 @@ class DefaultConfig(Config):
             elif option not in defaults:
                 raise ParsingError(f'Unknown option'
                                    f" '{section}.{option}'")
-
-    def build_dictionary(self):
-        """Build this 'dict' as an image of the parser.
-
-        Config is a subclass of 'dict'.
-        """
-
-        if self.parser is None:
-            return
-        defaults = self.parser.defaults()
-        selection = (s.strip() for s in defaults['selection'].split(','))
-        for section in (s for s in selection if s):
-            if section in self.leaves:
-                encoder = self.leaves[section]()
-                self.override_options(encoder, section, defaults)
-
-                # Python 3.7: Dictionary order is guaranteed to be
-                # insertion order.
-                self[section] = encoder
-                self.encoder_list.append(section)
-            else:
-                raise ParsingError(f"'{section}' not a valid class name")
+        encoder.set_args()
 
     def write(self, fileobject):
         """Write the configuration to a text file object."""
@@ -174,71 +155,95 @@ class DefaultConfig(Config):
             self.parser.write(fileobject)
 
 class UserConfig(DefaultConfig):
-    """The user configuration.
+    """The user configuration used internally, as a dict.
 
-    The configuration derived from the 'pa-dlna.conf' file and the
-    default configuration. Only the encoders selected by the user are listed.
+    The configuration is derived from the default configuration and the
+    'pa-dlna.conf' file. Only the encoders selected by the user are listed.
     """
 
     def __init__(self):
         super().__init__()
+        assert self.parser is not None
+        self.udns = {}
+        self.encoders = {}
 
         # Read the user configuration.
         user_config = user_config_pathname()
         try:
             fileobject = open(user_config)
         except FileNotFoundError:
-            return
+            pass
         else:
             with fileobject:
                 logger.info(f'Using encoders configuration at {user_config}')
                 self.parser.read_file(fileobject)
 
-        # First clear the dictionary built by DefaultConfig as it does not
-        # reflect anymore the current state of the parser.
-        self.clear()
-        self.build_dictionary()
+        self.build_dictionaries()
 
-    def build_dictionary(self):
-        super().build_dictionary()
+    def any_available(self):
+        return (any(x.available for x in self.udns.values()) or
+                any(x.available for x in self.encoders.values()))
 
-        # Update the dict with the [EncoderName.UDN] sections.
+    def _build_dictionaries(self, parser_dict, selection):
+        # Build the encoders dictionary according to the selection's order.
+        for sel in (s for s in selection if s):
+            if sel in parser_dict:
+                encoder = parser_dict[sel]
+                if hasattr(encoder, 'selection'):
+                    del encoder.selection
+                self.encoders[sel] = encoder
+            else:
+                raise ParsingError(f"'{sel}' in the selection is not a valid"
+                                   f' encoder')
+
+        for udn_name in set(parser_dict).difference(self.encoders):
+            udn = parser_dict[udn_name]
+            if hasattr(udn, 'selection'):
+                del udn.selection
+            self.udns[udn_name] = udn
+
+    def build_dictionaries(self):
+        parser_dict = {}
         defaults = self.parser.defaults()
+        selection = [s.strip() for s in defaults['selection'].split(',') if s]
         for section in self.parser:
             encoder_name, sep, udn = section.partition('.')
-            # Ignore an encoder section.
+            # An encoder section.
             if sep == '' and udn == '':
-                continue
-            # Error when section is 'encoder_name.'
+                if encoder_name not in selection:
+                    continue
+            # Error when section is 'encoder_name' followed by a '.'.
             elif udn == '':
-                raise ParsingError(f"'{section}' not a valid section")
+                raise ParsingError(f"'{section}' is not a valid section")
+            # An [EncoderName.UDN] section.
+            else:
+                pass
 
-            if encoder_name not in self.encoder_list:
+            if encoder_name not in self.leaves:
                 raise ParsingError(f"'{section}' encoder does not exist")
-
             encoder = self.leaves[encoder_name]()
             self.override_options(encoder, section, defaults)
-            self[udn] = encoder
+            key = encoder_name if udn == '' else udn
+            parser_dict[key] = encoder
+
+        # Sort the encoders and build both dictionaries.
+        self._build_dictionaries(parser_dict, selection)
 
     def print_internal_config(self):
-        udns = {}
-        encoders = {}
-        for section, encoder in self.items():
-            if hasattr(encoder, 'selection'):
-                del encoder.selection
+        # The udns are printed first.
+        config = {}
+        for section, udn in self.udns.items():
+            # The '_encoder' option is first.
+            options = {'_encoder': udn.__class__.__name__}
+            options.update(udn.__dict__)
+            config[section] = options
+        for section, encoder in self.encoders.items():
+            config[section] = encoder.__dict__
 
-            # An udn section.
-            if section not in self.encoder_list:
-                options = {'_encoder': encoder.__class__.__name__}
-                options.update(encoder.__dict__)
-                udns[section] = options
-            # An encoder section.
-            else:
-                encoders[section] = encoder.__dict__
-
-        # The udn sections are printed first.
-        udns.update(encoders)
-        encoders_repr = pprint_pformat(udns, sort_dicts=False, compact=True)
+        if not config:
+            sys.stdout.write('No encoder is available\n')
+            return
+        encoders_repr = pprint_pformat(config, sort_dicts=False, compact=True)
         sys.stdout.write('Internal configuration, ')
         sys.stdout.write('keys starting with underscore are read only:\n')
         sys.stdout.write(f'{encoders_repr}\n')
