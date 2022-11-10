@@ -1,6 +1,8 @@
 """A basic UPnP Control Point asyncio library.
 
-Example of using the Control Point (there is no external dependency):
+The library does not have any external dependency.
+Here is an example of using the Control Point. Allow it a few seconds to
+discover the UPnP device at 192.168.0.254.
 
 >>> import asyncio
 >>> import upnp
@@ -15,8 +17,8 @@ Example of using the Control Point (there is no external dependency):
 ...       print(f'    serviceId: {service.serviceId}')
 ...
 >>> try:
-...   asyncio.run(main(['192.168.0.254/24', '192.168.43.83/24']))
-... except asyncio.CancelledError:
+...   asyncio.run(main(['192.168.0.254/24']))
+... except (KeyboardInterrupt, asyncio.CancelledError):
 ...   pass
 ...
   Got 'alive' from 192.168.0.212
@@ -46,6 +48,7 @@ import logging
 import time
 import collections
 import urllib.parse
+import ipaddress
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError
@@ -518,10 +521,14 @@ class UPnPControlPoint:
     """
 
     def __init__(self, net_ifaces, ttl=2):
+        def _ipaddress(address):
+            return ipaddress.IPv4Interface(str(address))
+
         if not net_ifaces:
             raise UPnPControlPointError('The list of ip addresses cannot'
                                         ' be empty')
-        self.net_ifaces = net_ifaces
+        # Ensure that 'net_ifaces' is a list of IPv4Interface instances.
+        self.net_ifaces = list(map(_ipaddress, net_ifaces))
         self.ttl = ttl
         self._closed = False
         self._upnp_queue = asyncio.Queue()
