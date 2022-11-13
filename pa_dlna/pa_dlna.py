@@ -690,6 +690,9 @@ class Renderer:
 
         except asyncio.CancelledError:
             await self.close()
+        except OSError as e:
+            logger.error(f'{e!r}')
+            await self.disable_root_device()
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.disable_root_device()

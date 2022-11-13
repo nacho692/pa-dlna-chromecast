@@ -493,6 +493,9 @@ class UPnPRootDevice(UPnPDevice):
             await self._age_root_device()
         except asyncio.CancelledError:
             self.close()
+        except OSError as e:
+            logger.error(f'{e!r}')
+            self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
