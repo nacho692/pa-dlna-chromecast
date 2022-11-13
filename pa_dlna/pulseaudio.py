@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
+import pulsectl
 from pulsectl_asyncio import PulseAsync
-from pulsectl import PulseEventMaskEnum, PulseEventTypeEnum
 
 from .upnp import NL_INDENT
 
@@ -141,7 +141,7 @@ class Pulse:
         """Dispatch the event to a renderer."""
 
         evt = event.t._value
-        if event.t == PulseEventTypeEnum.remove:
+        if event.t == pulsectl.PulseEventTypeEnum.remove:
             renderer = self.find_previous_renderer(event)
             if renderer is not None:
                 renderer.pulse_queue.put_nowait((evt, None, None))
@@ -167,17 +167,13 @@ class Pulse:
         try:
             async with PulseAsync('pa-dlna') as self.pulse_ctl:
                 self.av_control_point.start_event.set()
-                try:
-                    async for event in self.pulse_ctl.subscribe_events(
-                                                PulseEventMaskEnum.sink_input):
-                        await self.dispatch_event(event)
-                except Exception as e:
-                    logger.exception(f'{e!r}')
-                    await self.close()
-                finally:
-                    self.pulse_ctl = None
+                async for event in self.pulse_ctl.subscribe_events(
+                                    pulsectl.PulseEventMaskEnum.sink_input):
+                    await self.dispatch_event(event)
         except asyncio.CancelledError:
-            await self.close()
+            pass
+        except pulsectl.PulseDisconnected as e:
+            logger.error(f'Pulseaudio error: {e!r}')
         except Exception as e:
             if (hasattr(e, '__cause__') and
                     'pulse errno 6' in str(e.__cause__)):
@@ -185,4 +181,6 @@ class Pulse:
                 logger.error(f'{e!r}')
             else:
                 logger.exception(f'{e!r}')
+        finally:
+            self.pulse_ctl = None
             await self.close()
