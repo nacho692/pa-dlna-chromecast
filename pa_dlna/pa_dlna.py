@@ -732,7 +732,7 @@ class TestRenderer(Renderer):
         if transition == 'Stop':
             await self.stream.stop()
 
-    async def soap_action(self, serviceId, action, args):
+    async def soap_action(self, serviceId, action, args='unused'):
         if action == 'GetProtocolInfo':
             return {'Source': None,
                     'Sink': f'http-get:*:{self.mime_type}:*'
