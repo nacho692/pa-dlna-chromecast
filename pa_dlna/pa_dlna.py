@@ -1,20 +1,19 @@
 """An UPnP control point routing PulseAudio streams to DLNA devices."""
 
 import sys
-import os
 import shutil
 import asyncio
 import logging
 import re
 import ipaddress
 import random
-from signal import strsignal, SIGINT, SIGTERM
+from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
-from .http_server import HTTPServer, run_httpserver
-from .encoders import select_encoder, FFMpegEncoder, L16Encoder
+from .http_server import StreamSession, HTTPServer, run_httpserver
+from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError, NL_INDENT, shorten)
 
@@ -30,8 +29,6 @@ IGNORED_SOAPFAULTS = {'701': 'Transition not available',
 # Period in seconds during which the renderer is disabled after the stream
 # has been closed by the DLNA device.
 RENDERER_DISABLE_PERIOD = 20
-# A stream with a throughput of 1 Mbs sends 2048 bytes every 15.6 msecs.
-HTTP_CHUNK_SIZE = 2048
 
 UPnPAction = namedtuple('UPnPAction', ['action', 'state'])
 random.seed()
@@ -48,25 +45,6 @@ def get_udn():
         p += n
     return ''.join(udn)
 
-async def close_aiostream(writer):
-    try:
-        # Write the last chunk.
-        if not writer.is_closing():
-            writer.write('0\r\n\r\n'.encode())
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
-    except Exception:
-        pass
-
-async def kill_process(process):
-    # First try a plain termination.
-    process.terminate()
-    try:
-        await asyncio.wait_for(process.wait(), timeout=1.0)
-    except asyncio.TimeoutError:
-        process.kill()
-
 def log_action(name, action, state, ignored=False, msg=None):
     txt = f"'{action}' "
     if ignored:
@@ -80,272 +58,6 @@ def log_action(name, action, state, ignored=False, msg=None):
 class MetaData(namedtuple('MetaData', ['publisher', 'artist', 'title'])):
     def __str__(self):
         return shorten(repr(self), head_len=40, tail_len=40)
-
-class Stream:
-    """An audio stream.
-
-    The stream is made of two processes and an asyncio Stream Writer connected
-    through pipes:
-        - 'parec' records the audio from the nullsink monitor and pipes it
-          to the encoder program.
-        - The encoder program encodes the audio according to the encoder
-          protocol and forwards it to the Stream Writer.
-        - The Stream Writer writes the stream to the HTTP socket.
-    """
-
-    def __init__(self, renderer):
-        self.renderer = renderer
-        self.writer = None
-        self.parec_proc = None
-        self.encoder_proc = None
-        self.stream_tasks = AsyncioTasks()
-
-    async def stop(self):
-        """Stop the stream and instantiate a new one."""
-
-        if self.writer is None:
-            return
-
-        writer = self.writer
-        # Prevent recursing in Stream.stop() and tell the task running the
-        # Stream.write_aiostream() coroutine to terminate.
-        self.writer = None
-        renderer = self.renderer
-
-        # Instantiate a new Stream.
-        logger.info(f'Terminate the {renderer.name} stream processes')
-        renderer.stream = Stream(renderer)
-
-        await close_aiostream(writer)
-        try:
-            if self.parec_proc is not None:
-                await kill_process(self.parec_proc)
-
-            if self.encoder_proc is not None:
-                # Prevent verbose error logs from ffmpeg upon SIGTERM.
-                if isinstance(renderer.encoder, FFMpegEncoder):
-                    for task in self.stream_tasks:
-                        if task.get_name() == 'encoder_stderr':
-                            task.cancel()
-                            break
-                await kill_process(self.encoder_proc)
-        except Exception as e:
-            logger.exception(f'{e!r}')
-
-    async def disable_renderer(self):
-        """Disable temporarily the renderer."""
-
-        renderer = self.renderer
-        nullsink = renderer.nullsink
-        # Pulse events related to this sink are now discarded.
-        renderer.nullsink = None
-
-        # Stop the stream.
-        await self.stop()
-
-        # Unload the null-sink module, sleep RENDERER_DISABLE_PERIOD
-        # seconds and load a new module. During  the sleep period, the
-        # stream that was routed to this null-sink will be routed to
-        # the default sink instead of being silently discarded by the
-        # null-sink.
-        if nullsink is not None:
-            pulse = renderer.control_point.pulse
-            await pulse.unregister(nullsink)
-            logger.info(f'Wait {RENDERER_DISABLE_PERIOD} seconds before'
-                        f' re-enabling {renderer.name}')
-            await asyncio.sleep(RENDERER_DISABLE_PERIOD)
-            nullsink = await pulse.register(renderer, renderer.name)
-            if nullsink is not None:
-                renderer.nullsink = nullsink
-            else:
-                logger.error(f'Cannot load a new null-sink module'
-                             f' for {renderer.name}')
-                await self.close()
-
-    async def close(self):
-        """Stop the stream and disable permanently the root device."""
-
-        await self.stop()
-        await self.renderer.disable_root_device()
-
-    async def write_aiostream(self, stdout):
-        """Write to the Stream Writer what is read from a subprocess stdout."""
-
-        logger = logging.getLogger('writer')
-        rdr_name = self.renderer.name
-        try:
-            while True:
-                if self.writer is None:
-                    return
-                if self.writer.is_closing():
-                    logger.debug(f'{rdr_name}: socket is closing')
-                    break
-                data = await stdout.readexactly(HTTP_CHUNK_SIZE)
-                if self.writer is None:
-                    return
-                if not data:
-                    logger.debug(f'EOF reading from pipe on {rdr_name}')
-                    break
-                self.writer.write(f'{HTTP_CHUNK_SIZE:x}\r\n'.encode())
-                self.writer.write(data)
-                self.writer.write('\r\n'.encode())
-                await self.writer.drain()
-        except (asyncio.CancelledError, asyncio.IncompleteReadError):
-            pass
-        except ConnectionError as e:
-            logger.info(f'{rdr_name} HTTP socket is closed: {e!r}')
-            await self.disable_renderer()
-            return
-        except Exception as e:
-            logger.exception(f'{e!r}')
-            await self.close()
-            return
-
-        await self.stop()
-
-    async def log_stderr(self, name, stderr):
-        logger = logging.getLogger(name)
-
-        remove_env = False
-        if (name == 'encoder' and
-                isinstance(self.renderer.encoder, FFMpegEncoder) and
-                'AV_LOG_FORCE_NOCOLOR' not in os.environ):
-            os.environ['AV_LOG_FORCE_NOCOLOR'] = '1'
-            remove_env = True
-        try:
-            while True:
-                msg = await stderr.readline()
-                if msg == b'':
-                    break
-                logger.error(msg.decode().strip())
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
-        finally:
-            if remove_env:
-                del os.environ['AV_LOG_FORCE_NOCOLOR']
-
-    async def run_parec(self, encoder, parec_pgm, stdout=None):
-        try:
-            if not isinstance(encoder, L16Encoder):
-                format = encoder._pulse_format
-            else:
-                format = encoder._network_format
-                stdout = asyncio.subprocess.PIPE
-            monitor = self.renderer.nullsink.sink.monitor_source_name
-            parec_cmd = [parec_pgm, f'--device={monitor}',
-                         f'--format={format}',
-                         f'--rate={encoder.rate}',
-                         f'--channels={encoder.channels}']
-            logger.debug(f"{self.renderer.name}: {' '.join(parec_cmd)}")
-
-            exit_status = 0
-            self.parec_proc = await asyncio.create_subprocess_exec(
-                                    *parec_cmd,
-                                    stdin=asyncio.subprocess.DEVNULL,
-                                    stdout=stdout,
-                                    stderr=asyncio.subprocess.PIPE)
-
-            if not isinstance(encoder, L16Encoder):
-                os.close(stdout)
-            else:
-                self.stream_tasks.create_task(self.write_aiostream(
-                                                    self.parec_proc.stdout),
-                                              name='parec_writer')
-            self.stream_tasks.create_task(self.log_stderr('parec',
-                                                    self.parec_proc.stderr),
-                                          name='parec_stderr')
-
-            ret = await self.parec_proc.wait()
-            exit_status = ret if ret >= 0 else strsignal(-ret)
-            logger.debug(f'Exit status of parec process: {exit_status}')
-            self.parec_proc = None
-            if exit_status in (0, 'Terminated'):
-                await self.stop()
-                return
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
-
-        await self.close()
-
-    async def run_encoder(self, encoder_cmd, pipe_r):
-        try:
-            logger.debug(f"{self.renderer.name}: {' '.join(encoder_cmd)}")
-
-            exit_status = 0
-            self.encoder_proc = await asyncio.create_subprocess_exec(
-                                    *encoder_cmd,
-                                    stdin=pipe_r,
-                                    stdout=asyncio.subprocess.PIPE,
-                                    stderr=asyncio.subprocess.PIPE)
-            os.close(pipe_r)
-            self.stream_tasks.create_task(self.write_aiostream(
-                                                self.encoder_proc.stdout),
-                                          name='encoder_writer')
-            self.stream_tasks.create_task(self.log_stderr('encoder',
-                                                    self.encoder_proc.stderr),
-                                          name='encoder_stderr')
-
-            ret = await self.encoder_proc.wait()
-            exit_status = ret if ret >= 0 else strsignal(-ret)
-            # ffmpeg exit code is 255 when the process is killed with SIGTERM.
-            # See ffmpeg main() at https://gitlab.com/fflabs/ffmpeg/-/blob/
-            # 0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
-            if (isinstance(self.renderer.encoder, FFMpegEncoder) and
-                    exit_status == 255):
-                exit_status = 'Terminated'
-            logger.debug(f'Exit status of encoder process: {exit_status}')
-
-            self.encoder_proc = None
-            if exit_status in (0, 'Terminated'):
-                await self.stop()
-                return
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
-
-        await self.close()
-
-    async def start(self, writer):
-        renderer = self.renderer
-        try:
-            self.writer = writer
-
-            logger.info(f'Start the {renderer.name} stream  processes')
-            query = ['HTTP/1.1 200 OK',
-                     'Content-type: ' + renderer.mime_type,
-                     'Connection: close',
-                     'Transfer-Encoding: chunked',
-                     '', '']
-            writer.write('\r\n'.join(query).encode('latin-1'))
-            await writer.drain()
-
-            # Start the parec task.
-            # An L16Encoder stream only runs the parec program.
-            encoder = renderer.encoder
-            parec_pgm = renderer.control_point.parec_pgm
-            if isinstance(encoder, L16Encoder):
-                coro = self.run_parec(encoder, parec_pgm)
-            else:
-                pipe_r, stdout = os.pipe()
-                coro = self.run_parec(encoder, parec_pgm, stdout)
-            self.stream_tasks.create_task(coro, name='parec')
-
-            # Start the encoder task.
-            if not isinstance(encoder, L16Encoder):
-                encoder_cmd = encoder.command
-                self.stream_tasks.create_task(self.run_encoder(encoder_cmd,
-                                                               pipe_r),
-                                              name='encoder')
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
-            await self.close()
 
 class Renderer:
     """A DLNA MediaRenderer.
@@ -373,7 +85,7 @@ class Renderer:
         self.protocol_info = None
         self.current_uri = None
         self.new_pulse_session = False
-        self.stream = Stream(self)
+        self.stream_session = StreamSession(self)
         self.pulse_queue = asyncio.Queue()
 
     async def close(self):
@@ -383,11 +95,41 @@ class Renderer:
             if self.nullsink is not None:
                 await self.control_point.pulse.unregister(self.nullsink)
                 self.nullsink = None
-            await self.stream.stop()
+            await self.stream_session.close_stream()
+            await self.stream_session.close_processes()
 
             # Closing the root device will trigger a 'byebye' notification and
             # the renderer will be removed from self.control_point.renderers.
             self.root_device.close()
+
+    async def disable_temporary(self):
+        """Disable the renderer for RENDERER_DISABLE_PERIOD seconds.
+
+        And have pulseaudio switch the stream to the default sink.
+        """
+
+        # Pulse events related to this sink are now discarded.
+        nullsink = self.nullsink
+        self.nullsink = None
+
+        # Unload the null-sink module, sleep RENDERER_DISABLE_PERIOD
+        # seconds and load a new module. During  the sleep period, the
+        # stream that was routed to this null-sink will be routed to
+        # the default sink instead of being silently discarded by the
+        # null-sink.
+        if nullsink is not None:
+            pulse = self.control_point.pulse
+            await pulse.unregister(nullsink)
+            logger.info(f'Wait {RENDERER_DISABLE_PERIOD} seconds before'
+                        f' re-enabling {self.name}')
+            await asyncio.sleep(RENDERER_DISABLE_PERIOD)
+            nullsink = await pulse.register(self, self.name)
+            if nullsink is not None:
+                self.nullsink = nullsink
+            else:
+                logger.error(f'Cannot load a new null-sink module'
+                             f' for {self.name}')
+                await self.close()
 
     async def disable_root_device(self):
         """Close the renderer and disable its root device."""
@@ -408,7 +150,8 @@ class Renderer:
     def start_stream(self, writer):
         task_name = f'stream-{self.name}'
         self.control_point.cp_tasks.create_task(
-                            self.stream.start(writer), name=task_name)
+                            self.stream_session.start_stream(writer),
+                            name=task_name)
 
     def pulse_states(self, sink):
         if sink is None:
@@ -462,7 +205,7 @@ class Renderer:
             state = await asyncio.wait_for(self.get_transport_state(),
                                            timeout=timeout)
         except asyncio.TimeoutError:
-            state = ('PLAYING' if self.stream.writer is not None else
+            state = ('PLAYING' if self.stream_session.is_playing() else
                      'STOPPED')
             logger.debug(f'{self.name} stream state: {state} '
                          f'(GetTransportInfo timed out after {timeout}'
@@ -649,7 +392,7 @@ class Renderer:
                 'NextURIMetaData': didl_lite_metadata
                 }
 
-        await self.stream.stop()
+        self.stream_session.stop_stream()
         log_action(name, action, state, msg=didl_lite_metadata)
         logger.info(f'{metadata}')
         logger.debug(f'URL: {self.current_uri}')
@@ -667,7 +410,7 @@ class Renderer:
             args['Speed'] = speed
 
         if transition == 'Stop':
-            await self.stream.stop()
+            self.stream_session.stop_stream()
 
         await self.soap_action(AVTRANSPORT, transition, args)
 
@@ -730,7 +473,7 @@ class TestRenderer(Renderer):
 
     async def make_transition(self, transition, speed=None):
         if transition == 'Stop':
-            await self.stream.stop()
+            self.stream_session.stop_stream()
 
     async def soap_action(self, serviceId, action, args='unused'):
         if action == 'GetProtocolInfo':
@@ -738,7 +481,8 @@ class TestRenderer(Renderer):
                     'Sink': f'http-get:*:{self.mime_type}:*'
                     }
         elif action == 'GetTransportInfo':
-            state = 'PLAYING' if self.stream.writer is not None else 'STOPPED'
+            state = ('PLAYING' if self.stream_session.is_playing() else
+                     'STOPPED')
             return {'CurrentTransportState': state}
 
 class AVControlPoint(UPnPApplication):

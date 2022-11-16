@@ -27,7 +27,8 @@ Asyncio tasks:
                                     pulseaudio null-sink monitor to the http socket
                                     via 'parec | encoder program | http socket'
 
-    Stream tasks:
+    Streaming tasks:
       parec process
       encoder process
       log_stderr task
+      stream task

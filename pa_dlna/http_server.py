@@ -1,15 +1,41 @@
 """An asyncio HHTP 1.1 server serving DLNA devices requests."""
 
+import os
 import io
 import asyncio
+import signal
 import http.server
 import urllib.parse
 import logging
 from http import HTTPStatus
 
 from . import pprint_pformat
+from .upnp import AsyncioTasks
+from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
+
+# A stream with a throughput of 1 Mbpss sends 2048 bytes every 15.6 msecs.
+HTTP_CHUNK_SIZE = 2048
+
+async def kill_process(process):
+    try:
+        try:
+            # First try with SIGTERM.
+            process.terminate()
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            # Kill the process if the process is still alive.
+            # And close transports of stdin, stdout, and stderr pipes,
+            # otherwise we would get an exception on exit triggered by garbage
+            # collection (a Python bug ?):
+            # Exception ignored in: <function BaseSubprocessTransport.__del__:
+            #   RuntimeError: Event loop is closed
+            process._transport.close()
+    except ProcessLookupError as e:
+        logger.debug(f"Ignoring exception: '{e!r}'")
 
 async def run_httpserver(server):
     aio_server = await asyncio.start_server(server.client_connected,
@@ -25,6 +51,325 @@ async def run_httpserver(server):
             pass
         finally:
             logger.info('Close HTTP server')
+
+class Stream:
+    """An HTTP socket connected to a subprocess stdout."""
+
+    def __init__(self, session, writer):
+        self.session = session
+        self.writer = writer
+        self.task = None
+        self.closing = False
+
+    async def shutdown(self):
+        """Close the HTTP socket."""
+
+        if self.writer is None:
+            return
+        writer = self.writer
+        self.writer = None
+
+        try:
+            # Write the last chunk.
+            if not writer.is_closing():
+                writer.write('0\r\n\r\n'.encode())
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+        except asyncio.CancelledError:
+            logger.debug('Got CancelledError during Stream shutdown')
+        except Exception as e:
+            logger.debug(f'Got exception during Stream shutdown: {e!r}')
+
+    def stop(self):
+        """Run the shutdown coro in a task.
+
+        This method is meant to be run from another non-Stream task.
+        """
+
+        if not self.closing:
+            self.closing = True
+            self.task.cancel()
+
+    async def close(self):
+        if not self.closing:
+            self.closing = True
+            await self.shutdown()
+
+    async def write_stream(self, reader):
+        """Write to the Stream Writer what is read from a subprocess stdout."""
+
+        logger = logging.getLogger('writer')
+        rdr_name = self.session.renderer.name
+        while True:
+            partial_data = False
+            if self.writer.is_closing():
+                logger.debug(f'{rdr_name}: socket is closing')
+                break
+            try:
+                data = await reader.readexactly(HTTP_CHUNK_SIZE)
+            except asyncio.IncompleteReadError as e:
+                data = e.partial
+                partial_data = True
+            if data:
+                self.writer.write(f'{HTTP_CHUNK_SIZE:x}\r\n'.encode())
+                self.writer.write(data)
+                self.writer.write('\r\n'.encode())
+                await self.writer.drain()
+            if not data or partial_data:
+                logger.debug(f'EOF reading from pipe on {rdr_name}')
+                break
+
+    async def run(self, reader):
+        renderer = self.session.renderer
+        try:
+            query = ['HTTP/1.1 200 OK',
+                     'Content-type: ' + renderer.mime_type,
+                     'Connection: close',
+                     'Transfer-Encoding: chunked',
+                     '', '']
+            self.writer.write('\r\n'.join(query).encode('latin-1'))
+            await self.writer.drain()
+            await self.write_stream(reader)
+        except asyncio.CancelledError:
+            self.session.stream_tasks.create_task(self.shutdown(),
+                                                  name='shutdown')
+        except ConnectionError as e:
+            logger.info(f'{renderer.name} HTTP socket is closed: {e!r}')
+            await self.close()
+            await renderer.disable_temporary()
+        except Exception as e:
+            logger.exception(f'{e!r}')
+        finally:
+            await self.close()
+
+class StreamProcesses:
+    """Processes connected through pipes to an HTTP socket.
+
+        - 'parec' records the audio from the nullsink monitor and pipes it
+          to the encoder program.
+        - The encoder program encodes the audio according to the encoder
+          protocol and forwards it to the Stream instance.
+        - The Stream instance writes the stream to the HTTP socket.
+    """
+
+    def __init__(self, session):
+        self.session = session
+        self.parec_proc = None
+        self.encoder_proc = None
+        self.out_pipe = None
+        self.closing = False
+        self.queue = asyncio.Queue()
+
+    async def close(self, disable=False):
+        if self.closing:
+            return
+        self.closing = True
+
+        renderer = self.session.renderer
+        logger.info(f'Terminate the {renderer.name} stream processes')
+        parec_proc = self.parec_proc
+        encoder_proc = self.encoder_proc
+        self.parec_proc = self.encoder_proc = self.out_pipe = None
+        try:
+            if parec_proc is not None:
+                await kill_process(parec_proc)
+
+            if encoder_proc is not None:
+                # Prevent verbose error logs from ffmpeg upon SIGTERM.
+                if isinstance(renderer.encoder, FFMpegEncoder):
+                    for task in self.session.stream_tasks:
+                        if task.get_name() == 'encoder_stderr':
+                            task.cancel()
+                            break
+                await kill_process(encoder_proc)
+
+            if disable:
+                await renderer.disable_root_device()
+
+        except Exception as e:
+            logger.exception(f'{e!r}')
+
+    async def get_out_pipe(self):
+        """Get the stdout pipe of the last process."""
+
+        if self.out_pipe is None:
+            self.out_pipe = await self.queue.get()
+        return self.out_pipe
+
+    async def log_stderr(self, name, stderr):
+        logger = logging.getLogger(name)
+
+        renderer = self.session.renderer
+        remove_env = False
+        if (name == 'encoder' and
+                isinstance(renderer.encoder, FFMpegEncoder) and
+                'AV_LOG_FORCE_NOCOLOR' not in os.environ):
+            os.environ['AV_LOG_FORCE_NOCOLOR'] = '1'
+            remove_env = True
+        try:
+            while True:
+                msg = await stderr.readline()
+                if msg == b'':
+                    break
+                logger.error(msg.decode().strip())
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+        finally:
+            if remove_env:
+                del os.environ['AV_LOG_FORCE_NOCOLOR']
+
+    async def run_parec(self, encoder, parec_pgm, stdout=None):
+        renderer = self.session.renderer
+        try:
+            if not isinstance(encoder, L16Encoder):
+                format = encoder._pulse_format
+            else:
+                format = encoder._network_format
+                stdout = asyncio.subprocess.PIPE
+            monitor = renderer.nullsink.sink.monitor_source_name
+            parec_cmd = [parec_pgm, f'--device={monitor}',
+                         f'--format={format}',
+                         f'--rate={encoder.rate}',
+                         f'--channels={encoder.channels}']
+            logger.debug(f"{renderer.name}: {' '.join(parec_cmd)}")
+
+            exit_status = 0
+            self.parec_proc = await asyncio.create_subprocess_exec(
+                                    *parec_cmd,
+                                    stdin=asyncio.subprocess.DEVNULL,
+                                    stdout=stdout,
+                                    stderr=asyncio.subprocess.PIPE)
+
+            if not isinstance(encoder, L16Encoder):
+                os.close(stdout)
+            else:
+                self.queue.put_nowait(self.parec_proc.stdout)
+            self.session.stream_tasks.create_task(
+                        self.log_stderr('parec', self.parec_proc.stderr),
+                        name='parec_stderr')
+
+            ret = await self.parec_proc.wait()
+            self.parec_proc = None
+            exit_status = ret if ret >= 0 else signal.strsignal(-ret)
+            logger.debug(f'Exit status of parec process: {exit_status}')
+            if exit_status in (0, 'Terminated'):
+                await self.close()
+                return
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+
+        await self.close(disable=True)
+
+    async def run_encoder(self, encoder_cmd, pipe_r):
+        renderer = self.session.renderer
+        try:
+            logger.debug(f"{renderer.name}: {' '.join(encoder_cmd)}")
+
+            exit_status = 0
+            self.encoder_proc = await asyncio.create_subprocess_exec(
+                                    *encoder_cmd,
+                                    stdin=pipe_r,
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE)
+            os.close(pipe_r)
+            self.queue.put_nowait(self.encoder_proc.stdout)
+            self.session.stream_tasks.create_task(
+                    self.log_stderr('encoder', self.encoder_proc.stderr),
+                    name='encoder_stderr')
+
+            ret = await self.encoder_proc.wait()
+            self.encoder_proc = None
+            exit_status = ret if ret >= 0 else signal.strsignal(-ret)
+            # ffmpeg exit code is 255 when the process is killed with SIGTERM.
+            # See ffmpeg main() at https://gitlab.com/fflabs/ffmpeg/-/blob/
+            # 0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
+            if (isinstance(renderer.encoder, FFMpegEncoder) and
+                    exit_status == 255):
+                exit_status = 'Terminated'
+            logger.debug(f'Exit status of encoder process: {exit_status}')
+
+            if exit_status in (0, 'Terminated'):
+                await self.close()
+                return
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+
+        await self.close(disable=True)
+
+    async def run(self):
+        renderer = self.session.renderer
+        logger.info(f'Start the {renderer.name} stream processes')
+        try:
+            # Start the parec task.
+            # An L16Encoder stream only runs the parec program.
+            encoder = renderer.encoder
+            parec_pgm = renderer.control_point.parec_pgm
+            if isinstance(encoder, L16Encoder):
+                coro = self.run_parec(encoder, parec_pgm)
+            else:
+                pipe_r, stdout = os.pipe()
+                coro = self.run_parec(encoder, parec_pgm, stdout)
+            self.session.stream_tasks.create_task(coro, name='parec')
+
+            # Start the encoder task.
+            if not isinstance(encoder, L16Encoder):
+                encoder_cmd = encoder.command
+                self.session.stream_tasks.create_task(
+                                self.run_encoder(encoder_cmd, pipe_r),
+                                name='encoder')
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'{e!r}')
+            await self.close(disable=True)
+
+class StreamSession:
+    """Handle the stream subprocesses and its HTTP socket."""
+
+    def __init__(self, renderer):
+        self.renderer = renderer
+        self.proc = None
+        self.stream = None
+        self.stream_tasks = AsyncioTasks()
+
+    async def close_processes(self):
+        if self.proc is not None and self.proc.parec_proc is not None:
+            proc = self.proc
+            self.proc = None
+            await proc.close()
+
+    async def close_stream(self):
+        if self.stream is not None:
+            self.stream.stop()
+            self.stream = None
+
+    def stop_stream(self):
+        if self.stream is not None:
+            self.stream.stop()
+            self.stream = None
+
+    async def start_stream(self, writer):
+        # Start the subprocesses if not yet done.
+        if self.proc is None or self.proc.parec_proc is None:
+            self.proc = StreamProcesses(self)
+            await self.proc.run()
+
+        # Wait for the last subprocess to be running.
+        reader = await self.proc.get_out_pipe()
+        self.stream = Stream(self, writer)
+        self.stream.task = self.stream_tasks.create_task(
+                                        self.stream.run(reader),
+                                        name='stream')
+
+    def is_playing(self):
+        return self.stream is not None and self.stream.writer is not None
 
 class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
@@ -106,7 +451,7 @@ class HTTPServer:
                                 HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
                     await renderer.disable_root_device()
                     break
-                if renderer.stream.writer is not None:
+                if renderer.stream_session.is_playing():
                     handler.send_error(HTTPStatus.CONFLICT,
                                        f'Cannot start {renderer.name} stream'
                                        f' (already running)')
