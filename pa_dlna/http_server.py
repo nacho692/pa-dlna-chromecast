@@ -246,7 +246,7 @@ class StreamProcesses:
                          f'--format={format}',
                          f'--rate={encoder.rate}',
                          f'--channels={encoder.channels}']
-            logger.debug(f"{renderer.name}: {' '.join(parec_cmd)}")
+            logger.info(f"{renderer.name}: {' '.join(parec_cmd)}")
 
             exit_status = 0
             self.parec_proc = await asyncio.create_subprocess_exec(
@@ -267,7 +267,7 @@ class StreamProcesses:
             self.parec_proc = None
             exit_status = ret if ret >= 0 else signal.strsignal(-ret)
             logger.info(f'Exit status of parec process: {exit_status}')
-            if exit_status in (0, 'Terminated'):
+            if exit_status in (0, 'Killed', 'Terminated'):
                 await self.close()
                 return
         except asyncio.CancelledError:
@@ -280,7 +280,7 @@ class StreamProcesses:
     async def run_encoder(self, encoder_cmd):
         renderer = self.session.renderer
         try:
-            logger.debug(f"{renderer.name}: {' '.join(encoder_cmd)}")
+            logger.info(f"{renderer.name}: {' '.join(encoder_cmd)}")
 
             exit_status = 0
             self.encoder_proc = await asyncio.create_subprocess_exec(
@@ -304,7 +304,7 @@ class StreamProcesses:
                 exit_status = 'Terminated'
             logger.info(f'Exit status of encoder process: {exit_status}')
 
-            if exit_status in (0, 'Terminated'):
+            if exit_status in (0, 'Killed', 'Terminated'):
                 return
         except asyncio.CancelledError:
             pass
