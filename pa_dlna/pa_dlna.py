@@ -219,8 +219,11 @@ class Renderer:
                                                       action, state)
                     return
                 elif action == 'Stop':
+                    # Do not use the corresponding soap action. Let the
+                    # HTTP 1.1 chunked transfer encoding handles the closing
+                    # of the stream.
                     log_action(self.name, action, state)
-                    await self.make_transition('Stop')
+                    await self.stream_session.stop_stream()
                     return
                 # Ignore 'Pause' events as it does not work well with
                 # streaming because of the DLNA buffering the stream.
@@ -235,7 +238,7 @@ class Renderer:
                     return
                 elif action == 'Play':
                     log_action(self.name, action, state)
-                    await self.make_transition('Play', speed=1)
+                    await self.play()
                     return
         except UPnPSoapFaultError as e:
             error_code = e.args[0].errorCode
@@ -403,15 +406,10 @@ class Renderer:
         state = res['CurrentTransportState']
         return state
 
-    async def make_transition(self, transition, speed=None):
+    async def play(self, speed=1):
         args = {'InstanceID': 0}
-        if speed is not None:
-            args['Speed'] = speed
-
-        if transition == 'Stop':
-            await self.stream_session.stop_stream()
-
-        await self.soap_action(AVTRANSPORT, transition, args)
+        args['Speed'] = speed
+        await self.soap_action(AVTRANSPORT, 'Play', args)
 
     async def run(self):
         """Run the Renderer task."""
@@ -470,9 +468,8 @@ class TestRenderer(Renderer):
                          self.RootDevice(self, mime_type, control_point))
         self.mime_type = mime_type
 
-    async def make_transition(self, transition, speed=None):
-        if transition == 'Stop':
-            await self.stream_session.stop_stream()
+    async def play(self, speed=1):
+        pass
 
     async def soap_action(self, serviceId, action, args='unused'):
         if action == 'GetProtocolInfo':
