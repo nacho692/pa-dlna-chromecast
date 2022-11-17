@@ -157,32 +157,33 @@ class StreamProcesses:
         self.session = session
         self.parec_proc = None
         self.encoder_proc = None
-        self.out_pipe = None
-        self.closing = False
+        self.pipe_reader = -1       # reader of the parec to encoder pipe
+        self.stream_reader = None   # StreamReader end of the pipe chain
+        self.no_encoder = isinstance(session.renderer.encoder, L16Encoder)
         self.queue = asyncio.Queue()
 
-    async def close(self, disable=False):
-        if self.closing:
-            return
-        self.closing = True
+    async def close_encoder(self):
+        if self.encoder_proc is not None:
+            # Prevent verbose error logs from ffmpeg upon SIGTERM.
+            if isinstance(self.session.renderer.encoder, FFMpegEncoder):
+                for task in self.session.stream_tasks:
+                    if task.get_name() == 'encoder_stderr':
+                        task.cancel()
+                        break
+            await kill_process(self.encoder_proc)
+            self.encoder_proc = None
+            self.stream_reader = None
 
+    async def close(self, disable=False):
         renderer = self.session.renderer
         logger.info(f'Terminate the {renderer.name} stream processes')
-        parec_proc = self.parec_proc
-        encoder_proc = self.encoder_proc
-        self.parec_proc = self.encoder_proc = self.out_pipe = None
         try:
-            if parec_proc is not None:
-                await kill_process(parec_proc)
+            if self.parec_proc is not None:
+                await kill_process(self.parec_proc)
+                os.close(self.pipe_reader)
+                self.parec_proc = None
 
-            if encoder_proc is not None:
-                # Prevent verbose error logs from ffmpeg upon SIGTERM.
-                if isinstance(renderer.encoder, FFMpegEncoder):
-                    for task in self.session.stream_tasks:
-                        if task.get_name() == 'encoder_stderr':
-                            task.cancel()
-                            break
-                await kill_process(encoder_proc)
+            await self.close_encoder()
 
             if disable:
                 await renderer.disable_root_device()
@@ -190,12 +191,12 @@ class StreamProcesses:
         except Exception as e:
             logger.exception(f'{e!r}')
 
-    async def get_out_pipe(self):
+    async def get_stream_reader(self):
         """Get the stdout pipe of the last process."""
 
-        if self.out_pipe is None:
-            self.out_pipe = await self.queue.get()
-        return self.out_pipe
+        if self.stream_reader is None:
+            self.stream_reader = await self.queue.get()
+        return self.stream_reader
 
     async def log_stderr(self, name, stderr):
         logger = logging.getLogger(name)
@@ -224,11 +225,11 @@ class StreamProcesses:
     async def run_parec(self, encoder, parec_pgm, stdout=None):
         renderer = self.session.renderer
         try:
-            if not isinstance(encoder, L16Encoder):
-                format = encoder._pulse_format
-            else:
+            if self.no_encoder:
                 format = encoder._network_format
                 stdout = asyncio.subprocess.PIPE
+            else:
+                format = encoder._pulse_format
             monitor = renderer.nullsink.sink.monitor_source_name
             parec_cmd = [parec_pgm, f'--device={monitor}',
                          f'--format={format}',
@@ -243,10 +244,10 @@ class StreamProcesses:
                                     stdout=stdout,
                                     stderr=asyncio.subprocess.PIPE)
 
-            if not isinstance(encoder, L16Encoder):
-                os.close(stdout)
-            else:
+            if self.no_encoder:
                 self.queue.put_nowait(self.parec_proc.stdout)
+            else:
+                os.close(stdout)
             self.session.stream_tasks.create_task(
                         self.log_stderr('parec', self.parec_proc.stderr),
                         name='parec_stderr')
@@ -265,7 +266,7 @@ class StreamProcesses:
 
         await self.close(disable=True)
 
-    async def run_encoder(self, encoder_cmd, pipe_r):
+    async def run_encoder(self, encoder_cmd):
         renderer = self.session.renderer
         try:
             logger.debug(f"{renderer.name}: {' '.join(encoder_cmd)}")
@@ -273,10 +274,9 @@ class StreamProcesses:
             exit_status = 0
             self.encoder_proc = await asyncio.create_subprocess_exec(
                                     *encoder_cmd,
-                                    stdin=pipe_r,
+                                    stdin=self.pipe_reader,
                                     stdout=asyncio.subprocess.PIPE,
                                     stderr=asyncio.subprocess.PIPE)
-            os.close(pipe_r)
             self.queue.put_nowait(self.encoder_proc.stdout)
             self.session.stream_tasks.create_task(
                     self.log_stderr('encoder', self.encoder_proc.stderr),
@@ -294,7 +294,6 @@ class StreamProcesses:
             logger.debug(f'Exit status of encoder process: {exit_status}')
 
             if exit_status in (0, 'Terminated'):
-                await self.close()
                 return
         except asyncio.CancelledError:
             pass
@@ -306,23 +305,24 @@ class StreamProcesses:
     async def run(self):
         renderer = self.session.renderer
         logger.info(f'Start the {renderer.name} stream processes')
+        encoder = renderer.encoder
         try:
-            # Start the parec task.
-            # An L16Encoder stream only runs the parec program.
-            encoder = renderer.encoder
-            parec_pgm = renderer.control_point.parec_pgm
-            if isinstance(encoder, L16Encoder):
-                coro = self.run_parec(encoder, parec_pgm)
-            else:
-                pipe_r, stdout = os.pipe()
-                coro = self.run_parec(encoder, parec_pgm, stdout)
-            self.session.stream_tasks.create_task(coro, name='parec')
+            if self.parec_proc is None:
+                # Start the parec task.
+                # An L16Encoder stream only runs the parec program.
+                parec_pgm = renderer.control_point.parec_pgm
+                if self.no_encoder:
+                    coro = self.run_parec(encoder, parec_pgm)
+                else:
+                    self.pipe_reader, stdout = os.pipe()
+                    coro = self.run_parec(encoder, parec_pgm, stdout)
+                self.session.stream_tasks.create_task(coro, name='parec')
 
             # Start the encoder task.
-            if not isinstance(encoder, L16Encoder):
+            if not self.no_encoder and self.encoder_proc is None:
                 encoder_cmd = encoder.command
                 self.session.stream_tasks.create_task(
-                                self.run_encoder(encoder_cmd, pipe_r),
+                                self.run_encoder(encoder_cmd),
                                 name='encoder')
         except asyncio.CancelledError:
             pass
@@ -331,38 +331,38 @@ class StreamProcesses:
             await self.close(disable=True)
 
 class StreamSession:
-    """Handle the stream subprocesses and its HTTP socket."""
+    """Handle the stream subprocesses and its HTTP socket.
+
+    Stopping the stream terminates the encoder process but not the
+    parec process.
+    """
 
     def __init__(self, renderer):
         self.renderer = renderer
-        self.proc = None
+        self.processes = None
         self.stream = None
         self.stream_tasks = AsyncioTasks()
 
-    async def close_processes(self):
-        if self.proc is not None and self.proc.parec_proc is not None:
-            proc = self.proc
-            self.proc = None
-            await proc.close()
-
-    async def close_stream(self):
+    async def stop_stream(self):
         if self.stream is not None:
             self.stream.stop()
             self.stream = None
+            await self.processes.close_encoder()
 
-    def stop_stream(self):
-        if self.stream is not None:
-            self.stream.stop()
-            self.stream = None
+    async def close(self):
+        await self.stop_stream()
+        if self.processes is not None:
+            await self.processes.close()
+            self.processes = None
 
     async def start_stream(self, writer):
-        # Start the subprocesses if not yet done.
-        if self.proc is None or self.proc.parec_proc is None:
-            self.proc = StreamProcesses(self)
-            await self.proc.run()
+        # Start the subprocesses.
+        if self.processes is None:
+            self.processes = StreamProcesses(self)
+        await self.processes.run()
 
-        # Wait for the last subprocess to be running.
-        reader = await self.proc.get_out_pipe()
+        # Get the reader from the last subprocess on the pipe chain.
+        reader = await self.processes.get_stream_reader()
         self.stream = Stream(self, writer)
         self.stream.task = self.stream_tasks.create_task(
                                         self.stream.run(reader),

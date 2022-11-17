@@ -29,6 +29,9 @@ Asyncio tasks:
 
     Streaming tasks:
       parec process
+      parec log_stderr
       encoder process
+      encoder log_stderr
       log_stderr task
       stream task
+      stream shutdown

@@ -95,8 +95,7 @@ class Renderer:
             if self.nullsink is not None:
                 await self.control_point.pulse.unregister(self.nullsink)
                 self.nullsink = None
-            await self.stream_session.close_stream()
-            await self.stream_session.close_processes()
+            await self.stream_session.close()
 
             # Closing the root device will trigger a 'byebye' notification and
             # the renderer will be removed from self.control_point.renderers.
@@ -392,7 +391,7 @@ class Renderer:
                 'NextURIMetaData': didl_lite_metadata
                 }
 
-        self.stream_session.stop_stream()
+        await self.stream_session.stop_stream()
         log_action(name, action, state, msg=didl_lite_metadata)
         logger.info(f'{metadata}')
         logger.debug(f'URL: {self.current_uri}')
@@ -410,7 +409,7 @@ class Renderer:
             args['Speed'] = speed
 
         if transition == 'Stop':
-            self.stream_session.stop_stream()
+            await self.stream_session.stop_stream()
 
         await self.soap_action(AVTRANSPORT, transition, args)
 
@@ -473,7 +472,7 @@ class TestRenderer(Renderer):
 
     async def make_transition(self, transition, speed=None):
         if transition == 'Stop':
-            self.stream_session.stop_stream()
+            await self.stream_session.stop_stream()
 
     async def soap_action(self, serviceId, action, args='unused'):
         if action == 'GetProtocolInfo':
