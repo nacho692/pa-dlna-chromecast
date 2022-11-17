@@ -30,6 +30,7 @@ Asyncio tasks:
     Streaming tasks:
       parec process
       parec log_stderr
+      monitor task
       encoder process
       encoder log_stderr
       log_stderr task
