@@ -288,7 +288,7 @@ class Renderer:
             self.nullsink.sink_input = None
         else:
             assert sink is not None and sink_input is not None
-            if event == 'new':
+            if event == 'new' or self.nullsink.sink_input is None:
                 self.new_pulse_session = True
 
             # Handle the metadata first: when the device current state is
