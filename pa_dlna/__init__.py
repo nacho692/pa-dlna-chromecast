@@ -72,8 +72,7 @@ def setup_logging(options):
         else:
             logfile_hdler.setLevel(logging.DEBUG)
             formatter = logging.Formatter(
-                fmt='%(asctime)s %(name)-7s %(levelname)-7s %(message)s',
-                datefmt='%m-%d %H:%M.%S')
+                fmt='%(asctime)s %(name)-7s %(levelname)-7s %(message)s')
             logfile_hdler.setFormatter(formatter)
             root.addHandler(logfile_hdler)
             return logfile_hdler
