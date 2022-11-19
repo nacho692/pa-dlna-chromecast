@@ -71,6 +71,7 @@ class Stream:
         writer = self.writer
         self.writer = None
 
+        rdr_name = self.session.renderer.name
         try:
             # Write the last chunk.
             if not writer.is_closing():
@@ -78,10 +79,12 @@ class Stream:
             await writer.drain()
             writer.close()
             await writer.wait_closed()
+            logger.debug(f'{rdr_name}: Stream stopped')
         except asyncio.CancelledError:
-            logger.debug('Got CancelledError during Stream shutdown')
+            logger.debug(f'{rdr_name}: Got CancelledError at Stream shutdown')
         except Exception as e:
-            logger.debug(f'Got exception during Stream shutdown: {e!r}')
+            logger.debug(f'{rdr_name}: Got exception at Stream shutdown:'
+                         f' {e!r}')
 
     def stop(self):
         """Run the shutdown coro in a task.
@@ -132,6 +135,7 @@ class Stream:
                      '', '']
             self.writer.write('\r\n'.join(query).encode('latin-1'))
             await self.writer.drain()
+            logger.debug(f'{renderer.name}: Stream started')
             await self.write_stream(reader)
         except asyncio.CancelledError:
             self.session.stream_tasks.create_task(self.shutdown(),
@@ -153,6 +157,12 @@ class StreamProcesses:
         - The encoder program encodes the audio according to the encoder
           protocol and forwards it to the Stream instance.
         - The Stream instance writes the stream to the HTTP socket.
+
+    The stream is written to the parec stdout buffer while the device is
+    switching to a new track upon receiving the 'SetNextAVTransportURI' and
+    the new encoder has not been started yet. Hence the 'pipe_reader' reader
+    attribute and the need for a monitor task to kill the parec process when
+    the streaming is stopped.
     """
 
     def __init__(self, session):
@@ -314,7 +324,11 @@ class StreamProcesses:
         await self.close(disable=True)
 
     async def monitor(self):
-        """Monitor the stream state."""
+        """Monitor the parec process.
+
+        Kill the process when the stream has been idle for more than
+        PAREC_IDLE_TIMEOUT seconds.
+        """
 
         try:
             count = 0
