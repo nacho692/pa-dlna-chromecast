@@ -15,8 +15,6 @@ from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
 
-# Period the parec process may remain idle, in seconds.
-PAREC_IDLE_TIMEOUT = 10
 # A stream with a throughput of 1 Mbpss sends 2048 bytes every 15.6 msecs.
 HTTP_CHUNK_SIZE = 2048
 
@@ -160,9 +158,8 @@ class StreamProcesses:
 
     The stream is written to the parec stdout buffer while the device is
     switching to a new track upon receiving the 'SetNextAVTransportURI' and
-    the new encoder has not been started yet. Hence the 'pipe_reader' reader
-    attribute and the need for a monitor task to kill the parec process when
-    the streaming is stopped.
+    the new encoder has not been started yet. Hence the need for the
+    'pipe_reader' attribute.
     """
 
     def __init__(self, session):
@@ -171,7 +168,6 @@ class StreamProcesses:
         self.encoder_proc = None
         self.pipe_reader = -1       # reader of the parec to encoder pipe
         self.stream_reader = None   # StreamReader end of the pipe chain
-        self.monitor_t = None       # task that monitors the stream state
         self.no_encoder = isinstance(session.renderer.encoder, L16Encoder)
         self.queue = asyncio.Queue()
 
@@ -191,10 +187,6 @@ class StreamProcesses:
     async def close(self, disable=False):
         renderer = self.session.renderer
         try:
-            if self.monitor_t is not None:
-                self.monitor_t.cancel()
-                self.monitor_t = None
-
             parec_killed = False
             if self.parec_proc is not None:
                 await kill_process(self.parec_proc)
@@ -323,41 +315,11 @@ class StreamProcesses:
 
         await self.close(disable=True)
 
-    async def monitor(self):
-        """Monitor the parec process.
-
-        Kill the process when the stream has been idle for more than
-        PAREC_IDLE_TIMEOUT seconds.
-        """
-
-        try:
-            count = 0
-            while True:
-                await asyncio.sleep(1)
-                if not self.session.is_playing():
-                    count += 1
-                    if count == PAREC_IDLE_TIMEOUT:
-                        logger.info(f'Killing parec process after '
-                                    f'{PAREC_IDLE_TIMEOUT} seconds idle time')
-                        await self.close()
-                        break
-                else:
-                    count = 0
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
-
     async def run(self):
         renderer = self.session.renderer
         logger.info(f'Start the {renderer.name} stream processes')
         encoder = renderer.encoder
         try:
-            if self.monitor_t is None:
-                self.monitor_t = self.session.stream_tasks.create_task(
-                                                            self.monitor(),
-                                                            name='monitor')
-
             if self.parec_proc is None:
                 # Start the parec task.
                 # An L16Encoder stream only runs the parec program.

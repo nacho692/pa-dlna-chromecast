@@ -222,7 +222,7 @@ class Renderer:
                     # HTTP 1.1 chunked transfer encoding handles the closing
                     # of the stream.
                     log_action(self.name, action, state)
-                    await self.stream_session.stop_stream()
+                    await self.stream_session.close()
                     return
                 # Ignore 'Pause' events as it does not work well with
                 # streaming because of the DLNA buffering the stream.
