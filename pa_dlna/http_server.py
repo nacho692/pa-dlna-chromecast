@@ -15,7 +15,7 @@ from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
 
-# A stream with a throughput of 1 Mbpss sends 2048 bytes every 15.6 msecs.
+# A stream with a throughput of 1 Mbps sends 2048 bytes every 15.6 msecs.
 HTTP_CHUNK_SIZE = 2048
 
 async def kill_process(process):
@@ -52,8 +52,13 @@ async def run_httpserver(server):
         finally:
             logger.info('Close HTTP server')
 
-class Stream:
-    """An HTTP socket connected to a subprocess stdout."""
+class Track:
+    """An HTTP socket connected to a subprocess stdout.
+
+    Attributes:
+        writer
+            The asyncio StreamWriter wrapping the HTTP socket.
+    """
 
     def __init__(self, session, writer):
         self.session = session
@@ -77,17 +82,17 @@ class Stream:
             await writer.drain()
             writer.close()
             await writer.wait_closed()
-            logger.debug(f'{rdr_name}: Stream stopped')
+            logger.debug(f'{rdr_name}: track is stopped')
         except asyncio.CancelledError:
-            logger.debug(f'{rdr_name}: Got CancelledError at Stream shutdown')
+            logger.debug(f'{rdr_name}: Got CancelledError at Track shutdown')
         except Exception as e:
-            logger.debug(f'{rdr_name}: Got exception at Stream shutdown:'
+            logger.debug(f'{rdr_name}: Got exception at Track shutdown:'
                          f' {e!r}')
 
     def stop(self):
         """Run the shutdown coro in a task.
 
-        This method is meant to be run from another non-Stream task.
+        This method is meant to be run from another non-Track task.
         """
 
         if not self.closing:
@@ -99,8 +104,8 @@ class Stream:
             self.closing = True
             await self.shutdown()
 
-    async def write_stream(self, reader):
-        """Write to the Stream Writer what is read from a subprocess stdout."""
+    async def write_track(self, reader):
+        """Write to the StreamWriter what is read from a subprocess stdout."""
 
         logger = logging.getLogger('writer')
         rdr_name = self.session.renderer.name
@@ -124,6 +129,7 @@ class Stream:
                 break
 
     async def run(self, reader):
+        assert self.task is not None
         renderer = self.session.renderer
         try:
             query = ['HTTP/1.1 200 OK',
@@ -133,8 +139,8 @@ class Stream:
                      '', '']
             self.writer.write('\r\n'.join(query).encode('latin-1'))
             await self.writer.drain()
-            logger.debug(f'{renderer.name}: Stream started')
-            await self.write_stream(reader)
+            logger.debug(f'{renderer.name}: track is started')
+            await self.write_track(reader)
         except asyncio.CancelledError:
             self.session.stream_tasks.create_task(self.shutdown(),
                                                   name='shutdown')
@@ -153,21 +159,28 @@ class StreamProcesses:
         - 'parec' records the audio from the nullsink monitor and pipes it
           to the encoder program.
         - The encoder program encodes the audio according to the encoder
-          protocol and forwards it to the Stream instance.
-        - The Stream instance writes the stream to the HTTP socket.
+          protocol and forwards it to the Track instance.
+        - The Track instance writes the track to the HTTP socket.
 
-    The stream is written to the parec stdout buffer while the device is
+    The track is written to the parec stdout buffer while the device is
     switching to a new track upon receiving the 'SetNextAVTransportURI' and
     the new encoder has not been started yet. Hence the need for the
     'pipe_reader' attribute.
+
+    Attributes:
+        pipe_reader
+            The file descriptor of the parec to encoder pipe.
+        stream_reader
+            The asyncio StreamReader at the end of the pipe chain.
+
     """
 
     def __init__(self, session):
         self.session = session
         self.parec_proc = None
         self.encoder_proc = None
-        self.pipe_reader = -1       # reader of the parec to encoder pipe
-        self.stream_reader = None   # StreamReader end of the pipe chain
+        self.pipe_reader = -1
+        self.stream_reader = None
         self.no_encoder = isinstance(session.renderer.encoder, L16Encoder)
         self.queue = asyncio.Queue()
 
@@ -317,7 +330,7 @@ class StreamProcesses:
 
     async def run(self):
         renderer = self.session.renderer
-        logger.info(f'Start the {renderer.name} stream processes')
+        logger.info(f'Start {renderer.name} stream process(es)')
         encoder = renderer.encoder
         try:
             if self.parec_proc is None:
@@ -344,31 +357,35 @@ class StreamProcesses:
             await self.close(disable=True)
 
 class StreamSession:
-    """Handle the stream subprocesses and its HTTP socket.
+    """Handle multiple tracks.
 
-    Stopping the stream terminates the encoder process but not the
-    parec process.
+    A track is processed with the stream data flowing through pipes
+    established between stream subprocesses and the HTTP socket:
+
+        parec process | encoder process | Track instance writing to HTTP socket
+
+    Stopping a track terminates the encoder process but not the parec process.
     """
 
     def __init__(self, renderer):
         self.renderer = renderer
         self.processes = None
-        self.stream = None
+        self.track = None
         self.stream_tasks = AsyncioTasks()
 
-    async def stop_stream(self):
-        if self.stream is not None:
-            self.stream.stop()
-            self.stream = None
+    async def stop_track(self):
+        if self.track is not None:
+            self.track.stop()
+            self.track = None
             await self.processes.close_encoder()
 
     async def close(self):
-        await self.stop_stream()
+        await self.stop_track()
         if self.processes is not None:
             await self.processes.close()
             self.processes = None
 
-    async def start_stream(self, writer):
+    async def start_track(self, writer):
         # Start the subprocesses.
         if self.processes is None:
             self.processes = StreamProcesses(self)
@@ -376,13 +393,13 @@ class StreamSession:
 
         # Get the reader from the last subprocess on the pipe chain.
         reader = await self.processes.get_stream_reader()
-        self.stream = Stream(self, writer)
-        self.stream.task = self.stream_tasks.create_task(
-                                        self.stream.run(reader),
-                                        name='stream')
+        self.track = Track(self, writer)
+        self.track.task = self.stream_tasks.create_task(
+                                        self.track.run(reader),
+                                        name='track')
 
     def is_playing(self):
-        return self.stream is not None and self.stream.writer is not None
+        return self.track is not None and self.track.writer is not None
 
 class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
@@ -397,7 +414,8 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         setattr(writer, 'flush', flush)
 
     async def set_rfile(self):
-        # Read the full HTTP request from the asyncio Stream into a BytesIO.
+        # Read the full HTTP request from the asyncio StreamReader into a
+        # BytesIO.
         request = []
         while True:
             line = await self._reader.readline()
@@ -475,7 +493,7 @@ class HTTPServer:
                     break
 
                 # Ok, handle the request.
-                renderer.start_stream(writer)
+                renderer.start_track(writer)
                 do_close = False
                 return
 

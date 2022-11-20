@@ -146,10 +146,10 @@ class Renderer:
     def match(self, uri_path):
         return uri_path == f'{AUDIO_URI_PREFIX}/{self.root_device.udn}'
 
-    def start_stream(self, writer):
+    def start_track(self, writer):
         task_name = f'stream-{self.name}'
         self.control_point.cp_tasks.create_task(
-                            self.stream_session.start_stream(writer),
+                            self.stream_session.start_track(writer),
                             name=task_name)
 
     def pulse_states(self, sink):
@@ -393,7 +393,7 @@ class Renderer:
                 'NextURIMetaData': didl_lite_metadata
                 }
 
-        await self.stream_session.stop_stream()
+        await self.stream_session.stop_track()
         log_action(name, action, state, msg=didl_lite_metadata)
         logger.info(f'{metadata}')
         logger.debug(f'URL: {self.current_uri}')

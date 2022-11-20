@@ -33,5 +33,5 @@ Asyncio tasks:
       encoder process
       encoder log_stderr
       log_stderr task
-      stream task
-      stream shutdown
+      track task
+      track shutdown task
