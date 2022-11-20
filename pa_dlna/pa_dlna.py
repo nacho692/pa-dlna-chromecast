@@ -298,7 +298,7 @@ class Renderer:
         # This will trigger 'SetAVTransportURI' and 'Play' soap
         # actions if the device is in the appropriate state.
         if self.new_pulse_session:
-            if (prev_state, new_state) == ('idle', 'running'):
+            if new_state == 'running':
                 # So that the device may display at least some useful info.
                 if not cur_metadata.title:
                     cur_metadata = cur_metadata._replace(
