@@ -102,7 +102,7 @@ class DefaultConfig:
                     # Python as '_classname__spam'.
                     if '__' in attr:
                         continue
-                    self.parser.set(section, f'# {attr[1:]}: {val}')
+                    self.parser.set(section, f"# {attr[1:]}: {val}")
                 elif (not hasattr(root, attr) or
                       getattr(root, attr) != getattr(encoder, attr)):
                     if write_separator:
@@ -131,7 +131,7 @@ class DefaultConfig:
 
     def override_options(self, encoder, section, defaults):
         for option, value in self.parser.items(section):
-            if option.startswith('#'):
+            if option.startswith("#"):
                 continue
             if (hasattr(encoder, option) and
                     not option.startswith('_')):
