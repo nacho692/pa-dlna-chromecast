@@ -1,7 +1,5 @@
 """Encoders configuration.
 
-Attributes starting with '__' (mangled by Python as '_classname__attribute')
-are for internal use.
 Attributes starting with '_' are seen by the user as read only options.
 
 """
@@ -278,11 +276,11 @@ class FFMpegEncoder(Encoder):
     PGM = None
     FORMATS = None
     ENCODERS = None
+    container = None
+    encoder = None
 
-    def __init__(self, mime_types, *, container, encoder=None,
-                 pulse_format=None):
-        self.__container = container
-        self.__encoder = encoder
+    def __init__(self, mime_types, *, pulse_format=None):
+        assert self.container is not None
 
         if self.FORMATS is None:
             FFMpegEncoder.FORMATS = ''
@@ -292,7 +290,7 @@ class FFMpegEncoder(Encoder):
                                       stdout=subprocess.PIPE,
                                       stderr=subprocess.DEVNULL, text=True)
                 FFMpegEncoder.FORMATS = proc.stdout
-        self._available = container in self.FORMATS
+        self._available = self.container in self.FORMATS
         self._pgm = self.PGM
         self._mime_types = mime_types
         # End of setting options as comments.
@@ -303,7 +301,7 @@ class FFMpegEncoder(Encoder):
         if pulse_format is not None:
             self._pulse_format = pulse_format
 
-        if encoder is not None:
+        if self.encoder is not None:
             if self.ENCODERS is None:
                 FFMpegEncoder.ENCODERS = ''
                 if self.PGM is not None:
@@ -312,7 +310,7 @@ class FFMpegEncoder(Encoder):
                                           stderr=subprocess.DEVNULL,
                                           text=True)
                     FFMpegEncoder.ENCODERS = proc.stdout
-            self._available = encoder in self.ENCODERS and self._available
+            self._available = self.encoder in self.ENCODERS and self._available
 
     def extra_args(self):
         return ''
@@ -324,9 +322,9 @@ class FFMpegEncoder(Encoder):
         self.args = (f'-loglevel error -hide_banner -nostats '
                      f'-ac {self.channels} -ar {self.rate} '
                      f'-f {self._pulse_format} -i - '
-                     f'-f {self.__container}')
-        if self.__encoder is not None:
-            self.args += f' -c:a {self.__encoder}'
+                     f'-f {self.container}')
+        if self.encoder is not None:
+            self.args += f' -c:a {self.encoder}'
         extra = self.extra_args()
         if extra:
             self.args += f' {extra}'
@@ -345,9 +343,11 @@ class FFMpegAacEncoder(FFMpegEncoder):
     See also https://trac.ffmpeg.org/wiki/Encode/AAC.
     """
 
+    container = 'adts'
+    encoder = 'aac'
+
     def __init__(self):
-        super().__init__(['audio/aac', 'audio/x-aac', 'audio/vnd.dlna.adts'],
-                         container='adts', encoder='aac')
+        super().__init__(['audio/aac', 'audio/x-aac', 'audio/vnd.dlna.adts'])
         self.bitrate = 192
 
     def extra_args(self):
@@ -356,8 +356,10 @@ class FFMpegAacEncoder(FFMpegEncoder):
 class FFMpegAiffEncoder(FFMpegEncoder):
     """Lossless Aiff Encoder."""
 
+    container = 'aiff'
+
     def __init__(self):
-        super().__init__(['audio/aiff'], container='aiff')
+        super().__init__(['audio/aiff'])
 
 class FFMpegFlacEncoder(FFMpegEncoder):
     """Lossless Flac encoder.
@@ -365,15 +367,18 @@ class FFMpegFlacEncoder(FFMpegEncoder):
     See also https://ffmpeg.org/ffmpeg-all.html#flac-2.
     """
 
+    container = 'flac'
+
     def __init__(self):
-        super().__init__(['audio/flac', 'audio/x-flac'], container='flac')
+        super().__init__(['audio/flac', 'audio/x-flac'])
 
 class FFMpegL16WavEncoder(L16Mixin, FFMpegEncoder):
     """Lossless L16 encoder with a wav container."""
 
+    container = 'wav'
+
     def __init__(self):
-        FFMpegEncoder.__init__(self, ['audio/l16'], container='wav',
-                               pulse_format='s16be')
+        FFMpegEncoder.__init__(self, ['audio/l16'], pulse_format='s16be')
 
 class FFMpegMp3Encoder(FFMpegEncoder):
     """Mp3 encoder.
@@ -383,9 +388,11 @@ class FFMpegMp3Encoder(FFMpegEncoder):
     See also https://trac.ffmpeg.org/wiki/Encode/MP3.
     """
 
+    container = 'mp3'
+    encoder = 'libmp3lame'
+
     def __init__(self):
-        super().__init__(['audio/mp3', 'audio/mpeg'], container='mp3',
-                         encoder='libmp3lame')
+        super().__init__(['audio/mp3', 'audio/mpeg'])
         self.bitrate = 256
         self.qscale = 2
 
@@ -401,9 +408,11 @@ class FFMpegOpusEncoder(FFMpegEncoder):
     See also https://wiki.xiph.org/Opus_Recommended_Settings.
     """
 
+    container = 'opus'
+    encoder = 'libopus'
+
     def __init__(self):
-        super().__init__(['audio/opus', 'audio/x-opus'], container='opus',
-                         encoder='libopus')
+        super().__init__(['audio/opus', 'audio/x-opus'])
         self.bitrate = 128
 
     def extra_args(self):
@@ -417,9 +426,11 @@ class FFMpegVorbisEncoder(FFMpegEncoder):
     See also https://ffmpeg.org/ffmpeg-all.html#libvorbis.
     """
 
+    container = 'ogg'
+    encoder = 'libvorbis'
+
     def __init__(self):
-        super().__init__(['audio/vorbis', 'audio/x-vorbis'], container='ogg',
-                         encoder='libvorbis')
+        super().__init__(['audio/vorbis', 'audio/x-vorbis'])
         self.bitrate = 256
         self.qscale = 3.0
 

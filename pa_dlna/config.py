@@ -98,10 +98,6 @@ class DefaultConfig:
             for attr in encoder.__dict__:
                 val = convert_boolean(encoder, attr)
                 if attr.startswith('_'):
-                    # Ignore attributes starting with '__', mangled by
-                    # Python as '_classname__spam'.
-                    if '__' in attr:
-                        continue
                     self.parser.set(section, f"# {attr[1:]}: {val}")
                 elif (not hasattr(root, attr) or
                       getattr(root, attr) != getattr(encoder, attr)):
@@ -244,6 +240,6 @@ class UserConfig(DefaultConfig):
             sys.stdout.write('No encoder is available\n')
             return
         encoders_repr = pprint_pformat(config, sort_dicts=False, compact=True)
-        sys.stdout.write('Internal configuration, ')
-        sys.stdout.write('keys starting with underscore are read only:\n')
+        sys.stdout.write('Internal configuration:\n')
+        sys.stdout.write('The keys starting with underscore are read only.\n')
         sys.stdout.write(f'{encoders_repr}\n')
