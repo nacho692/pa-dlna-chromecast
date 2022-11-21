@@ -126,7 +126,8 @@ class Encoder:
             return True
 
     def set_args(self):
-        raise NotImplementedError
+        """Return True is 'args' is not set in the user configuration file."""
+        return self.args == 'None'
 
     def command(self):
         raise NotImplementedError
@@ -187,7 +188,7 @@ class FlacEncoder(StandAloneEncoder):
         super().__init__()
 
     def set_args(self):
-        if str(self.args) != 'None':
+        if not super().set_args():
             return
 
         endian = 'little' if self._pulse_format == 's16le' else 'big'
@@ -252,7 +253,7 @@ class Mp3Encoder(StandAloneEncoder):
         self.quality = 0
 
     def set_args(self):
-        if str(self.args) != 'None':
+        if not super().set_args():
             return
 
         sampling = self.rate / 1000
@@ -317,7 +318,7 @@ class FFMpegEncoder(Encoder):
         return ''
 
     def set_args(self):
-        if str(self.args) != 'None':
+        if not super().set_args():
             return
 
         self.args = (f'-loglevel error -hide_banner -nostats '
