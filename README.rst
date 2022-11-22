@@ -1,4 +1,4 @@
-An UPnP control point that forwards Pulseaudio streams to DLNA devices.
+An UPnP control point routing PulseAudio streams to DLNA devices.
 
 **Work in progress**
 
@@ -7,31 +7,35 @@ Development
 
 Asyncio tasks:
 
-    UPnP tasks:
-      ssdp notify task              monitor reception of ssdp notify PDUs
-      ssdp msearch task             send msearch PDUs at regular intervals
-      n x root device aging tasks   implement control of the aging of a root device
+    UPnPControlPoint tasks:
+      ssdp notify           Monitor reception of ssdp notify PDUs.
+      ssdp msearch          Send msearch PDUs at regular intervals.
+      n x root device       Implement control of the aging of an UPnP root
+                            device.
 
     AVControlPoint tasks:
-      main task                     * run the UPnPControlPoint that starts the UPnP
-                                      tasks above
-                                    * create the pulse task, the http_server task
-                                      and the renderer tasks
-                                    * handle UPnP notifications
-      shutdown task                 wait on event pushed by the signal handlers
-      pulse task                    monitor puseaudio sink-input events
-      http_server task              serve DLNA requests and start the streaming tasks
-      n x renderer tasks            act upon pulseaudio events and run UPnP soap
-                                    actions
-      n x streaming tasks           start the processes that stream audio from a
-                                    pulseaudio null-sink monitor to the http socket
-                                    via 'parec | encoder program | http socket'
+      main                  * Instantiate the UPnPControlPoint that starts the
+                              UPnP tasks.
+                            * Create the pulse task, the http_server task, the
+                              renderer tasks and the shutdown task.
+                            * Handle UPnP notifications.
+      pulse                 Monitor pulseaudio sink-input events.
+      http_server           Serve DLNA HTTP requests and start the
+                            client_connected tasks.
+      n x renderer          Act upon pulseaudio events and run UPnP soap
+                            actions.
+      shutdown              Wait on event pushed by the signal handlers.
 
-    Streaming tasks:
-      parec process
-      parec log_stderr
-      encoder process
-      encoder log_stderr
-      log_stderr task
-      track task
-      track shutdown task
+    HTTPServer tasks:
+      client_connected      HTTPServer callback wrapped by asyncio in a task.
+                            Start the tasks that forward the audio stream
+                            from a pulseaudio null-sink monitor to the HTTP
+                            socket via 'parec | encoder program | HTTP socket'.
+
+    StreamSession tasks:
+      parec process         Start the parec process and wait for its exit.
+      parec log_stderr      Log the parec process stderr.
+      encoder process       Start the encoder process and wait for its exit.
+      encoder log_stderr    Log the encoder process stderr.
+      track                 Write the audio stream to the HTTP socket.
+      track shutdown        Write the last chunk and close the HTTP socket.

@@ -60,8 +60,9 @@ class Track:
             The asyncio StreamWriter wrapping the HTTP socket.
     """
 
-    def __init__(self, session, writer):
+    def __init__(self, session, writer, task_name):
         self.session = session
+        self.task_name = task_name
         self.writer = writer
         self.task = None
         self.closing = False
@@ -74,7 +75,6 @@ class Track:
         writer = self.writer
         self.writer = None
 
-        rdr_name = self.session.renderer.name
         try:
             # Write the last chunk.
             if not writer.is_closing():
@@ -82,11 +82,12 @@ class Track:
             await writer.drain()
             writer.close()
             await writer.wait_closed()
-            logger.debug(f'{rdr_name}: track is stopped')
+            logger.debug(f'{self.task_name}: track is stopped')
         except asyncio.CancelledError:
-            logger.debug(f'{rdr_name}: Got CancelledError at Track shutdown')
+            logger.debug(f'{self.task_name}: Got CancelledError at Track'
+                         f' shutdown')
         except Exception as e:
-            logger.debug(f'{rdr_name}: Got exception at Track shutdown:'
+            logger.debug(f'{self.task_name}: Got exception at Track shutdown:'
                          f' {e!r}')
 
     def stop(self):
@@ -108,11 +109,10 @@ class Track:
         """Write to the StreamWriter what is read from a subprocess stdout."""
 
         logger = logging.getLogger('writer')
-        rdr_name = self.session.renderer.name
         while True:
             partial_data = False
             if self.writer.is_closing():
-                logger.debug(f'{rdr_name}: socket is closing')
+                logger.debug(f'{self.task_name}: socket is closing')
                 break
             try:
                 data = await reader.readexactly(HTTP_CHUNK_SIZE)
@@ -125,7 +125,7 @@ class Track:
                 self.writer.write('\r\n'.encode())
                 await self.writer.drain()
             if not data or partial_data:
-                logger.debug(f'EOF reading from pipe on {rdr_name}')
+                logger.debug(f'EOF reading from pipe on {self.task_name}')
                 break
 
     async def run(self, reader):
@@ -139,13 +139,13 @@ class Track:
                      '', '']
             self.writer.write('\r\n'.join(query).encode('latin-1'))
             await self.writer.drain()
-            logger.debug(f'{renderer.name}: track is started')
+            logger.debug(f'{self.task_name}: track is started')
             await self.write_track(reader)
         except asyncio.CancelledError:
             self.session.stream_tasks.create_task(self.shutdown(),
                                                   name='shutdown')
         except ConnectionError as e:
-            logger.info(f'{renderer.name} HTTP socket is closed: {e!r}')
+            logger.info(f'{self.task_name} HTTP socket is closed: {e!r}')
             await self.close()
             await renderer.disable_temporary()
         except Exception as e:
@@ -356,7 +356,7 @@ class StreamProcesses:
             logger.exception(f'{e!r}')
             await self.close(disable=True)
 
-class StreamSession:
+class StreamSessions:
     """Handle multiple tracks.
 
     A track is processed with the stream data flowing through pipes
@@ -364,13 +364,22 @@ class StreamSession:
 
         parec process | encoder process | Track instance writing to HTTP socket
 
-    Stopping a track terminates the encoder process but not the parec process.
+    A new session starts when 'track_count' is zero and ends upon a call to
+    the close_session() method. Stopping a track terminates the encoder
+    process but not the parec process.
+
+    Two tracks may overlap within a given session, indeed this is the purpose
+    of the 'SetNextAVTransportURI' UPnP soap action: the DLNA device uploads
+    the next track while it is playing the end of the current track by
+    emptying its buffer. This is implemented here by the Track.shutdown()
+    coroutine running in a task.
     """
 
     def __init__(self, renderer):
         self.renderer = renderer
         self.processes = None
         self.track = None
+        self.track_count = 0
         self.stream_tasks = AsyncioTasks()
 
     async def stop_track(self):
@@ -379,8 +388,9 @@ class StreamSession:
             self.track = None
             await self.processes.close_encoder()
 
-    async def close(self):
+    async def close_session(self):
         await self.stop_track()
+        self.track_count = 0
         if self.processes is not None:
             await self.processes.close()
             self.processes = None
@@ -393,10 +403,13 @@ class StreamSession:
 
         # Get the reader from the last subprocess on the pipe chain.
         reader = await self.processes.get_stream_reader()
-        self.track = Track(self, writer)
+
+        self.track_count += 1
+        task_name = f'{self.renderer.name}-track-{self.track_count}'
+        self.track = Track(self, writer, task_name)
         self.track.task = self.stream_tasks.create_task(
                                         self.track.run(reader),
-                                        name='track')
+                                        name=task_name)
 
     def is_playing(self):
         return self.track is not None and self.track.writer is not None
@@ -451,6 +464,11 @@ class HTTPServer:
         self.allowed_ips.add(ip_addr)
 
     async def client_connected(self, reader, writer):
+        """Handle an HTTP GET request from a DLNA device.
+
+        This is a callback scheduled as a task by asyncio.
+        """
+
         peername = writer.get_extra_info('peername')
         ip_source = peername[0]
         if ip_source not in self.allowed_ips:
@@ -482,7 +500,7 @@ class HTTPServer:
                                 HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
                     await renderer.disable_root_device()
                     break
-                if renderer.stream_session.is_playing():
+                if renderer.stream_sessions.is_playing():
                     handler.send_error(HTTPStatus.CONFLICT,
                                        f'Cannot start {renderer.name} stream'
                                        f' (already running)')
@@ -493,7 +511,9 @@ class HTTPServer:
                     break
 
                 # Ok, handle the request.
-                renderer.start_track(writer)
+                await renderer.start_track(writer)
+                # The track task has been started by the renderer's
+                # StreamSessions instance.
                 do_close = False
                 return
 
@@ -504,6 +524,8 @@ class HTTPServer:
             # Flush the error response.
             await writer.drain()
 
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             logger.exception(f'{e!r}')
         finally:

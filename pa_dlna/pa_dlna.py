@@ -12,7 +12,7 @@ from collections import namedtuple
 
 from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
-from .http_server import StreamSession, HTTPServer, run_httpserver
+from .http_server import StreamSessions, HTTPServer, run_httpserver
 from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
                    UPnPSoapFaultError, NL_INDENT, shorten)
@@ -85,7 +85,7 @@ class Renderer:
         self.protocol_info = None
         self.current_uri = None
         self.new_pulse_session = False
-        self.stream_session = StreamSession(self)
+        self.stream_sessions = StreamSessions(self)
         self.pulse_queue = asyncio.Queue()
 
     async def close(self):
@@ -95,7 +95,7 @@ class Renderer:
             if self.nullsink is not None:
                 await self.control_point.pulse.unregister(self.nullsink)
                 self.nullsink = None
-            await self.stream_session.close()
+            await self.stream_sessions.close_session()
 
             # Closing the root device will trigger a 'byebye' notification and
             # the renderer will be removed from self.control_point.renderers.
@@ -146,11 +146,8 @@ class Renderer:
     def match(self, uri_path):
         return uri_path == f'{AUDIO_URI_PREFIX}/{self.root_device.udn}'
 
-    def start_track(self, writer):
-        task_name = f'stream-{self.name}'
-        self.control_point.cp_tasks.create_task(
-                            self.stream_session.start_track(writer),
-                            name=task_name)
+    async def start_track(self, writer):
+        await self.stream_sessions.start_track(writer)
 
     def pulse_states(self, sink):
         if sink is None:
@@ -203,7 +200,7 @@ class Renderer:
             state = await asyncio.wait_for(self.get_transport_state(),
                                            timeout=timeout)
         except asyncio.TimeoutError:
-            state = ('PLAYING' if self.stream_session.is_playing() else
+            state = ('PLAYING' if self.stream_sessions.is_playing() else
                      'STOPPED')
             logger.debug(f'{self.name} stream state: {state} '
                          f'(GetTransportInfo timed out after {timeout}'
@@ -222,7 +219,7 @@ class Renderer:
                     # HTTP 1.1 chunked transfer encoding handles the closing
                     # of the stream.
                     log_action(self.name, action, state)
-                    await self.stream_session.close()
+                    await self.stream_sessions.close_session()
                     return
                 # Ignore 'Pause' events as it does not work well with
                 # streaming because of the DLNA buffering the stream.
@@ -393,7 +390,7 @@ class Renderer:
                 'NextURIMetaData': didl_lite_metadata
                 }
 
-        await self.stream_session.stop_track()
+        await self.stream_sessions.stop_track()
         log_action(name, action, state, msg=didl_lite_metadata)
         logger.info(f'{metadata}')
         logger.debug(f'URL: {self.current_uri}')
@@ -476,7 +473,7 @@ class TestRenderer(Renderer):
                     'Sink': f'http-get:*:{self.mime_type}:*'
                     }
         elif action == 'GetTransportInfo':
-            state = ('PLAYING' if self.stream_session.is_playing() else
+            state = ('PLAYING' if self.stream_sessions.is_playing() else
                      'STOPPED')
             return {'CurrentTransportState': state}
 
