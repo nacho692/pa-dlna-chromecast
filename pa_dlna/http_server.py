@@ -377,25 +377,32 @@ class StreamSessions:
 
     def __init__(self, renderer):
         self.renderer = renderer
+        self.is_playing = False
         self.processes = None
         self.track = None
         self.track_count = 0
         self.stream_tasks = AsyncioTasks()
 
     async def stop_track(self):
+        self.is_playing = False
         if self.track is not None:
             self.track.stop()
             self.track = None
+        if self.processes is not None:
             await self.processes.close_encoder()
 
     async def close_session(self):
-        await self.stop_track()
+        self.is_playing = False
         self.track_count = 0
+        if self.track is not None:
+            self.track.stop()
+            self.track = None
         if self.processes is not None:
             await self.processes.close()
             self.processes = None
 
     async def start_track(self, writer):
+        self.is_playing = True
         # Start the subprocesses.
         if self.processes is None:
             self.processes = StreamProcesses(self)
@@ -410,9 +417,6 @@ class StreamSessions:
         self.track.task = self.stream_tasks.create_task(
                                         self.track.run(reader),
                                         name=task_name)
-
-    def is_playing(self):
-        return self.track is not None and self.track.writer is not None
 
 class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
@@ -500,7 +504,7 @@ class HTTPServer:
                                 HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
                     await renderer.disable_root_device()
                     break
-                if renderer.stream_sessions.is_playing():
+                if renderer.stream_sessions.is_playing:
                     handler.send_error(HTTPStatus.CONFLICT,
                                        f'Cannot start {renderer.name} stream'
                                        f' (already running)')

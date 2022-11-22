@@ -200,7 +200,7 @@ class Renderer:
             state = await asyncio.wait_for(self.get_transport_state(),
                                            timeout=timeout)
         except asyncio.TimeoutError:
-            state = ('PLAYING' if self.stream_sessions.is_playing() else
+            state = ('PLAYING' if self.stream_sessions.is_playing else
                      'STOPPED')
             logger.debug(f'{self.name} stream state: {state} '
                          f'(GetTransportInfo timed out after {timeout}'
@@ -473,7 +473,7 @@ class TestRenderer(Renderer):
                     'Sink': f'http-get:*:{self.mime_type}:*'
                     }
         elif action == 'GetTransportInfo':
-            state = ('PLAYING' if self.stream_sessions.is_playing() else
+            state = ('PLAYING' if self.stream_sessions.is_playing else
                      'STOPPED')
             return {'CurrentTransportState': state}
 
