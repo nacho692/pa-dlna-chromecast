@@ -164,23 +164,41 @@ class Pulse:
             prev_renderer.pulse_queue.put_nowait((evt, None, None))
 
     async def run(self):
+        pulse_connected = False
+        first_attempt = True
         try:
-            async with PulseAsync('pa-dlna') as self.pulse_ctl:
-                self.av_control_point.start_event.set()
-                async for event in self.pulse_ctl.subscribe_events(
+            while True:
+                try:
+                    async with PulseAsync('pa-dlna') as self.pulse_ctl:
+                        logger.info('Connected to pulseaudio server')
+                        pulse_connected = True
+                        self.av_control_point.start_event.set()
+
+                        async for event in self.pulse_ctl.subscribe_events(
                                     pulsectl.PulseEventMaskEnum.sink_input):
-                    await self.dispatch_event(event)
+                            await self.dispatch_event(event)
+
+                        logger.warning('Unexpected exit from pulse event loop')
+                        break
+
+                except Exception as e:
+                    # Failed to connect to pulseaudio server.
+                    if (not pulse_connected and hasattr(e, '__cause__') and
+                            'pulse errno 6' in str(e.__cause__)):
+                        if first_attempt:
+                            first_attempt = False
+                            logger.info(
+                                'Waiting to connect to pulseaudio server')
+                        await asyncio.sleep(1)
+                    else:
+                        raise
+
         except asyncio.CancelledError:
             pass
         except pulsectl.PulseDisconnected as e:
             logger.error(f'Pulseaudio error: {e!r}')
         except Exception as e:
-            if (hasattr(e, '__cause__') and
-                    'pulse errno 6' in str(e.__cause__)):
-                # 'Failed to connect to pulseaudio server' without backtrace.
-                logger.error(f'{e!r}')
-            else:
-                logger.exception(f'{e!r}')
+            logger.exception(f'{e!r}')
         finally:
             self.pulse_ctl = None
             await self.close()
