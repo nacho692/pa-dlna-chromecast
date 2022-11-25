@@ -209,7 +209,8 @@ class StreamProcesses:
             parec_killed = False
             if self.parec_proc is not None:
                 await kill_process(self.parec_proc)
-                os.close(self.pipe_reader)
+                if not self.no_encoder:
+                    os.close(self.pipe_reader)
                 self.parec_proc = None
                 parec_killed = True
 
