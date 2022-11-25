@@ -1,6 +1,7 @@
 """Utilities for starting an UPnPApplication."""
 
 import sys
+import os
 import argparse
 import ipaddress
 import subprocess
@@ -64,9 +65,9 @@ def setup_logging(options):
 
     # Add a file handler set at the debug level.
     if options['logfile'] is not None:
+        logfile = os.path.expanduser(options['logfile'])
         try:
-            logfile_hdler = logging.FileHandler(options['logfile'],
-                                                mode='w')
+            logfile_hdler = logging.FileHandler(logfile, mode='w')
         except IOError as e:
             logging.error(f'cannot setup the log file: {e}')
         else:
