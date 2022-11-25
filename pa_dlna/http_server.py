@@ -4,6 +4,7 @@ import os
 import io
 import asyncio
 import signal
+import ipaddress
 import http.server
 import urllib.parse
 import logging
@@ -39,7 +40,7 @@ async def kill_process(process):
 
 async def run_httpserver(server):
     aio_server = await asyncio.start_server(server.client_connected,
-                                            server.networks, server.port)
+                                            server.net_ifaces, server.port)
     addrs = ', '.join(str(sock.getsockname())
                       for sock in aio_server.sockets)
     logger.info(f'Serve HTTP requests on {addrs}')
@@ -181,6 +182,7 @@ class StreamProcesses:
         self.encoder_proc = None
         self.pipe_reader = -1
         self.stream_reader = None
+        self.closing = False
         self.no_encoder = isinstance(session.renderer.encoder, L16Encoder)
         self.queue = asyncio.Queue()
 
@@ -198,6 +200,10 @@ class StreamProcesses:
             return True
 
     async def close(self, disable=False):
+        if self.closing:
+            return
+        self.closing = True
+
         renderer = self.session.renderer
         try:
             parec_killed = False
@@ -458,9 +464,12 @@ class HTTPServer:
     Reference: Hypertext Transfer Protocol -- HTTP/1.1 - RFC 7230.
     """
 
-    def __init__(self, control_point, net_ifaces, port):
+    def __init__(self, control_point, networks, port):
         self.control_point = control_point
-        self.networks = [str(iface.ip) for iface in net_ifaces]
+        self.net_ifaces = [(str(net.ip) if
+                            isinstance(net, ipaddress.IPv4Interface) else
+                            str(net)) for
+                           net in networks]
         self.port = port
         self.allowed_ips = set()
 

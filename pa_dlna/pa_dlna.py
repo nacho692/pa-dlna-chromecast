@@ -5,8 +5,8 @@ import shutil
 import asyncio
 import logging
 import re
-import ipaddress
 import random
+from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
@@ -62,19 +62,15 @@ class MetaData(namedtuple('MetaData', ['publisher', 'artist', 'title'])):
 class Renderer:
     """A DLNA MediaRenderer.
 
-    Attributes:
-      net_iface     The control point ipaddress.IPv4Interface network
-                    interface that the DLNA device belongs to
-
     See the Standardized DCP (SDCP) specifications:
       'AVTransport:3 Service'
       'RenderingControl:3 Service'
       'ConnectionManager:3 Service'
     """
 
-    def __init__(self, control_point, net_iface, root_device):
+    def __init__(self, control_point, local_ipaddress, root_device):
         self.control_point = control_point
-        self.net_iface = net_iface
+        self.local_ipaddress = local_ipaddress
         self.root_device = root_device
         self.closing = False
         self.nullsink = None            # NullSink instance
@@ -415,7 +411,7 @@ class Renderer:
             if not await self.select_encoder(udn):
                 await self.disable_root_device()
                 return
-            self.current_uri = (f'http://{self.net_iface.ip}'
+            self.current_uri = (f'http://{self.local_ipaddress}'
                                 f':{self.control_point.port}'
                                 f'{AUDIO_URI_PREFIX}/{udn}')
             logger.info(f'New {self.name} renderer with {self.encoder}'
@@ -436,17 +432,16 @@ class Renderer:
 class TestRenderer(Renderer):
     """Non UPnP Renderer to be used for testing."""
 
-    LOOPBACK = ipaddress.IPv4Interface('127.0.0.1/8')
-
     class RootDevice:
 
+        LOOPBACK = '127.0.0.1'
         count = 0
 
         def __init__(self, renderer, mime_type, control_point):
             self.control_point = control_point
             self.renderer = renderer
             self.udn = get_udn()
-            self.ip_source = '127.0.0.1'
+            self.peer_ipaddress = self.LOOPBACK
 
             try:
                 name = mime_type.split('/')[1]
@@ -460,8 +455,9 @@ class TestRenderer(Renderer):
             self.control_point.renderers.remove(self.renderer)
 
     def __init__(self, control_point, mime_type):
-        super().__init__(control_point, self.LOOPBACK,
-                         self.RootDevice(self, mime_type, control_point))
+        root_device = self.RootDevice(self, mime_type, control_point)
+        super().__init__(control_point, root_device.peer_ipaddress,
+                         root_device)
         self.mime_type = mime_type
 
     async def play(self, speed=1):
@@ -527,7 +523,7 @@ class AVControlPoint(UPnPApplication):
         """Load the null-sink module and create the renderer task."""
 
         if await renderer.register():
-            http_server.allow_from(renderer.root_device.ip_source)
+            http_server.allow_from(renderer.root_device.peer_ipaddress)
             self.renderers.add(renderer)
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
@@ -557,19 +553,26 @@ class AVControlPoint(UPnPApplication):
                     continue
 
                 if renderer is None:
-                    # Check that ip_source belongs to one of the
-                    # net_ifaces networks.
-                    ip_source = root_device.ip_source
-                    ip_obj = ipaddress.IPv4Address(ip_source)
-                    for net_iface in self.net_ifaces:
-                        if ip_obj in net_iface.network:
-                            break
-                    else:
-                        logger.warning(f'{ip_source} does not belong to one'
-                                       f' of the enabled networks')
-                        continue
-                    rndr = Renderer(self, net_iface, root_device)
-                    await self.register(rndr, http_server)
+                    local_ipaddress = root_device.local_ipaddress
+
+                    # Find the local_ipaddress when processing a notify SSDP.
+                    # Check that the root device peer_ipaddress belongs to
+                    # one of the networks of our local network interfaces.
+                    if local_ipaddress is None:
+                        ip_addr = IPv4Address(root_device.peer_ipaddress)
+                        for obj in self.networks:
+                            if (isinstance(obj, IPv4Interface) and
+                                    ip_addr in obj.network):
+                                local_ipaddress = str(obj.ip)
+                                break
+                        else:
+                            logger.warning(
+                                f'{root_device.peer_ipaddress} does not belong'
+                                f' to one of the enabled network interfaces')
+                            continue
+
+                    renderer = Renderer(self, local_ipaddress, root_device)
+                    await self.register(renderer, http_server)
             else:
                 if renderer is not None:
                     if not renderer.closing:
@@ -600,7 +603,7 @@ class AVControlPoint(UPnPApplication):
                 loop.add_signal_handler(sig, end_event.set)
 
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.net_ifaces,
+            async with UPnPControlPoint(self.networks,
                                         self.ttl) as upn_control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
@@ -610,7 +613,7 @@ class AVControlPoint(UPnPApplication):
                 await self.start_event.wait()
 
                 # Create the http_server task.
-                http_server = HTTPServer(self, self.net_ifaces,
+                http_server = HTTPServer(self, self.networks,
                                          self.port)
                 self.cp_tasks.create_task(run_httpserver(http_server),
                                           name='http_server')

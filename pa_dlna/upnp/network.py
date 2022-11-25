@@ -72,7 +72,7 @@ def check_ssdp_header(header, is_msearch):
         if header['NTS'] in ('ssdp:alive', 'ssdp:update'):
             exist(('LOCATION',))
 
-def parse_ssdp(datagram, ip_source, is_msearch):
+def parse_ssdp(datagram, peer_ipaddress, is_msearch):
     """Return None when ignoring the SSDP, otherwise return a dict."""
 
     req_line = 'HTTP/1.1 200 OK' if is_msearch else 'NOTIFY * HTTP/1.1'
@@ -87,7 +87,7 @@ def parse_ssdp(datagram, ip_source, is_msearch):
     start_line = header[0].strip()
     if start_line != req_line:
         # Comment out verbose log:
-        # logger.debug(f"Ignore '{start_line}' request from {ip_source}")
+        # logger.debug(f"Ignore '{start_line}' request from {peer_ipaddress}")
         return None
 
     # Parse the HTTP header as a dict.
@@ -95,7 +95,7 @@ def parse_ssdp(datagram, ip_source, is_msearch):
         header = http_header_as_dict(header[1:])
         check_ssdp_header(header, is_msearch)
     except UPnPInvalidSsdpError as e:
-        logger.warning(f'Error from {ip_source}: {e}')
+        logger.warning(f'Error from {peer_ipaddress}: {e}')
         return None
 
     # Ignore non root device responses.
@@ -108,7 +108,7 @@ def parse_ssdp(datagram, ip_source, is_msearch):
 async def msearch(ip, ttl):
     """Implement the SSDP search protocol on the 'ip' network interface.
 
-    Return the list of received (addr, datagram).
+    Return the list of received (data, peer_addr, local_addr).
     """
 
     # Create the socket.
@@ -158,7 +158,7 @@ async def msearch(ip, ttl):
         # Needed when OSError is raised upon binding the socket.
         sock.close()
 
-async def notify(net_ifaces, process_datagram):
+async def notify(ip_addresses, process_datagram):
     """Implement the SSDP advertisement protocol."""
 
     # See section 21.10 Sending and Receiving in
@@ -171,7 +171,7 @@ async def notify(net_ifaces, process_datagram):
     sock.setblocking(False)
 
     try:
-        for ip in (str(iface.ip) for iface in net_ifaces):
+        for ip in ip_addresses:
             # Become a member of the IP multicast group on this interface.
             mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
                                socket.inet_aton(ip))
@@ -297,15 +297,16 @@ class MsearchServerProtocol:
     def __init__(self, ip):
         self.ip = ip
         self.transport = None
-        self._result = []               # list of received (addr, datagram)
+        self._result = []     # list of received (data, peer_addr, local_addr)
         self._closed = None
 
     def connection_made(self, transport):
         self.transport = transport
         self._closed = False
 
-    def datagram_received(self, data, addr):
-        self._result.append((data, addr))
+    def datagram_received(self, data, peer_addr):
+        local_addr = self.transport.get_extra_info('sockname')
+        self._result.append((data, peer_addr[0], local_addr[0]))
 
     def error_received(self, exc):
         logger.warning(f'Error received on {self.ip} by'
@@ -345,7 +346,7 @@ class NotifyServerProtocol:
 
     def datagram_received(self, data, addr):
         try:
-            self.process_datagram(data, addr[0], False)
+            self.process_datagram(data, addr[0], None)
         except Exception as exc:
             self.error_received(exc)
 

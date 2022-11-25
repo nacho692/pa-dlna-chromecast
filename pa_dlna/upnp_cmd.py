@@ -56,8 +56,8 @@ def check_required(obj, attributes):
     for name in attributes:
         if not hasattr(obj, name):
             msg = ''
-            if hasattr(obj, 'ip_source'):
-                msg = f' at {obj.ip_source}'
+            if hasattr(obj, 'peer_ipaddress'):
+                msg = f' at {obj.peer_ipaddress}'
             raise MissingElementError(f"Missing '{name}' xml element in"
                             f" description of '{str(obj)}'{msg}")
 
@@ -476,7 +476,7 @@ class UPnPDeviceCmd(_Cmd):
     def do_previous(self, unused):
         return True
 
-    def help_ip_source(self):
+    def help_peer_ipaddress(self):
         print('Print the IP address of the UPnP device')
 
     def help_parent_device(self):
@@ -555,10 +555,9 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                 self.close()
                 return True
 
-    def help_net_ifaces(self):
-        print(_dedent("""Print the list of the local IPv4 addresses of the
-        network interfaces where UPnP devices may be discovered
-
+    def help_networks(self):
+        print(_dedent("""Print the list of the local IPv4 addresses where
+        UPnP devices may be discovered
         """))
 
     def help_ttl(self):
@@ -587,7 +586,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.loop = asyncio.get_running_loop()
         try:
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.net_ifaces,
+            async with UPnPControlPoint(self.networks,
                                         self.ttl) as self.control_point:
                 event.set()
                 while True:

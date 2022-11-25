@@ -7,10 +7,10 @@ discover the UPnP device at 192.168.0.254.
 >>> import asyncio
 >>> import upnp
 >>>
->>> async def main(net_ifaces):
-...   async with upnp.UPnPControlPoint(net_ifaces) as control_point:
+>>> async def main(networks):
+...   async with upnp.UPnPControlPoint(networks) as control_point:
 ...     notification, root_device = await control_point.get_notification()
-...     print(f"  Got '{notification}' from {root_device.ip_source}")
+...     print(f"  Got '{notification}' from {root_device.peer_ipaddress}")
 ...     print(f'  deviceType: {root_device.deviceType}')
 ...     print(f'  friendlyName: {root_device.friendlyName}')
 ...     for service in root_device.serviceList.values():
@@ -48,7 +48,7 @@ import logging
 import time
 import collections
 import urllib.parse
-import ipaddress
+from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError
@@ -402,24 +402,28 @@ class UPnPDevice(UPnPElement):
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device.
 
-    An UpNP root device is also an UPnPDevice, see the UPnPDevice __doc__ for
+    An UPnP root device is also an UPnPDevice, see the UPnPDevice __doc__ for
     the other attributes and methods available.
 
     Attributes:
-      udn           Unique Device Name
-      ip_source     IP source address of the UPnP device
-      location      'Location' field value in the header of the notify or
-                    msearch SSDP
+      udn               Unique Device Name
+      peer_ipaddress    IP address of the UPnP device
+      local_ipaddress   IP address of the local network interface receiving
+                        msearch response datagrams
+      location          'Location' field value in the header of the notify or
+                        msearch SSDP
 
     Methods:
-      close         close the root device
+      close             Close the root device
     """
 
-    def __init__(self, control_point, udn, ip_source, location, max_age):
+    def __init__(self, control_point, udn, peer_ipaddress, local_ipaddress,
+                 location, max_age):
         super().__init__(self, self)
         self._control_point = control_point  # UPnPControlPoint instance
         self.udn = udn
-        self.ip_source = ip_source
+        self.peer_ipaddress = peer_ipaddress
+        self.local_ipaddress = local_ipaddress
         self.location = location
         self._set_valid_until(max_age)
         self._closed = True
@@ -485,8 +489,9 @@ class UPnPRootDevice(UPnPDevice):
             # The specification of the deviceType format is
             # 'urn:schemas-upnp-org:device:deviceType:ver'.
             deviceType = self.deviceType.split(':')[-2]
-            logger.info(f'New {deviceType} root device at {self.ip_source}'
-                        f' with UDN:' + NL_INDENT + f'{self.udn}')
+            logger.info(
+                f'New {deviceType} root device at {self.peer_ipaddress}'
+                f' with UDN:' + NL_INDENT + f'{self.udn}')
 
             self._closed = False
             self._control_point._put_notification('alive', self)
@@ -510,8 +515,8 @@ class UPnPControlPoint:
     """An UPnP control point.
 
     Attributes:
-      net_ifaces    list of the ipaddress.IPv4Interface network interface
-                    instances where UPnP devices may be discovered
+      networks      list of the local IP network interfaces and local IP
+                    addresses where UPnP devices may be discovered
       ttl           the IP packets time to live
 
     Methods:
@@ -523,16 +528,35 @@ class UPnPControlPoint:
       __aclose__
     """
 
-    def __init__(self, net_ifaces, ttl=2):
+    def __init__(self, networks, ttl=2):
         def _ipaddress(address):
-            return ipaddress.IPv4Interface(str(address))
+            try:
+                address = str(address)
+                if '/' in address:
+                    obj = IPv4Interface(address)
+                    if obj.network.prefixlen == 32:
+                        raise UPnPControlPointError(
+                            f'{address} not a valid network interface')
+                else:
+                    obj = IPv4Address(address)
+                return obj
+            except ValueError:
+                exception = UPnPControlPointError(
+                    f'{address} is not a valid IP interface or IP address')
+                raise exception from None
 
-        if not net_ifaces:
-            raise UPnPControlPointError('The list of ip addresses cannot'
-                                        ' be empty')
-        # Ensure that 'net_ifaces' is a list of IPv4Interface instances.
-        self.net_ifaces = list(map(_ipaddress, net_ifaces))
+        if not networks:
+            raise UPnPControlPointError(
+                'The list of local IP networks cannot be empty')
+        # The 'networks' attribute is a list of IPv4Interface and IPv4Address
+        # instances.
+        self.networks = list(map(_ipaddress, networks))
         self.ttl = ttl
+
+        self._ip_addresses = [(str(net.ip) if
+                               isinstance(net, IPv4Interface) else
+                               str(net)) for
+                              net in self.networks]
         self._closed = False
         self._upnp_queue = asyncio.Queue()
         self._devices = {}              # {udn: UPnPRootDevice}
@@ -587,7 +611,8 @@ class UPnPControlPoint:
         state = 'created' if kind == 'alive' else 'deleted'
         logger.debug(f'{root_device} has been {state}')
 
-    def _create_root_device(self, header, udn, ip_source):
+    def _create_root_device(self, header, udn, peer_ipaddress,
+                            local_ipaddress):
         # Get the max-age.
         # 'max_age' None means no aging.
         max_age = None
@@ -597,14 +622,15 @@ class UPnPControlPoint:
             try:
                 max_age = int(cache[cache.index(age)+len(age):])
             except ValueError:
-                logger.warning(f'Invalid CACHE-CONTROL field in'
-                               f' SSDP notify from {ip_source}:\n{header}')
+                logger.warning(
+                    f'Invalid CACHE-CONTROL field in'
+                    f' SSDP notify from {peer_ipaddress}:\n{header}')
                 return
 
         if udn not in self._devices:
             # Instantiate the UPnPDevice and start its task.
-            root_device = UPnPRootDevice(self, udn, ip_source,
-                                         header['LOCATION'], max_age)
+            root_device = UPnPRootDevice(self, udn, peer_ipaddress,
+                                local_ipaddress, header['LOCATION'], max_age)
             self._upnp_tasks.create_task(root_device._run(),
                                          name=str(root_device))
             self._devices[udn] = root_device
@@ -636,26 +662,33 @@ class UPnPControlPoint:
                 logger.info(f'Add {shorten(udn)} to the list of faulty root'
                             f' devices')
 
-    def _process_ssdp(self, datagram, ip_source, is_msearch):
-        """Process the received datagrams.
+    def _process_ssdp(self, datagram, peer_ipaddress, local_ipaddress):
+        """Process the received datagrams."""
 
-        'is_msearch' is True when processing a msearch response, otherwise it
-        is a notify advertisement.
-        """
+        if (local_ipaddress is not None and local_ipaddress not in
+                                                        self._ip_addresses):
+            logger.warning(
+                f'Ignore msearch SSDP received on {local_ipaddress}')
+            return
 
-        header = parse_ssdp(datagram, ip_source, is_msearch)
+        # 'is_msearch' is True when processing a msearch response,
+        # otherwise it is a notify advertisement.
+        is_msearch = True if local_ipaddress is not None else False
+
+        header = parse_ssdp(datagram, peer_ipaddress, is_msearch)
         if header is None:
             return
 
         msg = 'msearch response' if is_msearch else 'notify advertisement'
-        logger.debug(f'Got {msg} from {ip_source}')
+        logger.debug(f'Got {msg} from {peer_ipaddress}')
 
         if is_msearch or (header['NTS'] == 'ssdp:alive'):
             udn = header['USN'].split('::')[0]
             if udn in self._faulty_devices:
                 logger.debug(f'Ignore faulty root device {shorten(udn)}')
             else:
-                self._create_root_device(header, udn, ip_source)
+                self._create_root_device(header, udn, peer_ipaddress,
+                                         local_ipaddress)
         else:
             nts = header['NTS']
             if nts == 'ssdp:byebye':
@@ -664,23 +697,22 @@ class UPnPControlPoint:
 
             elif nts == 'ssdp:update':
                 logger.warning(f'Ignore not supported {nts} notification'
-                               f' from {ip_source}')
+                               f' from {peer_ipaddress}')
 
             else:
                 logger.warning(f"Unknown NTS field '{nts}' in SSDP notify"
-                               ' from {ip_source}')
+                               ' from {peer_ipaddress}')
 
     async def _ssdp_msearch(self):
         """Send msearch multicast SSDPs and process unicast responses."""
 
         try:
             while True:
-                for ip in (str(iface.ip) for iface in self.net_ifaces):
-                    result = await msearch(ip, self.ttl)
+                for ip_addr in self._ip_addresses:
+                    result = await msearch(ip_addr, self.ttl)
                     if result:
-                        for (datagram, src_addr) in result:
-                            self._process_ssdp(datagram, src_addr[0],
-                                               is_msearch=True)
+                        for (data, peer_addr, local_addr) in result:
+                            self._process_ssdp(data, peer_addr, local_addr)
                     else:
                         logger.debug(f'No response to all M-SEARCH messages,'
                                      f' next try in {MSEARCH_EVERY} seconds')
@@ -695,7 +727,7 @@ class UPnPControlPoint:
         """Listen to SSDP notifications."""
 
         try:
-            await notify(self.net_ifaces, self._process_ssdp)
+            await notify(self._ip_addresses, self._process_ssdp)
         except asyncio.CancelledError:
             self.close()
         except Exception as e:

@@ -79,27 +79,32 @@ def setup_logging(options):
 
     return None
 
-def networks_option(ip_interfaces, parser):
-    """Return a list of ipaddress.IPv4Interface from a comma separated list.
+def networks_option(networks, parser):
+    """Return a list of ipaddress objects from a comma separated list.
 
-    IP_INTERFACES is a comma separated list of the IPv4 interfaces where UPnP
-    devices may be discovered. An IP_INTERFACE is written using the
-    "network address/network prefix" notation as printed by the
-    'ip address list' command.
+    NETWORKS is a comma separated list of local IPv4 interfaces or local IPv4
+    addresses where UPnP devices may be discovered. An IPv4 interface is
+    written using the "IP address/network prefix" slash notation (aka CIDR
+    notation) as printed by the 'ip address' linux command.
     When this option is an empty string or the option is missing, all the
     interfaces are used, except the 127.0.0.1/8 loopback interface.
     """
 
-    net_ifaces = []
-    if ip_interfaces:
-        for ip_interface in (x.strip() for x in ip_interfaces.split(',')):
+    network_objects = []
+    if networks:
+        for network in (x.strip() for x in networks.split(',')):
             try:
-                iface = ipaddress.IPv4Interface(ip_interface)
+                if '/' in network:
+                    obj = ipaddress.IPv4Interface(network)
+                    if obj.network.prefixlen == 32:
+                        parser.error(
+                            f'{network} not a valid network interface')
+                        continue
+                else:
+                    obj = ipaddress.IPv4Address(network)
             except ValueError as e:
                 parser.error(e)
-            if iface.network.prefixlen == 32:
-                logger.warning(f'{ip_interface} network prefix length is 32')
-            net_ifaces.append(iface)
+            network_objects.append(obj)
 
     else:
         # Use the ip command to get the list of the IPv4 interfaces.
@@ -120,14 +125,14 @@ def networks_option(ip_interfaces, parser):
             for addr in item['addr_info']:
                 ip = addr['local']
                 prefixlen = addr['prefixlen']
-                if ip != '127.0.0.1':
+                if ip != '127.0.0.1' and prefixlen != 32:
                     iface = ipaddress.IPv4Interface((ip, prefixlen))
-                    net_ifaces.append(iface)
+                    network_objects.append(iface)
 
-        if not net_ifaces:
-            parser.error('no network interface available')
+    if not network_objects:
+        parser.error('no network interface available')
 
-    return net_ifaces
+    return network_objects
 
 def parse_args(doc, loglevel_default):
     """Parse the command line."""
@@ -135,8 +140,7 @@ def parse_args(doc, loglevel_default):
     parser = argparse.ArgumentParser(description=doc)
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
-    parser.add_argument('--networks', '-n', metavar="IP_INTERFACES",
-                        default='', dest='ip_interfaces',
+    parser.add_argument('--networks', '-n', default='',
                         help=' '.join(line.strip() for line in
                                      networks_option.__doc__.split('\n')[2:]))
     parser.add_argument('--port', type=int, default=8080,
@@ -190,8 +194,7 @@ def parse_args(doc, loglevel_default):
 
     # Run networks_option() once logging has been setup.
     logger.info(f'Options {options}')
-    options['net_ifaces'] = networks_option(options['ip_interfaces'], parser)
-
+    options['networks'] = networks_option(options['networks'], parser)
     return options, logfile_hdler
 
 # Class.

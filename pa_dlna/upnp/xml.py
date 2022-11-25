@@ -19,7 +19,7 @@ ESCAPED_XML_CHARS = {
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
-    '"': '&quot;',
+    "\"": '&quot;',
 }
 
 class UPnPXMLError(UPnPError): pass
