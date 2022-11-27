@@ -91,17 +91,34 @@ class Track:
             logger.debug(f'{self.task_name}: Got exception at Track shutdown:'
                          f' {e!r}')
 
-    def stop(self):
-        """Run the shutdown coro in a task.
+    def abort(self, msg):
+        """Abort the whole program."""
 
-        This method is meant to be run from another non-Track task.
-        """
+        try:
+            raise RuntimeError(msg)
+        except RuntimeError as e:
+            logger.exception(f'{e!r}')
+            self.session.stream_tasks.create_task(
+                self.session.renderer.control_point.close(), name='abort')
+
+    def stop(self):
+        """Run the shutdown coro in a task."""
+
+        # This method must not be run from the Track task.
+        if asyncio.current_task() == self.task:
+            self.abort('Running Track.stop() from the Track task')
+            return
 
         if not self.closing:
             self.closing = True
             self.task.cancel()
 
     async def close(self):
+        # This method must be run from the Track task.
+        if asyncio.current_task() != self.task:
+            self.abort('Running Track.close() not from the Track task')
+            return
+
         if not self.closing:
             self.closing = True
             await self.shutdown()
@@ -146,13 +163,21 @@ class Track:
             self.session.stream_tasks.create_task(self.shutdown(),
                                                   name='shutdown')
         except ConnectionError as e:
-            logger.info(f'{self.task_name} HTTP socket is closed: {e!r}')
-            await self.close()
-            await renderer.disable_temporary()
+            # When running code in an exception handler, one must ensure that
+            # this code may not trigger unhandled exceptions, otherwise the
+            # exception will show up only when the event loop terminates
+            # making the problem difficult to resolve. This is specific to the
+            # asyncio framework.
+            try:
+                logger.error(f'{self.task_name} HTTP socket is closed: {e!r}')
+                await self.session.close_session(shutdown_coro=True)
+                # This will cause a new stream session to start.
+                await renderer.disable_for(period=0)
+            except Exception as e:
+                logger.exception(f'{e!r}')
         except Exception as e:
             logger.exception(f'{e!r}')
-        finally:
-            await self.close()
+            await self.session.close_session(shutdown_coro=True)
 
 class StreamProcesses:
     """Processes connected through pipes to an HTTP socket.
@@ -212,6 +237,7 @@ class StreamProcesses:
                 if not self.no_encoder:
                     os.close(self.pipe_reader)
                 self.parec_proc = None
+                self.stream_reader = None
                 parec_killed = True
 
             if await self.close_encoder() or parec_killed:
@@ -227,6 +253,8 @@ class StreamProcesses:
     async def get_stream_reader(self):
         """Get the stdout pipe of the last process."""
 
+        # Use the same stream_reader when parec is the only subprocess
+        # running.
         if self.stream_reader is None:
             self.stream_reader = await self.queue.get()
         return self.stream_reader
@@ -287,6 +315,7 @@ class StreamProcesses:
 
             ret = await self.parec_proc.wait()
             self.parec_proc = None
+            self.stream_reader = None
             exit_status = ret if ret >= 0 else signal.strsignal(-ret)
             logger.info(f'Exit status of parec process: {exit_status}')
             if exit_status in (0, 'Killed', 'Terminated'):
@@ -317,6 +346,7 @@ class StreamProcesses:
 
             ret = await self.encoder_proc.wait()
             self.encoder_proc = None
+            self.stream_reader = None
             exit_status = ret if ret >= 0 else signal.strsignal(-ret)
             # ffmpeg exit code is 255 when the process is killed with SIGTERM.
             # See ffmpeg main() at https://gitlab.com/fflabs/ffmpeg/-/blob/
@@ -398,11 +428,21 @@ class StreamSessions:
         if self.processes is not None:
             await self.processes.close_encoder()
 
-    async def close_session(self):
+    async def close_session(self, shutdown_coro=False):
         self.is_playing = False
         self.track_count = 0
         if self.track is not None:
-            self.track.stop()
+            # Do not run Track.stop() from the Track task.
+            # Do run it from another task, otherwise the Track.shutdown()
+            # coroutine would run concurrently with the Track.write_track()
+            # coroutine.
+            # It is safe to run the Track.shutdown() coroutine from the Track
+            # task as it is called from an 'except' clause after
+            # Track.write_track() has triggered an exception.
+            if not shutdown_coro:
+                self.track.stop()
+            else:
+                await self.track.close()
             self.track = None
         if self.processes is not None:
             await self.processes.close()

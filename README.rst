@@ -38,7 +38,10 @@ Asyncio tasks:
       encoder process       Start the encoder process and wait for its exit.
       encoder log_stderr    Log the encoder process stderr.
       track                 Write the audio stream to the HTTP socket.
-      track shutdown        Write the last chunk and close the HTTP socket.
+
+    Track tasks:
+      abort                 Abort the pa-dlna program.
+      shutdown              Write the last chunk and close the HTTP socket.
 
 The '--networks' command line option:
     Accept IP interfaces or IP addresses in the its comma separated list.

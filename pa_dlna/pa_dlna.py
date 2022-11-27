@@ -26,9 +26,6 @@ RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
 CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 IGNORED_SOAPFAULTS = {'701': 'Transition not available',
                       '715': "Content 'BUSY'"}
-# Period in seconds during which the renderer is disabled after the stream
-# has been closed by the DLNA device.
-RENDERER_DISABLE_PERIOD = 20
 
 UPnPAction = namedtuple('UPnPAction', ['action', 'state'])
 random.seed()
@@ -97,31 +94,28 @@ class Renderer:
             # the renderer will be removed from self.control_point.renderers.
             self.root_device.close()
 
-    async def disable_temporary(self):
-        """Disable the renderer for RENDERER_DISABLE_PERIOD seconds.
-
-        And have pulseaudio switch the stream to the default sink.
-        """
+    async def disable_for(self, *, period):
+        """Disable the renderer for 'period' seconds."""
 
         # Pulse events related to this sink are now discarded.
         nullsink = self.nullsink
         self.nullsink = None
 
-        # Unload the null-sink module, sleep RENDERER_DISABLE_PERIOD
-        # seconds and load a new module. During  the sleep period, the
-        # stream that was routed to this null-sink will be routed to
-        # the default sink instead of being silently discarded by the
-        # null-sink.
+        # Unload the null-sink module, sleep 'period' seconds and load a new
+        # module. During  the sleep period, the stream that was routed to this
+        # null-sink is routed to the default sink instead of being silently
+        # discarded by the null-sink. After loading the new null-sink module,
+        # the renderer receives a 'change' pulse event and starts a new stream
+        # session.
         if nullsink is not None:
             pulse = self.control_point.pulse
             await pulse.unregister(nullsink)
-            logger.info(f'Wait {RENDERER_DISABLE_PERIOD} seconds before'
-                        f' re-enabling {self.name}')
-            await asyncio.sleep(RENDERER_DISABLE_PERIOD)
-            nullsink = await pulse.register(self, self.name)
-            if nullsink is not None:
-                self.nullsink = nullsink
-            else:
+            if period:
+                logger.info(f'Wait {period} seconds before'
+                            f' re-enabling {self.name}')
+                await asyncio.sleep(period)
+            self.nullsink = await pulse.register(self, self.name)
+            if self.nullsink is None:
                 logger.error(f'Cannot load a new null-sink module'
                              f' for {self.name}')
                 await self.close()
@@ -245,10 +239,7 @@ class Renderer:
             log_action(self.name, action, state, ignored=True)
 
     async def handle_pulse_event(self):
-        """Handle a PulseAudio event.
-
-        This method is run by the 'pulse' task.
-        """
+        """Handle a PulseAudio event."""
 
         # The 'sink' and 'sink_input' variables define the new state.
         # 'self.nullsink' holds the state prior to this event.
