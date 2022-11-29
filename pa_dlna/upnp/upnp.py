@@ -79,6 +79,7 @@ class UPnPElement:
         self.parent_device = parent_device
         self.root_device = root_device
 
+    @property
     def closed(self):
         return self.root_device._closed
 
@@ -106,8 +107,10 @@ class UPnPService(UPnPElement):
                     The value of 'allowedValueRange' is a dict with keys in
                     ('minimum', 'maximum', 'step').
 
+    Properties:
+      closed        True if the root device is closed
+
     Methods:
-      closed        return True if the root device is closed
       soap_action   coroutine - send a SOAP action
     """
 
@@ -143,8 +146,10 @@ class UPnPService(UPnPElement):
         ('errorCode', 'errorDescription').
         """
 
-        if self.closed():
-            raise UPnPClosedDeviceError
+        if self.closed:
+            raise UPnPClosedDeviceError(
+                f"Error while requesting '{action}' SOAP action:"
+                f'{NL_INDENT}{self.root_device} is closed')
 
         # Validate action and args.
         if action not in self.actionList:
@@ -242,8 +247,8 @@ class UPnPDevice(UPnPElement):
                     and the (relative) 'url' attribute of the namedtuple to
                     retrieve the icon.
 
-    Methods:
-      closed        return True if the root device is closed
+    Properties:
+      closed        True if the root device is closed
     """
 
     def __init__(self, parent_device, root_device):

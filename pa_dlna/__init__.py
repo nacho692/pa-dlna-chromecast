@@ -185,10 +185,10 @@ def parse_args(doc, loglevel_default):
     # Options as a dict.
     options = vars(parser.parse_args())
 
-    if options['config_default'] and options['config_internal']:
+    if options['dump_default'] and options['dump_internal']:
         parser.error(f"Cannot set both '--encoder-default' and "
                      f"'--encoder-internal' arguments simultaneously")
-    if options['config_default'] or options['config_internal']:
+    if options['dump_default'] or options['dump_internal']:
         return options, None
 
     logfile_hdler = setup_logging(options)
@@ -229,12 +229,12 @@ def main_function(clazz, doc, loglevel_default='info', inthread=False):
 
     # Get the encoders configuration.
     try:
-        if options['config_default']:
+        if options['dump_default']:
             DefaultConfig().write(sys.stdout)
             sys.exit(0)
 
         config = UserConfig()
-        if options['config_internal']:
+        if options['dump_internal']:
             config.print_internal_config()
             sys.exit(0)
     except Exception as e:

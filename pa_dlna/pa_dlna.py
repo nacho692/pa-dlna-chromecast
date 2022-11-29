@@ -312,12 +312,8 @@ class Renderer:
         field names in ('errorCode', 'errorDescription').
         """
 
-        try:
-            service = self.root_device.serviceList[serviceId]
-            return await service.soap_action(action, args, log_debug=False)
-        except UPnPClosedDeviceError:
-            logger.error(f'soap_action(): root device {self.root_device} is'
-                         f' closed')
+        service = self.root_device.serviceList[serviceId]
+        return await service.soap_action(action, args, log_debug=False)
 
     async def select_encoder(self, udn):
         """Select an encoder matching the DLNA device supported mime types."""
@@ -401,7 +397,6 @@ class Renderer:
         try:
             udn = self.root_device.udn
             if not await self.select_encoder(udn):
-                await self.disable_root_device()
                 return
             self.current_uri = (f'http://{self.local_ipaddress}'
                                 f':{self.control_point.port}'
@@ -414,9 +409,9 @@ class Renderer:
 
         except asyncio.CancelledError:
             await self.close()
-        except OSError as e:
+        except (OSError, UPnPSoapFaultError, UPnPClosedDeviceError) as e:
             logger.error(f'{e!r}')
-            await self.disable_root_device()
+            await self.close()
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.disable_root_device()
