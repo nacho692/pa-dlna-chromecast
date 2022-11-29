@@ -150,10 +150,10 @@ def parse_args(doc, loglevel_default):
     parser.add_argument('--ttl', type=int, default=2,
                         help='set the IP packets time to live to TTL'
                         ' (default: %(default)s)')
-    parser.add_argument('--config-default', '-d', action='store_true',
+    parser.add_argument('--dump-default', '-d', action='store_true',
                         help='write to stdout (and exit) the default built-in'
                         ' configuration')
-    parser.add_argument('--config-internal', '-i', action='store_true',
+    parser.add_argument('--dump-internal', '-i', action='store_true',
                         help='write to stdout (and exit) the configuration'
                         '  used internally by the program on startup after'
                         ' tha pa-dlna.conf user configuration file has been'
