@@ -5,7 +5,7 @@ import logging
 import pulsectl
 from pulsectl_asyncio import PulseAsync
 
-from .upnp import NL_INDENT
+from .upnp.util import NL_INDENT, log_exception
 
 logger = logging.getLogger('pulse')
 
@@ -163,6 +163,7 @@ class Pulse:
             evt = 'exit'
             prev_renderer.pulse_queue.put_nowait((evt, None, None))
 
+    @log_exception(logger)
     async def run(self):
         pulse_connected = False
         first_attempt = True

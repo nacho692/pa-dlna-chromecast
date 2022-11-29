@@ -14,8 +14,8 @@ from . import main_function, UPnPApplication
 from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer, run_httpserver
 from .encoders import select_encoder
-from .upnp import (UPnPControlPoint, UPnPClosedDeviceError, AsyncioTasks,
-                   UPnPSoapFaultError, NL_INDENT, shorten)
+from .upnp import UPnPControlPoint, UPnPClosedDeviceError, UPnPSoapFaultError
+from .upnp.util import NL_INDENT, shorten, log_exception, AsyncioTasks
 
 logger = logging.getLogger('pa-dlna')
 
@@ -394,6 +394,7 @@ class Renderer:
         args['Speed'] = speed
         await self.soap_action(AVTRANSPORT, 'Play', args)
 
+    @log_exception(logger)
     async def run(self):
         """Run the Renderer task."""
 
@@ -482,6 +483,7 @@ class AVControlPoint(UPnPApplication):
                                         # having been disabled
         self.cp_tasks = AsyncioTasks()
 
+    @log_exception(logger)
     async def shutdown(self, end_event):
         try:
             await end_event.wait()
@@ -493,16 +495,24 @@ class AVControlPoint(UPnPApplication):
             for sig in (SIGINT, SIGTERM):
                 loop.remove_signal_handler(sig)
 
+    @log_exception(logger)
     async def close(self):
-        if not self.closing:
-            self.closing = True
-            for renderer in list(self.renderers):
-                await renderer.close()
+        # This coroutine may be run as a task.
+        try:
+            if not self.closing:
+                self.closing = True
+                for renderer in list(self.renderers):
+                    await renderer.close()
 
-            if self.pulse is not None:
-                await self.pulse.close()
+                if self.pulse is not None:
+                    await self.pulse.close()
 
-            self.curtask.cancel()
+                self.curtask.cancel()
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception(f'Got exception {e!r}')
 
     def disable_root_device(self, renderer):
         udn = renderer.root_device.udn
@@ -574,6 +584,7 @@ class AVControlPoint(UPnPApplication):
                     logger.warning("Got a 'byebye' notification for no"
                                    ' existing Renderer')
 
+    @log_exception(logger)
     async def run_control_point(self):
         if not self.config.any_available():
             sys.exit('Error: No encoder is available')

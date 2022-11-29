@@ -9,7 +9,7 @@ import subprocess
 import shutil
 import logging
 
-from .upnp import NL_INDENT
+from .upnp.util import NL_INDENT
 
 DEFAULT_SELECTION = (
     'Mp3Encoder',

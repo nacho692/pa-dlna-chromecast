@@ -11,7 +11,7 @@ import logging
 from http import HTTPStatus
 
 from . import pprint_pformat
-from .upnp import AsyncioTasks
+from .upnp.util import AsyncioTasks, log_exception
 from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
@@ -38,20 +38,25 @@ async def kill_process(process):
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
 
+@log_exception(logger)
 async def run_httpserver(server):
-    aio_server = await asyncio.start_server(server.client_connected,
+    try:
+        aio_server = await asyncio.start_server(server.client_connected,
                                             server.net_ifaces, server.port)
-    addrs = ', '.join(str(sock.getsockname())
-                      for sock in aio_server.sockets)
-    logger.info(f'Serve HTTP requests on {addrs}')
+        addrs = ', '.join(str(sock.getsockname())
+                          for sock in aio_server.sockets)
+        logger.info(f'Serve HTTP requests on {addrs}')
 
-    async with aio_server:
-        try:
-            await aio_server.serve_forever()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            logger.info('Close HTTP server')
+        async with aio_server:
+            try:
+                await aio_server.serve_forever()
+            finally:
+                logger.info('Close HTTP server')
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.exception(f'Got exception {e!r}')
 
 class Track:
     """An HTTP socket connected to a subprocess stdout.
@@ -68,6 +73,7 @@ class Track:
         self.task = None
         self.closing = False
 
+    @log_exception(logger)
     async def shutdown(self):
         """Close the HTTP socket."""
 
@@ -102,7 +108,7 @@ class Track:
                 self.session.renderer.control_point.close(), name='abort')
 
     def stop(self):
-        """Run the shutdown coro in a task."""
+        """Stop the track and run the shutdown coro in a task."""
 
         # This method must not be run from the Track task.
         if asyncio.current_task() == self.task:
@@ -114,6 +120,11 @@ class Track:
             self.task.cancel()
 
     async def close(self):
+        """Run the shutdown coroutine to stop the track.
+
+        This coroutine should be run after Track.write_track() has terminated.
+        """
+
         # This method must be run from the Track task.
         if asyncio.current_task() != self.task:
             self.abort('Running Track.close() not from the Track task')
@@ -146,6 +157,7 @@ class Track:
                 logger.debug(f'EOF reading from pipe on {self.task_name}')
                 break
 
+    @log_exception(logger)
     async def run(self, reader):
         assert self.task is not None
         renderer = self.session.renderer
@@ -163,18 +175,10 @@ class Track:
             self.session.stream_tasks.create_task(self.shutdown(),
                                                   name='shutdown')
         except ConnectionError as e:
-            # When running code in an exception handler, one must ensure that
-            # this code may not trigger unhandled exceptions, otherwise the
-            # exception will show up only when the event loop terminates
-            # making the problem difficult to resolve. This is specific to the
-            # asyncio framework.
-            try:
-                logger.error(f'{self.task_name} HTTP socket is closed: {e!r}')
-                await self.session.close_session(shutdown_coro=True)
-                # This will cause a new stream session to start.
-                await renderer.disable_for(period=0)
-            except Exception as e:
-                logger.exception(f'{e!r}')
+            logger.error(f'{self.task_name} HTTP socket is closed: {e!r}')
+            await self.session.close_session(shutdown_coro=True)
+            # This will cause a new stream session to start.
+            await renderer.disable_for(period=0)
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.session.close_session(shutdown_coro=True)
@@ -259,6 +263,7 @@ class StreamProcesses:
             self.stream_reader = await self.queue.get()
         return self.stream_reader
 
+    @log_exception(logger)
     async def log_stderr(self, name, stderr):
         logger = logging.getLogger(name)
 
@@ -283,6 +288,7 @@ class StreamProcesses:
             if remove_env:
                 del os.environ['AV_LOG_FORCE_NOCOLOR']
 
+    @log_exception(logger)
     async def run_parec(self, encoder, parec_pgm, stdout=None):
         renderer = self.session.renderer
         try:
@@ -328,6 +334,7 @@ class StreamProcesses:
 
         await self.close(disable=True)
 
+    @log_exception(logger)
     async def run_encoder(self, encoder_cmd):
         renderer = self.session.renderer
         try:
@@ -432,13 +439,6 @@ class StreamSessions:
         self.is_playing = False
         self.track_count = 0
         if self.track is not None:
-            # Do not run Track.stop() from the Track task.
-            # Do run it from another task, otherwise the Track.shutdown()
-            # coroutine would run concurrently with the Track.write_track()
-            # coroutine.
-            # It is safe to run the Track.shutdown() coroutine from the Track
-            # task as it is called from an 'except' clause after
-            # Track.write_track() has triggered an exception.
             if not shutdown_coro:
                 self.track.stop()
             else:
@@ -517,6 +517,7 @@ class HTTPServer:
     def allow_from(self, ip_addr):
         self.allowed_ips.add(ip_addr)
 
+    @log_exception(logger)
     async def client_connected(self, reader, writer):
         """Handle an HTTP GET request from a DLNA device.
 

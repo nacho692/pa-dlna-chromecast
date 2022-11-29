@@ -52,6 +52,7 @@ from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError
+from .util import NL_INDENT, shorten, log_exception, AsyncioTasks
 from .network import parse_ssdp, msearch, notify, http_get, http_soap
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
@@ -62,38 +63,12 @@ logger = logging.getLogger('upnp')
 MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
-NL_INDENT = '\n        '
 
 class UPnPClosedControlPointError(UPnPError): pass
 class UPnPControlPointError(UPnPError): pass
 class UPnPClosedDeviceError(UPnPError): pass
 class UPnPInvalidSoapError(UPnPError): pass
 class UPnPSoapFaultError(UPnPError): pass
-
-def shorten(txt, head_len=10, tail_len=5):
-    if len(txt) <= head_len + 3 + tail_len:
-        return txt
-    return txt[:head_len] + '...' + txt[len(txt)-tail_len:]
-
-# Helper class.
-class AsyncioTasks:
-    """Save references to tasks, to avoid tasks being garbage collected.
-
-    See Python github PR 29163 and the corresponding Python issues.
-    """
-
-    def __init__(self):
-        self._tasks = set()
-
-    def create_task(self, coro, name):
-        task = asyncio.create_task(coro, name=name)
-        self._tasks.add(task)
-        task.add_done_callback(lambda t: self._tasks.remove(t))
-        return task
-
-    def __iter__(self):
-        for t in self._tasks:
-            yield t
 
 # Components of an UPnP root device.
 Icon = collections.namedtuple('Icon', ICON_ELEMENTS)
@@ -469,6 +444,7 @@ class UPnPRootDevice(UPnPDevice):
                 self.close()
                 break
 
+    @log_exception(logger)
     async def _run(self):
         try:
             description = await http_get(self.location)
@@ -703,6 +679,7 @@ class UPnPControlPoint:
                 logger.warning(f"Unknown NTS field '{nts}' in SSDP notify"
                                ' from {peer_ipaddress}')
 
+    @log_exception(logger)
     async def _ssdp_msearch(self):
         """Send msearch multicast SSDPs and process unicast responses."""
 
@@ -723,6 +700,7 @@ class UPnPControlPoint:
             logger.exception(f'{e!r}')
             self.close(exc=e)
 
+    @log_exception(logger)
     async def _ssdp_notify(self):
         """Listen to SSDP notifications."""
 
