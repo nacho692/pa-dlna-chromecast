@@ -106,7 +106,7 @@ class Encoder:
         self.selection = DEFAULT_SELECTION
         self.rate = 44100
         self.channels = 2
-        self.http_per_track = True
+        self.track_metadata = True
         self.args = None
 
     @property

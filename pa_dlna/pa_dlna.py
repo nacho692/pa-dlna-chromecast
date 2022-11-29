@@ -172,7 +172,7 @@ class Renderer:
         artist = proplist.get('media.artist', '')
         title = proplist.get('media.title', '')
 
-        if not self.encoder.http_per_track:
+        if not self.encoder.track_metadata:
             title = publisher
             artist = ''
 
@@ -199,7 +199,7 @@ class Renderer:
         # Run an AVTransport action if needed.
         try:
             if state not in ('STOPPED', 'NO_MEDIA_PRESENT'):
-                if (self.encoder.http_per_track and
+                if (self.encoder.track_metadata and
                         isinstance(action, MetaData)):
                     await self.set_nextavtransporturi(self.name,
                                                       action, state)
