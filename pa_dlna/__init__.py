@@ -252,8 +252,6 @@ def main_function(clazz, doc, loglevel_default='info', inthread=False):
             app.run(cp_thread, event)
         else:
             asyncio.run(app.run_control_point())
-    except asyncio.CancelledError:
-        pass
     except KeyboardInterrupt as e:
         logger.info(f'{app} got {e!r}')
     finally:

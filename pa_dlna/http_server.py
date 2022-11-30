@@ -53,8 +53,6 @@ async def run_httpserver(server):
             finally:
                 logger.info('Close HTTP server')
 
-    except asyncio.CancelledError:
-        pass
     except Exception as e:
         logger.exception(f'Got exception {e!r}')
 
@@ -270,8 +268,6 @@ class StreamProcesses:
                 if msg == b'':
                     break
                 logger.error(msg.decode().strip())
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             logger.exception(f'{e!r}')
         finally:
@@ -317,8 +313,6 @@ class StreamProcesses:
             if exit_status in (0, 'Killed', 'Terminated'):
                 await self.close()
                 return
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             logger.exception(f'{e!r}')
 
@@ -355,8 +349,6 @@ class StreamProcesses:
 
             if exit_status in (0, 'Killed', 'Terminated'):
                 return
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             logger.exception(f'{e!r}')
 
@@ -384,8 +376,6 @@ class StreamProcesses:
                 self.session.stream_tasks.create_task(
                                 self.run_encoder(encoder_cmd),
                                 name='encoder')
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.close(disable=True)
@@ -573,8 +563,6 @@ class HTTPServer:
             # Flush the error response.
             await writer.drain()
 
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             logger.exception(f'{e!r}')
         finally:

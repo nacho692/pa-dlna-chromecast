@@ -194,8 +194,6 @@ class Pulse:
                     else:
                         raise
 
-        except asyncio.CancelledError:
-            pass
         except pulsectl.PulseDisconnected as e:
             logger.error(f'Pulseaudio error: {e!r}')
         except Exception as e:

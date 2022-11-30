@@ -11,6 +11,7 @@ import traceback
 from . import (main_function, UPnPApplication, pprint_pprint)
 from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
                    UPnPClosedDeviceError, pprint_xml)
+from .upnp.util import log_exception
 
 logger = logging.getLogger('upnpctl')
 
@@ -582,6 +583,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
             print(f'Got {e!r}')
             self.close()
 
+    @log_exception(logger)
     async def run_control_point(self, event):
         self.loop = asyncio.get_running_loop()
         try:
@@ -598,6 +600,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                         self.devices.add(root_device)
                     elif root_device in self.devices:
                         self.devices.remove(root_device)
+        # Why does asyncio require to catch CancelledError here ?
         except asyncio.CancelledError:
             pass
         except Exception as e:
