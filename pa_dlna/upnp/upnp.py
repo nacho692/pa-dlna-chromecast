@@ -18,7 +18,7 @@ discover the UPnP device at 192.168.0.254.
 ...
 >>> try:
 ...   asyncio.run(main(['192.168.0.254/24']))
-... except (KeyboardInterrupt, asyncio.CancelledError):
+... except KeyboardInterrupt:
 ...   pass
 ...
   Got 'alive' from 192.168.0.212
@@ -44,6 +44,7 @@ Not implemented:
 """
 
 import asyncio
+import sys
 import logging
 import time
 import collections
@@ -569,9 +570,12 @@ class UPnPControlPoint:
             for root_device in list(self._devices.values()):
                 root_device.close()
 
-            if self._curtask is not None:
-                errmsg = f'{exc!r}' if exc else None
-                self._curtask.cancel(msg=errmsg)
+            if (self._curtask is not None and
+                    asyncio.current_task() != self._curtask):
+                if sys.version_info[:2] >= (3, 9):
+                    self._curtask.cancel(exc)
+                else:
+                    self._curtask.cancel()
                 self._curtask = None
 
             logger.info('Close UPnPControlPoint')

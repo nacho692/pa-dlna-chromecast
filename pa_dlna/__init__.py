@@ -17,7 +17,7 @@ __version__ = '0.1'
 MIN_PYTHON_VERSION = (3, 8)
 
 VERSION = sys.version_info
-if VERSION[0] != MIN_PYTHON_VERSION[0] or VERSION < MIN_PYTHON_VERSION:
+if VERSION[:2] < MIN_PYTHON_VERSION:
     print(f'error: the python version must be at least'
           f' {MIN_PYTHON_VERSION}', file=sys.stderr)
     sys.exit(1)
@@ -25,7 +25,7 @@ if VERSION[0] != MIN_PYTHON_VERSION[0] or VERSION < MIN_PYTHON_VERSION:
 # We want to preserve the order of 'in' and 'out' elements in the 'actionList'
 # of the service xml description.
 # The 'sort_dicts' keyword is supported since 3.8.
-if VERSION >= (3, 8):
+if VERSION[:2] >= (3, 8):
     pprint_pprint = functools.partial(pprint.pprint, sort_dicts=False)
     pprint_pformat = functools.partial(pprint.pformat, sort_dicts=False)
 else:
@@ -198,7 +198,8 @@ def parse_args(doc, loglevel_default):
     options['networks'] = networks_option(options['networks'], parser)
     return options, logfile_hdler
 
-# Class.
+# Classes.
+class ControlPointAbortError(Exception): pass
 class UPnPApplication:
     """An UPnP application."""
 

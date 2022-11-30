@@ -97,23 +97,13 @@ class Track:
             logger.debug(f'{self.task_name}: Got exception at Track shutdown:'
                          f' {e!r}')
 
-    def abort(self, msg):
-        """Abort the whole program."""
-
-        try:
-            raise RuntimeError(msg)
-        except RuntimeError as e:
-            logger.exception(f'{e!r}')
-            self.session.stream_tasks.create_task(
-                self.session.renderer.control_point.close(), name='abort')
-
     def stop(self):
         """Stop the track and run the shutdown coro in a task."""
 
         # This method must not be run from the Track task.
         if asyncio.current_task() == self.task:
-            self.abort('Running Track.stop() from the Track task')
-            return
+            self.session.renderer.control_point.abort(
+                                'Running Track.stop() from the Track task')
 
         if not self.closing:
             self.closing = True
@@ -127,8 +117,8 @@ class Track:
 
         # This method must be run from the Track task.
         if asyncio.current_task() != self.task:
-            self.abort('Running Track.close() not from the Track task')
-            return
+            self.session.renderer.control_point.abort(
+                            'Running Track.close() not from the Track task')
 
         if not self.closing:
             self.closing = True
@@ -430,8 +420,10 @@ class StreamSessions:
     async def stop_track(self):
         self.is_playing = False
         if self.track is not None:
-            self.track.stop()
-            self.track = None
+            try:
+                self.track.stop()
+            finally:
+                self.track = None
         if self.processes is not None:
             await self.processes.close_encoder()
 
@@ -439,11 +431,13 @@ class StreamSessions:
         self.is_playing = False
         self.track_count = 0
         if self.track is not None:
-            if not shutdown_coro:
-                self.track.stop()
-            else:
-                await self.track.close()
-            self.track = None
+            try:
+                if not shutdown_coro:
+                    self.track.stop()
+                else:
+                    await self.track.close()
+            finally:
+                self.track = None
         if self.processes is not None:
             await self.processes.close()
             self.processes = None

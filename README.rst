@@ -24,6 +24,7 @@ Asyncio tasks:
                             client_connected tasks.
       n x renderer          Act upon pulseaudio events and run UPnP soap
                             actions.
+      abort                 Abort the pa-dlna program.
       shutdown              Wait on event pushed by the signal handlers.
 
     HTTPServer tasks:
@@ -40,7 +41,6 @@ Asyncio tasks:
       track                 Write the audio stream to the HTTP socket.
 
     Track tasks:
-      abort                 Abort the pa-dlna program.
       shutdown              Write the last chunk and close the HTTP socket.
 
 The '--networks' command line option:

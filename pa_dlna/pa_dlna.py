@@ -10,7 +10,7 @@ from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
-from . import main_function, UPnPApplication
+from . import main_function, UPnPApplication, ControlPointAbortError
 from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer, run_httpserver
 from .encoders import select_encoder
@@ -412,6 +412,8 @@ class Renderer:
         except (OSError, UPnPSoapFaultError, UPnPClosedDeviceError) as e:
             logger.error(f'{e!r}')
             await self.close()
+        except ControlPointAbortError as e:
+            logger.error(f'{e!r}')
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.disable_root_device()
@@ -491,8 +493,8 @@ class AVControlPoint(UPnPApplication):
                 loop.remove_signal_handler(sig)
 
     @log_exception(logger)
-    async def close(self):
-        # This coroutine may be run as a task.
+    async def close(self, msg=None):
+        # This coroutine may be run as a task by AVControlPoint.abort().
         try:
             if not self.closing:
                 self.closing = True
@@ -502,12 +504,19 @@ class AVControlPoint(UPnPApplication):
                 if self.pulse is not None:
                     await self.pulse.close()
 
-                self.curtask.cancel()
+                if sys.version_info[:2] >= (3, 9):
+                    self.curtask.cancel(msg)
+                else:
+                    self.curtask.cancel()
 
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
+
+    def abort(self, msg):
+        """Abort the whole program from a non-main task."""
+
+        self.cp_tasks.create_task(self.close(msg), name='abort')
+        raise ControlPointAbortError(msg)
 
     def disable_root_device(self, renderer):
         udn = renderer.root_device.udn
@@ -581,15 +590,15 @@ class AVControlPoint(UPnPApplication):
 
     @log_exception(logger)
     async def run_control_point(self):
-        if not self.config.any_available():
-            sys.exit('Error: No encoder is available')
-
-        self.parec_pgm = shutil.which('parec')
-        if self.parec_pgm is None:
-            sys.exit("Error: The pulseaudio 'parec' program cannot be found")
-
         try:
             self.curtask = asyncio.current_task()
+
+            if not self.config.any_available():
+                sys.exit('Error: No encoder is available')
+
+            self.parec_pgm = shutil.which('parec')
+            if self.parec_pgm is None:
+                sys.exit("Error: The pulseaudio 'parec' program cannot be found")
 
             # Add the signal handlers.
             end_event = asyncio.Event()
@@ -626,8 +635,8 @@ class AVControlPoint(UPnPApplication):
                 # Handle UPnP notifications for ever.
                 await self.handle_upnp_notifications(upn_control_point, http_server)
 
-        except asyncio.CancelledError:
-            pass
+        except asyncio.CancelledError as e:
+            logger.info(f'Main task got: {e!r}')
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
         finally:
