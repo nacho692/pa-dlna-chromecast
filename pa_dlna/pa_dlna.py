@@ -69,9 +69,11 @@ class Renderer:
         self.control_point = control_point
         self.local_ipaddress = local_ipaddress
         self.root_device = root_device
+        udn_tail = root_device.udn[-5:]
+        self.name = f'{root_device.modelName}-{udn_tail}'
+        self.description = f'{root_device.friendlyName} - {udn_tail}'
         self.closing = False
         self.nullsink = None            # NullSink instance
-        self.name = None                # NullSink name
         self.previous_idx = None        # index of previous sink input
         self.encoder = None
         self.mime_type = None
@@ -114,7 +116,7 @@ class Renderer:
                 logger.info(f'Wait {period} seconds before'
                             f' re-enabling {self.name}')
                 await asyncio.sleep(period)
-            self.nullsink = await pulse.register(self, self.name)
+            self.nullsink = await pulse.register(self)
             if self.nullsink is None:
                 logger.error(f'Cannot load a new null-sink module'
                              f' for {self.name}')
@@ -130,8 +132,10 @@ class Renderer:
         nullsink = await self.control_point.pulse.register(self)
         if nullsink is not None:
             self.nullsink = nullsink
-            self.name = nullsink.sink.name
             return True
+        else:
+            await self.disable_root_device()
+            return False
 
     def match(self, uri_path):
         return uri_path == f'{AUDIO_URI_PREFIX}/{self.root_device.udn}'

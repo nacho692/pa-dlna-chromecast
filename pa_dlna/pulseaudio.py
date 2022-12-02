@@ -9,38 +9,6 @@ from .upnp.util import NL_INDENT, log_exception
 
 logger = logging.getLogger('pulse')
 
-async def sink_unique_name(name_prefix, pulse_ctl):
-    """Return a sink unique name.
-
-    Unique sink names have the form 'name_prefix-suffix'.
-    'suffix' is an integer, incremented by sink_unique_name() when
-    'name_prefix' is already used by one of the listed sinks.
-    No suffix is appended when none of the current listed sinks is using
-    'name_prefix'.
-    """
-
-    names_suffixes = {}
-    for sink in await pulse_ctl.sink_list():
-        try:
-            name, suffix = sink.name.rsplit('-', maxsplit=1)
-            suffix = int(suffix)
-        except AttributeError:
-            continue
-        except ValueError:
-            name = sink.name
-            suffix = 1
-        if name in names_suffixes:
-            if suffix > names_suffixes[name]:
-                names_suffixes[name] = suffix
-        else:
-            names_suffixes[name] = suffix
-
-    if name_prefix in names_suffixes:
-        suffix = names_suffixes[name_prefix] + 1
-        return f'{name_prefix}-{suffix}'
-    else:
-        return name_prefix
-
 # Classes.
 class NullSink:
     """A connection between a sink_input and the null-sink of a Renderer.
@@ -48,9 +16,8 @@ class NullSink:
     A NullSink is instantiated upon registering a Renderer instance.
     """
 
-    def __init__(self, sink, module_index):
+    def __init__(self, sink):
         self.sink = sink                    # a pulse_ctl sink instance
-        self.module_index = module_index    # index of the null-sink module
         self.sink_input = None              # a pulse_ctl sink-input instance
 
 class Pulse:
@@ -67,40 +34,51 @@ class Pulse:
             await self.av_control_point.close()
             logger.info('Close pulse')
 
-    async def register(self, renderer, name=None):
+    async def register(self, renderer):
         """Load a null-sink module."""
 
         if self.pulse_ctl is None:
             return
 
-        device = renderer.root_device
-        if name is None:
-            name = device.modelName.replace(' ', r'_')
-            name = await sink_unique_name(name, self.pulse_ctl)
-
-        description = device.friendlyName
-        _description = description.replace(' ', r'\ ')
+        root_device = renderer.root_device
+        module_name = f'{root_device.modelName}-{root_device.udn}'
+        _description = renderer.description.replace(' ', r'\ ')
 
         module_index = await self.pulse_ctl.module_load('module-null-sink',
-                                args=f'sink_name="{name}" '
+                                args=f'sink_name="{module_name}" '
                                      f'sink_properties=device.description='
                                      f'"{_description}"')
 
-        # Find the index of the null-sink.
+        # Return the NullSink instance.
         for sink in await self.pulse_ctl.sink_list():
-            if sink.name == name:
-                logger.info(f'Load null-sink module {name},'
-                            f" description='{description}'")
-                return NullSink(sink, module_index)
+            if sink.owner_module == module_index:
+                logger.info(f'Load null-sink module {sink.name}'
+                        f"{NL_INDENT}description='{renderer.description}'")
+
+                # The module name is registered by pulseaudio after being
+                # modified in pa_namereg_register() by replacing invalid
+                # characters with '_'. The invalid characters are defined in
+                # is_valid_char(char c).See the pulseaudio code.
+                if len(module_name) != len(sink.name):
+                    # Pulseaudio has added a '.n' suffix because there exists
+                    # another null-sink with the same name.
+                    await self.pulse_ctl.module_unload(module_index)
+                    renderer.control_point.abort(
+                        f'Two DLNA devices registered with the same name:'
+                        f'{NL_INDENT}{module_name}')
+
+                return NullSink(sink)
 
         await self.pulse_ctl.module_unload(module_index)
-        logger.error('Cannot find the index of the created null-sink')
+        logger.error(
+            f'Failed loading {module_name} pulseaudio module')
+        return None
 
     async def unregister(self, nullsink):
         if self.pulse_ctl is None:
             return
         logger.info(f'Unload null-sink module {nullsink.sink.name}')
-        ret = await self.pulse_ctl.module_unload(nullsink.module_index)
+        await self.pulse_ctl.module_unload(nullsink.sink.owner_module)
 
     def find_previous_renderer(self, event):
         """Find the renderer that was last connected to this sink-input."""
