@@ -11,7 +11,7 @@ import pprint
 import functools
 import asyncio
 import threading
-
+import struct
 
 __version__ = '0.1'
 MIN_PYTHON_VERSION = (3, 8)
@@ -138,6 +138,13 @@ def networks_option(networks, parser):
 def parse_args(doc, loglevel_default):
     """Parse the command line."""
 
+    def pack_B(ttl):
+        try:
+            ttl = int(ttl)
+            return struct.pack('B', ttl)
+        except (struct.error, ValueError) as e:
+            parser.error(f"Bad 'ttl' argument: {e!r}")
+
     parser = argparse.ArgumentParser(description=doc)
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
@@ -147,9 +154,9 @@ def parse_args(doc, loglevel_default):
     parser.add_argument('--port', type=int, default=8080,
                         help='set the TCP port on which the HTTP server'
                         ' handles DLNA requests (default: %(default)s)')
-    parser.add_argument('--ttl', type=int, default=2,
+    parser.add_argument('--ttl', type=pack_B, default=b'\x02',
                         help='set the IP packets time to live to TTL'
-                        ' (default: %(default)s)')
+                        ' (default: 2)')
     parser.add_argument('--dump-default', '-d', action='store_true',
                         help='write to stdout (and exit) the default built-in'
                         ' configuration')
@@ -252,6 +259,8 @@ def main_function(clazz, doc, loglevel_default='info', inthread=False):
             app.run(cp_thread, event)
         else:
             asyncio.run(app.run_control_point())
+    except asyncio.CancelledError:
+        pass
     except KeyboardInterrupt as e:
         logger.info(f'{app} got {e!r}')
     finally:

@@ -600,7 +600,6 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                         self.devices.add(root_device)
                     elif root_device in self.devices:
                         self.devices.remove(root_device)
-        # Why does asyncio require to catch CancelledError here ?
         except asyncio.CancelledError:
             pass
         except Exception as e:
