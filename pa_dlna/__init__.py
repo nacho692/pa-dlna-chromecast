@@ -173,7 +173,7 @@ def parse_args(doc, loglevel_default):
                         help='add a file logging handler set at '
                         "'debug' log level whose path name is PATH")
     parser.add_argument('--nolog-upnp', '-u', action='store_true',
-                        help="ignore upnp log entries at 'debug' log level")
+                        help="ignore UPnP log entries at 'debug' log level")
     parser.add_argument('--log-aio', '-a', action='store_true',
                         help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"

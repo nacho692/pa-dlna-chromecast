@@ -177,29 +177,19 @@ class UserConfig(DefaultConfig):
         self.build_dictionaries()
 
     def any_available(self):
-        return (any(x.available for x in self.udns.values()) or
-                any(x.available for x in self.encoders.values()))
-
-    def _build_dictionaries(self, parser_dict, selection):
-        # Build the encoders dictionary according to the selection's order.
-        for sel in (s for s in selection if s):
-            if sel in parser_dict:
-                encoder = parser_dict[sel]
-                if hasattr(encoder, 'selection'):
-                    del encoder.selection
-                self.encoders[sel] = encoder
-            else:
-                raise ParsingError(f"'{sel}' in the selection is not a valid"
-                                   f' encoder')
-
-        for udn_name in set(parser_dict).difference(self.encoders):
-            udn = parser_dict[udn_name]
-            if hasattr(udn, 'selection'):
-                del udn.selection
-            self.udns[udn_name] = udn
+        return bool(self.udns or self.encoders)
 
     def build_dictionaries(self):
-        parser_dict = {}
+        def validate(encoder):
+            if hasattr(encoder, '_available'):
+                if not encoder._available:
+                    return False
+                del encoder._available
+            if hasattr(encoder, 'selection'):
+                del encoder.selection
+            return True
+
+        unsorted_encoders = {}
         defaults = self.parser.defaults()
         selection = [s.strip() for s in defaults['selection'].split(',') if s]
         for section in self.parser:
@@ -219,11 +209,24 @@ class UserConfig(DefaultConfig):
                 raise ParsingError(f"'{section}' encoder does not exist")
             encoder = self.leaves[encoder_name]()
             self.override_options(encoder, section, defaults)
-            key = encoder_name if udn == '' else udn
-            parser_dict[key] = encoder
 
-        # Sort the encoders and build both dictionaries.
-        self._build_dictionaries(parser_dict, selection)
+            if udn == '':
+                unsorted_encoders[encoder_name] = encoder
+            else:
+                if not validate(encoder):
+                    continue
+                self.udns[udn] = encoder
+
+        # Build the encoders dictionary according to the selection's order.
+        for sel in selection:
+            if sel in unsorted_encoders:
+                encoder = unsorted_encoders[sel]
+                if not validate(encoder):
+                    continue
+                self.encoders[sel] = encoder
+            else:
+                raise ParsingError(f"'{sel}' in the selection is not a valid"
+                                   f' encoder')
 
     def print_internal_config(self):
         # The udns are printed first.

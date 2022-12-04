@@ -31,39 +31,40 @@ DEFAULT_SELECTION = (
 def select_encoder(config, renderer_name, pinfo, udn):
     """Select the encoder.
 
-    Return the selected encoder, the mime type and protocol info.
+    Return the selected encoder instance, the mime type and protocol info.
     """
-
-    def available(config):
-        return ((section, instance) for section, instance in config.items()
-                if instance.available)
 
     logger = logging.getLogger('encoder')
 
-    protocol_infos = [x for x in pinfo['Sink'].split(',')]
-    mime_types = [proto.split(':')[2] for proto in protocol_infos]
+    # The ProtocolInfo format is:
+    #   <protocol>“:”<network>“:”<contentFormat>“:”<additionalInfo>
+    # We are interested in the HTTP streaming entries:
+    #   http-get:*:mime-type:*
+    protocol_infos = [proto.split(':') for proto in
+                            (x.strip() for x in pinfo['Sink'].split(',')) if
+                      proto.startswith('http-get:')]
+    mime_types = [proto[2] for proto in protocol_infos]
     logger.debug(f'{renderer_name} renderer mime types:' + NL_INDENT +
                  f'{mime_types}')
 
     # Try first the configured udns.
-    for section, encoder in available(config.udns):
+    for section, encoder in config.udns.items():
         if section == udn:
             # Check that the list of mime_types holds one of the  mime types
-            # supported by this encoder and return the encoder and this mime
-            # type.
-            for idx, mime_type in enumerate(mime_types):
-                if encoder.has_mime_type(mime_type):
-                    return encoder, encoder.mime_type, protocol_infos[idx]
+            # supported by this encoder.
+            for proto in protocol_infos:
+                if encoder.has_mime_type(proto[2]):
+                    return encoder, encoder.mime_type, ':'.join(proto)
             else:
                 logger.error(f'No matching mime type for the udn configured'
                              f' on the {encoder} encoder')
                 return None
 
     # Then the encoders proper.
-    for _, encoder in available(config.encoders):
-        for idx, mime_type in enumerate(mime_types):
-            if encoder.has_mime_type(mime_type):
-                return encoder, encoder.mime_type, protocol_infos[idx]
+    for encoder in config.encoders.values():
+        for proto in protocol_infos:
+            if encoder.has_mime_type(proto[2]):
+                return encoder, encoder.mime_type, ':'.join(proto)
 
 class Encoder:
     """The pa-dlna default configuration.
@@ -119,7 +120,7 @@ class Encoder:
         return self.requested_mtype
 
     def has_mime_type(self, mime_type):
-        if mime_type.lower() in self._mime_types:
+        if mime_type.lower().strip() in self._mime_types:
             self.requested_mtype = mime_type
             return True
 
@@ -201,10 +202,10 @@ class FlacEncoder(StandAloneEncoder):
         return cmd
 
 class L16Encoder(L16Mixin, StandAloneEncoder):
-    """Lossless L16 encoder without a container.
+    """Lossless PCM L16 encoder without a container.
 
-    This encoder only uses one program for streaming: the pulseaudio parec
-    program.
+    This encoder does not use an external program for streaming. It only uses
+    the pulseaudio parec program.
 
     To check this encoder without using a DLNA device, use the ffplay
     program from the ffmpeg suite.
@@ -226,7 +227,6 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
     """
 
     def __init__(self):
-        self._available = True
         self._mime_types = ['audio/l16']
         self._network_format = 's16be'
         StandAloneEncoder.__init__(self)
@@ -373,7 +373,7 @@ class FFMpegFlacEncoder(FFMpegEncoder):
         super().__init__(['audio/flac', 'audio/x-flac'])
 
 class FFMpegL16WavEncoder(L16Mixin, FFMpegEncoder):
-    """Lossless L16 encoder with a wav container."""
+    """Lossless PCM L16 encoder with a wav container."""
 
     container = 'wav'
 
