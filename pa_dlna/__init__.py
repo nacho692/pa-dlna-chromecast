@@ -145,6 +145,16 @@ def parse_args(doc, loglevel_default):
         except (struct.error, ValueError) as e:
             parser.error(f"Bad 'ttl' argument: {e!r}")
 
+    def mime_types(mtypes):
+        mtypes = [y for y in (x.strip() for x in mtypes.split(',')) if y]
+        if len(set(mtypes)) != len(mtypes):
+            parser.error('The mime types in MIME-TYPES must be different')
+        for mtype in mtypes:
+            mtype_split = mtype.split('/')
+            if len(mtype_split) != 2 or mtype_split[0] != 'audio':
+                parser.error(f"'{mtype}' is not an audio mime type")
+        return mtypes
+
     parser = argparse.ArgumentParser(description=doc)
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
@@ -178,16 +188,12 @@ def parse_args(doc, loglevel_default):
                         help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"
                         ' verbose logs')
-    parser.add_argument('--renderers', '-r', metavar='MIME-TYPES',
-                        default='', dest='renderers_mtypes',
-                        help='MIME-TYPES is a comma separated list of audio '
-                        'mime types - a TestRenderer is instantiated for'
-                        ' each of these mime types and a pulseaudio stream '
-                        'may be run by doing an http GET on the '
-                        'TestRenderer url provided by the logs, the '
-                        'stream is routed to the TestRenderer and '
-                        'collected by the program doing the http GET (curl'
-                        ' for example)')
+    parser.add_argument('--test-devices', '-t', metavar='MIME-TYPES',
+                        type=mime_types, default='', dest='test_mtypes',
+                        help='MIME-TYPES is a comma separated list of'
+                        ' different audio mime types. A DLNATestDevice is'
+                        ' instantiated for each one of these mime types and'
+                        ' registered as a plain DLNA device.')
 
     # Options as a dict.
     options = vars(parser.parse_args())

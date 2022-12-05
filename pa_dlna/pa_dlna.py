@@ -5,7 +5,7 @@ import shutil
 import asyncio
 import logging
 import re
-import random
+import hashlib
 from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
@@ -28,17 +28,17 @@ IGNORED_SOAPFAULTS = {'701': 'Transition not available',
                       '715': "Content 'BUSY'"}
 
 UPnPAction = namedtuple('UPnPAction', ['action', 'state'])
-random.seed()
-def get_udn():
-    """Build a random UPnP udn."""
+def get_udn(data):
+    """Build an UPnP udn."""
 
-    rbytes = random.randbytes(16)
+    # 'hexdigest' length is 40, we will use the first 32 characters.
+    hexdigest = hashlib.sha1(data).hexdigest()
     p = 0
     udn = ['uuid:']
-    for n in [4, 2, 2, 2, 6]:
+    for n in [8, 4, 4, 4, 12]:
         if p != 0:
             udn.append('-')
-        udn.append(''.join(format(x, '02x') for x in rbytes[p:p+n]))
+        udn.append(hexdigest[p:p+n])
         p += n
     return ''.join(udn)
 
@@ -422,27 +422,22 @@ class Renderer:
             logger.exception(f'{e!r}')
             await self.disable_root_device()
 
-class TestRenderer(Renderer):
+class DLNATestDevice(Renderer):
     """Non UPnP Renderer to be used for testing."""
 
     class RootDevice:
 
         LOOPBACK = '127.0.0.1'
-        count = 0
 
         def __init__(self, renderer, mime_type, control_point):
             self.control_point = control_point
             self.renderer = renderer
-            self.udn = get_udn()
             self.peer_ipaddress = self.LOOPBACK
 
-            try:
-                name = mime_type.split('/')[1]
-            except IndexError:
-                name = 'audio'
-            TestRenderer.RootDevice.count += 1
-            self.modelName = f'DLNA-{name}-{self.count}'
-            self.friendlyName = self.modelName + ' test device'
+            name = mime_type.split('/')[1]
+            self.modelName = f'DLNATest_{name}'
+            self.friendlyName = self.modelName
+            self.udn = get_udn(name.encode())
 
         def close(self):
             self.control_point.renderers.remove(self.renderer)
@@ -628,12 +623,9 @@ class AVControlPoint(UPnPApplication):
                 self.cp_tasks.create_task(run_httpserver(http_server),
                                           name='http_server')
 
-                # Register the TestRenderers.
-                for mtype in (x.strip() for x in
-                              self.renderers_mtypes.split(',')):
-                    if not mtype:
-                        continue
-                    rndr = TestRenderer(self, mtype)
+                # Register the DLNATestDevices.
+                for mtype in self.test_mtypes:
+                    rndr = DLNATestDevice(self, mtype)
                     await self.register(rndr, http_server)
 
                 # Handle UPnP notifications for ever.

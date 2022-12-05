@@ -191,7 +191,9 @@ class UserConfig(DefaultConfig):
 
         unsorted_encoders = {}
         defaults = self.parser.defaults()
-        selection = [s.strip() for s in defaults['selection'].split(',') if s]
+        selection = [s for s in
+                     (x.strip() for x in defaults['selection'].split(',')) if
+                     s]
         for section in self.parser:
             encoder_name, sep, udn = section.partition('.')
             # An encoder section.
