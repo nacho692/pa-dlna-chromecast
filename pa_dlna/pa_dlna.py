@@ -624,7 +624,7 @@ class AVControlPoint(UPnPApplication):
                                           name='http_server')
 
                 # Register the DLNATestDevices.
-                for mtype in self.test_mtypes:
+                for mtype in self.test_devices:
                     rndr = DLNATestDevice(self, mtype)
                     await self.register(rndr, http_server)
 

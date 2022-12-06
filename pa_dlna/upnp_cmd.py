@@ -13,7 +13,7 @@ from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
                    UPnPClosedDeviceError, pprint_xml)
 from .upnp.util import log_exception
 
-logger = logging.getLogger('upnpctl')
+logger = logging.getLogger('upnpcmd')
 
 class MissingElementError(Exception): pass
 
@@ -608,9 +608,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
             self.close()
 
     def __str__(self):
-        return 'upnp-control'
+        return 'upnp-cmd'
 
 # The main function.
 if __name__ == '__main__':
-    main_function(UPnPControlCmd, __doc__, loglevel_default='warning',
-                  inthread=True)
+    main_function(UPnPControlCmd, __doc__)

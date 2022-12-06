@@ -47,12 +47,16 @@ class FilterDebug:
         if record.levelno != logging.DEBUG:
             return True
 
-def setup_logging(options):
+def setup_logging(options, loglevel='warning'):
 
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
+
+    options_loglevel = options.get('loglevel')
+    if options_loglevel is not None:
+        loglevel = options_loglevel
     stream_hdler = logging.StreamHandler()
-    stream_hdler.setLevel(getattr(logging, options['loglevel'].upper()))
+    stream_hdler.setLevel(getattr(logging, loglevel.upper()))
     formatter = logging.Formatter(fmt='%(name)-7s %(levelname)-7s %(message)s')
     stream_hdler.setFormatter(formatter)
     root.addHandler(stream_hdler)
@@ -135,7 +139,7 @@ def networks_option(networks, parser):
 
     return network_objects
 
-def parse_args(doc, loglevel_default):
+def parse_args(doc, pa_dlna):
     """Parse the command line."""
 
     def pack_B(ttl):
@@ -167,18 +171,19 @@ def parse_args(doc, loglevel_default):
     parser.add_argument('--ttl', type=pack_B, default=b'\x02',
                         help='set the IP packets time to live to TTL'
                         ' (default: 2)')
-    parser.add_argument('--dump-default', '-d', action='store_true',
-                        help='write to stdout (and exit) the default built-in'
-                        ' configuration')
-    parser.add_argument('--dump-internal', '-i', action='store_true',
-                        help='write to stdout (and exit) the configuration'
-                        '  used internally by the program on startup after'
-                        ' tha pa-dlna.conf user configuration file has been'
-                        ' parsed')
-    parser.add_argument('--loglevel', '-l', default=loglevel_default,
-                        choices=('debug', 'info', 'warning', 'error'),
-                        help='set the log level of the stderr logging console'
-                        ' (default: %(default)s)')
+    if pa_dlna:
+        parser.add_argument('--dump-default', '-d', action='store_true',
+                            help='write to stdout (and exit) the default'
+                            ' built-in configuration')
+        parser.add_argument('--dump-internal', '-i', action='store_true',
+                            help='write to stdout (and exit) the'
+                            ' configuration used internally by the program on'
+                            ' startup after the pa-dlna.conf user'
+                            ' configuration file has been parsed')
+        parser.add_argument('--loglevel', '-l', default='info',
+                            choices=('debug', 'info', 'warning', 'error'),
+                            help='set the log level of the stderr logging'
+                            ' console (default: %(default)s)')
     parser.add_argument('--logfile', '-f', metavar='PATH',
                         help='add a file logging handler set at '
                         "'debug' log level whose path name is PATH")
@@ -188,20 +193,23 @@ def parse_args(doc, loglevel_default):
                         help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"
                         ' verbose logs')
-    parser.add_argument('--test-devices', '-t', metavar='MIME-TYPES',
-                        type=mime_types, default='', dest='test_mtypes',
-                        help='MIME-TYPES is a comma separated list of'
-                        ' different audio mime types. A DLNATestDevice is'
-                        ' instantiated for each one of these mime types and'
-                        ' registered as a plain DLNA device.')
+    if pa_dlna:
+        parser.add_argument('--test-devices', '-t', metavar='MIME-TYPES',
+                            type=mime_types, default='',
+                            help='MIME-TYPES is a comma separated list of'
+                            ' different audio mime types. A DLNATestDevice is'
+                            ' instantiated for each one of these mime types'
+                            ' and registered as a plain DLNA device.')
 
     # Options as a dict.
     options = vars(parser.parse_args())
 
-    if options['dump_default'] and options['dump_internal']:
-        parser.error(f"Cannot set both '--encoder-default' and "
-                     f"'--encoder-internal' arguments simultaneously")
-    if options['dump_default'] or options['dump_internal']:
+    dump_default = options.get('dump_default')
+    dump_internal = options.get('dump_internal')
+    if dump_default and dump_internal:
+        parser.error(f"Cannot set both '--dump-default' and "
+                     f"'--dump-internal' arguments simultaneously")
+    if dump_default or dump_internal:
         return options, None
 
     logfile_hdler = setup_logging(options)
@@ -227,7 +235,7 @@ class UPnPApplication:
         raise NotImplementedError
 
 # The main function.
-def main_function(clazz, doc, loglevel_default='info', inthread=False):
+def main_function(clazz, doc):
 
     def run_in_thread(coro):
         """Run the UPnP control point in a thread."""
@@ -236,35 +244,41 @@ def main_function(clazz, doc, loglevel_default='info', inthread=False):
         cp_thread.start()
         return cp_thread
 
-    assert issubclass(clazz, UPnPApplication)
+    assert clazz.__name__ in ('AVControlPoint', 'UPnPControlCmd')
+    pa_dlna = True if clazz.__name__ == 'AVControlPoint' else False
 
     # Parse the arguments.
-    options, logfile_hdler = parse_args(doc, loglevel_default)
+    options, logfile_hdler = parse_args(doc, pa_dlna)
 
-    # Get the encoders configuration.
-    try:
-        if options['dump_default']:
-            DefaultConfig().write(sys.stdout)
-            sys.exit(0)
+    # Instantiate the UPnPApplication.
+    if pa_dlna:
+        # Get the encoders configuration.
+        try:
+            if options['dump_default']:
+                DefaultConfig().write(sys.stdout)
+                sys.exit(0)
 
-        config = UserConfig()
-        if options['dump_internal']:
-            config.print_internal_config()
-            sys.exit(0)
-    except Exception as e:
-        logger.exception(f'{e!r}')
-        sys.exit(1)
+            config = UserConfig()
+            if options['dump_internal']:
+                config.print_internal_config()
+                sys.exit(0)
+        except Exception as e:
+            logger.exception(f'{e!r}')
+            sys.exit(1)
+        app = clazz(config=config, **options)
+    else:
+        app = clazz(**options)
 
     # Run the UPnPApplication instance.
-    app = clazz(config=config, **options)
     logger.info(f'Start {app}')
     try:
-        if inthread:
+        if pa_dlna:
+            asyncio.run(app.run_control_point())
+        else:
+            # Run the control point of upnp-cmd in a thread.
             event = threading.Event()
             cp_thread = run_in_thread(app.run_control_point(event))
             app.run(cp_thread, event)
-        else:
-            asyncio.run(app.run_control_point())
     except asyncio.CancelledError:
         pass
     except KeyboardInterrupt as e:
