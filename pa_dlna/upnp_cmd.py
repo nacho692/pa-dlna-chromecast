@@ -1,4 +1,4 @@
-"""Command line tool to control upnp devices."""
+"""Command line tool for introspection and control of UPnP devices."""
 
 import io
 import cmd

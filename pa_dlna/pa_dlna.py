@@ -1,4 +1,4 @@
-"""An UPnP control point routing PulseAudio streams to DLNA devices."""
+"""An UPnP control point forwarding PulseAudio streams to DLNA devices."""
 
 import sys
 import shutil

@@ -1,0 +1,185 @@
+.. _default_config:
+
+built-in default configuration
+==============================
+
+::
+
+ # The pa-dlna default configuration.
+ #
+ # This is the built-in pa-dlna configuration written as text. It can be
+ # parsed by a Python Configuration parser and consists of sections, each led
+ # by a [section] header, followed by option/value entries separated by
+ # '='. See https://docs.python.org/3/library/configparser.html.
+ #
+ # The 'selection' option is written as a multi-line in which case all the
+ # lines after the first line start with a white space.
+ #
+ # The default value of 'selection' lists the encoders in this order:
+ #     - mp3 encoders first as mp3 is the most common encoding
+ #     - lossless encoders
+ #     - then lossy encoders
+ # See https://trac.ffmpeg.org/wiki/Encode/HighQualityAudio.
+
+ [DEFAULT]
+ selection =
+     Mp3Encoder,
+     FFMpegMp3Encoder,
+     L16Encoder,
+     FFMpegL16WavEncoder,
+     FFMpegAiffEncoder,
+     FlacEncoder,
+     FFMpegFlacEncoder,
+     FFMpegOpusEncoder,
+     FFMpegVorbisEncoder,
+     FFMpegAacEncoder,
+ rate = 44100
+ channels = 2
+ track_metadata = yes
+ args = None
+
+ [FFMpegAacEncoder]
+ # Aac encoder.
+ #
+ # 'bitrate' is expressed in kilobits.
+ # See also https://trac.ffmpeg.org/wiki/Encode/AAC.
+ #
+ # available: yes
+ # pgm: /usr/bin/ffmpeg
+ # mime_types: ['audio/aac', 'audio/x-aac', 'audio/vnd.dlna.adts']
+ # pulse_format: s16le
+ #
+ bitrate = 192
+ args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f adts -c:a aac -b:a 192k pipe:1
+
+ [FFMpegAiffEncoder]
+ # Lossless Aiff Encoder.
+ #
+ # available: yes
+ # pgm: /usr/bin/ffmpeg
+ # mime_types: ['audio/aiff']
+ # pulse_format: s16le
+ args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f aiff pipe:1
+
+ [FFMpegFlacEncoder]
+ # Lossless Flac encoder.
+ #
+ # See also https://ffmpeg.org/ffmpeg-all.html#flac-2.
+ #
+ # available: yes
+ # pgm: /usr/bin/ffmpeg
+ # mime_types: ['audio/flac', 'audio/x-flac']
+ # pulse_format: s16le
+ args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f flac pipe:1
+
+ [FFMpegL16WavEncoder]
+ # Lossless PCM L16 encoder with a wav container.
+ #
+ # available: yes
+ # pgm: /usr/bin/ffmpeg
+ # mime_types: ['audio/l16']
+ # pulse_format: s16be
+ args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16be -i - -f wav pipe:1
+
+ [FFMpegMp3Encoder]
+ # Mp3 encoder.
+ #
+ # Setting 'bitrate' to 0 causes VBR encoding to be chosen and 'qscale'
+ # to be used instead, otherwise 'bitrate' is expressed in kilobits.
+ # See also https://trac.ffmpeg.org/wiki/Encode/MP3.
+ #
+ # available: yes
+ # pgm: /usr/bin/ffmpeg
+ # mime_types: ['audio/mp3', 'audio/mpeg']
+ # pulse_format: s16le
+ #
+ bitrate = 256
+ qscale = 2
+ args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f mp3 -c:a libmp3lame -b:a 256k pipe:1
+
+ [FFMpegOpusEncoder]
+ # Opus encoder.
+ #
+ # See also https://wiki.xiph.org/Opus_Recommended_Settings.
+ #
+ # available: yes
+ # pgm: /usr/bin/ffmpeg
+ # mime_types: ['audio/opus', 'audio/x-opus']
+ # pulse_format: s16le
+ #
+ bitrate = 128
+ args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f opus -c:a libopus -b:a 128k pipe:1
+
+ [FFMpegVorbisEncoder]
+ # Vorbis encoder.
+ #
+ # Setting 'bitrate' to 0 causes VBR encoding to be chosen and 'qscale'
+ # to be used instead, otherwise 'bitrate' is expressed in kilobits.
+ # See also https://ffmpeg.org/ffmpeg-all.html#libvorbis.
+ #
+ # available: yes
+ # pgm: /usr/bin/ffmpeg
+ # mime_types: ['audio/vorbis', 'audio/x-vorbis']
+ # pulse_format: s16le
+ #
+ bitrate = 256
+ qscale = 3.0
+ args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f ogg -c:a libvorbis -b:a 256k pipe:1
+
+ [FlacEncoder]
+ # Lossless Flac encoder.
+ #
+ # See the flac home page at https://xiph.org/flac/
+ # See also https://xiph.org/flac/documentation_tools_flac.html
+ #
+ # pgm: /usr/bin/flac
+ # available: yes
+ # mime_types: ['audio/flac', 'audio/x-flac']
+ # pulse_format: s16le
+ args = - --silent --channels 2 --sample-rate 44100 --sign signed --bps 16 --endian little
+
+ [L16Encoder]
+ # Lossless PCM L16 encoder without a container.
+ #
+ # This encoder does not use an external program for streaming. It only uses
+ # the pulseaudio parec program.
+ #
+ # To check this encoder without using a DLNA device, use the ffplay
+ # program from the ffmpeg suite.
+ # Follow these steps:
+ #     - Set L16Encoder at the highest priority in the pa-dlna.conf file.
+ #     - Run pa-dlna with the command line option:
+ #
+ #         '--test-devices audio/L16\;rate=44100\;channels=2'
+ #
+ #     - Get the result with curl or wget as a file named 'output' using the
+ #       URL printed by the logs.
+ #     - Chek the result with the command:
+ #
+ #         $ ffplay -f s16be -ac 2 -ar 44100 output
+ #
+ # Note that the ';' character must be escaped on the command line or the
+ # value of the '--test-devices' option must be quoted.
+ #
+ # See also https://datatracker.ietf.org/doc/html/rfc2586.
+ #
+ # mime_types: ['audio/l16']
+ # network_format: s16be
+ # pulse_format: s16le
+
+ [Mp3Encoder]
+ # Mp3 encoder from the Lame Project.
+ #
+ # See the Lame Project home page at https://lame.sourceforge.io/
+ # See lame command line options at
+ #     https://svn.code.sf.net/p/lame/svn/trunk/lame/USAGE
+ #
+ # pgm: /usr/bin/lame
+ # available: yes
+ # mime_types: ['audio/mp3', 'audio/mpeg']
+ # pulse_format: s16le
+ #
+ bitrate = 256
+ quality = 0
+ args = -r -s 44.1 --signed --bitwidth 16 --little-endian -q 0 -b 256 -
+

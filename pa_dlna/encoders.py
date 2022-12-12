@@ -69,35 +69,18 @@ def select_encoder(config, renderer_name, pinfo, udn):
 class Encoder:
     """The pa-dlna default configuration.
 
-    This is the built-in pa-dlna configuration written as a text. It can be
+    This is the built-in pa-dlna configuration written as text. It can be
     parsed by a Python Configuration parser and consists of sections, each led
     by a [section] header, followed by option/value entries separated by
     '='. See https://docs.python.org/3/library/configparser.html.
 
-    A section is either [DEFAULT], [EncoderName] or [EncoderName.UDN]. The
-    options defined in the [DEFAULT] section apply to all the other sections
-    and are overriden when also defined in the [EncoderName] or
-    [EncoderName.UDN] sections.
-
-    The options defined in the pa-dlna.conf user configuration file (also
-    parseable by a Python Configuration parser) override the options of the
-    default configuration listed here. The pa-dlna.conf file also allows the
-    specification of options per device using [EncoderName.UDN], see the
-    pa-dlna documentation.
-
-    The 'selection' option is an ordered comma separated list of
-    encoders. This list is used to select the first encoder matching one of
-    the mime-types supported by a discovered DLNA device when there is no
-    specific [EncoderName.UDN] configuration for the given device.
-
-    Notes:
     The 'selection' option is written as a multi-line in which case all the
     lines after the first line start with a white space.
 
     The default value of 'selection' lists the encoders in this order:
-        - FFMpegMp3Encoder first as it is the most common encoder
-        - the lossless encoders
-        - then the lossy encoders
+        - mp3 encoders first as mp3 is the most common encoding
+        - lossless encoders
+        - then lossy encoders
     See https://trac.ffmpeg.org/wiki/Encode/HighQualityAudio.
     """
 
@@ -126,7 +109,7 @@ class Encoder:
 
     def set_args(self):
         """Return True is 'args' is not set in the user configuration file."""
-        return self.args == 'None'
+        return str(self.args) == 'None'
 
     def command(self):
         raise NotImplementedError
@@ -210,18 +193,19 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
     To check this encoder without using a DLNA device, use the ffplay
     program from the ffmpeg suite.
     Follow these steps:
-        - set L16Encoder at the highest priority in the pa-dlna.conf file
-        - run pa-dlna with the command line option
+        - Set L16Encoder at the highest priority in the pa-dlna.conf file.
+        - Run pa-dlna with the command line option:
 
-            '--renderers audio/L16\;rate=44100\;channels=2'
+            '--test-devices audio/L16\;rate=44100\;channels=2'
 
-        - get the result with curl or wget as a file named 'output'
-        - chek the result with the command:
+        - Get the result with curl or wget as a file named 'output' using the
+          URL printed by the logs.
+        - Chek the result with the command:
 
             $ ffplay -f s16be -ac 2 -ar 44100 output
 
     Note that the ';' character must be escaped on the command line or the
-    value of the '--renderers' option must be quoted.
+    value of the '--test-devices' option must be quoted.
 
     See also https://datatracker.ietf.org/doc/html/rfc2586.
     """

@@ -1,53 +1,55 @@
-An UPnP control point routing PulseAudio streams to DLNA devices.
+Python project based on asyncio including three components:
 
-**Work in progress**
+ * The ``pa-dlna`` program forwarding PulseAudio streams to DLNA devices.
+ * The ``upnp-cmd`` interactive command line tool for introspection and control
+   of UPnP devices.
+ * A standalone UPnP library used by both commands.
 
-Development
------------
+See the `documentation`_.
 
-Asyncio tasks:
+Installation::
 
-    UPnPControlPoint tasks:
-      ssdp notify           Monitor reception of notify SSDPs.
-      ssdp msearch          Send msearch SSDPs at regular intervals.
-      n x root device       Implement control of the aging of an UPnP root
-                            device.
+  $ pip install pa-dlna
 
-    AVControlPoint tasks:
-      main                  * Instantiate the UPnPControlPoint that starts the
-                              UPnP tasks.
-                            * Create the pulse task, the http_server task, the
-                              renderer tasks and the shutdown task.
-                            * Handle UPnP notifications.
-      pulse                 Monitor pulseaudio sink-input events.
-      http_server           Serve DLNA HTTP requests and start the
-                            client_connected tasks.
-      n x renderer          Act upon pulseaudio events and run UPnP soap
-                            actions.
-      abort                 Abort the pa-dlna program.
-      shutdown              Wait on event pushed by the signal handlers.
+Requirements
+------------
 
-    HTTPServer tasks:
-      client_connected      HTTPServer callback wrapped by asyncio in a task.
-                            Start the tasks that forward the audio stream
-                            from a pulseaudio null-sink monitor to the HTTP
-                            socket via 'parec | encoder program | HTTP socket'.
+Python version 3.8 or more recent.
 
-    StreamSession tasks:
-      parec process         Start the parec process and wait for its exit.
-      parec log_stderr      Log the parec process stderr.
-      encoder process       Start the encoder process and wait for its exit.
-      encoder log_stderr    Log the encoder process stderr.
-      track                 Write the audio stream to the HTTP socket.
+The UPnP library and the ``upnp-cmd`` command do not have any external
+dependency.
 
-    Track tasks:
-      shutdown              Write the last chunk and close the HTTP socket.
+The ``pa-dlna`` command uses the Python ``pulsectl`` and ``pulsectl-asyncio``
+packages. They are automatically installed with pa-dlna when installing with
+pip.
 
-The '--networks' command line option:
-    Accept IP interfaces or IP addresses in the its comma separated list.
-    A renderer is instantiated upon receiving an 'alive' notification:
-        * If the root device IP destination address exists (an UPnP msearch
-          SSDP response) and this address matches one of these IP
-          interfaces or IP addresses.
-        * Otherwise (an UPnP notify SSDP broadcast) if the source IP
-          address belongs to the network of one of these IP interfaces.
+The ``pa-dlna`` command does not require any other dependency when the DLNA
+devices support raw PCM L16 (:rfc:`2586`). If not, then encoders compatible with
+the audio mime types supported by the devices are required. ``pa-dlna``
+currently supports `ffmpeg`_ (mp3, wav, aiff, flac, opus, vorbis, aac), the
+`flac`_ and the `lame`_ (mp3) encoders. The list of supported encoders, whether
+they are available on this host and their options, is printed by the command::
+
+  $ pa-dlna --dump-default
+
+whose output is the :ref:`default_config`.
+
+DLNA devices must support HTTP streaming and support HTTP 1.1 as specified by
+Annex A.1 of the `ConnectionManager:3 Service`_ UPnP specification and
+especially chunked transfer encoding.
+
+Configuration
+-------------
+
+A ``pa-dlna.conf`` user configuration file may be used to:
+
+ * Change the preferred encoders ordered list used to select an encoder.
+ * Customize encoder options.
+ * Set an encoder for a given device and customize its options for this device.
+
+.. _documentation: https://readthedocs.org/projects/pa-dlna/
+.. _ConnectionManager:3 Service:
+        http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf
+.. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html
+.. _flac: https://xiph.org/flac/
+.. _lame: https://lame.sourceforge.io/

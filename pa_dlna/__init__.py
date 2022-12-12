@@ -160,6 +160,8 @@ def parse_args(doc, pa_dlna):
         return mtypes
 
     parser = argparse.ArgumentParser(description=doc)
+    prog = 'pa-dlna' if pa_dlna else 'upnp-cmd'
+    parser.prog = prog
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
     parser.add_argument('--networks', '-n', default='',
