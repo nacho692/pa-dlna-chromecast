@@ -199,9 +199,10 @@ def parse_args(doc, pa_dlna):
         parser.add_argument('--test-devices', '-t', metavar='MIME-TYPES',
                             type=mime_types, default='',
                             help='MIME-TYPES is a comma separated list of'
-                            ' different audio mime types. A DLNATestDevice is'
+                            ' distinct audio mime types. A DLNATestDevice is'
                             ' instantiated for each one of these mime types'
-                            ' and registered as a plain DLNA device.')
+                            ' and registered as a virtual DLNA device. Mostly'
+                            ' for testing.')
 
     # Options as a dict.
     options = vars(parser.parse_args())

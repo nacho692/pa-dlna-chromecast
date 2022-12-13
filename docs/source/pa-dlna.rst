@@ -65,6 +65,6 @@ Options
 
 .. option::  --test-devices MIME-TYPES, -t MIME-TYPES
 
-   MIME-TYPES is a comma separated list of different audio mime types. A
+   MIME-TYPES is a comma separated list of distinct audio mime types. A
    DLNATestDevice is instantiated for each one of these mime types and
-   registered as a plain DLNA device.
+   registered as a virtual DLNA device. Mostly for testing.

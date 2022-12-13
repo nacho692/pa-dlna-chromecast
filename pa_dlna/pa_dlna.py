@@ -406,7 +406,8 @@ class Renderer:
                                 f':{self.control_point.port}'
                                 f'{AUDIO_URI_PREFIX}/{udn}')
             logger.info(f'New {self.name} renderer with {self.encoder}'
-                        f" handling '{self.mime_type}'")
+                        f" handling '{self.mime_type}'"
+                        f'{NL_INDENT}URL: {self.current_uri}')
 
             while True:
                 await self.handle_pulse_event()

@@ -6,7 +6,10 @@ Development
 Design
 ------
 
-**Meta data**
+.. _meta data:
+
+Meta Data
+"""""""""
 
 When ``pa-dlna`` receives a ``change`` event from pulseaudio and this event is
 related to a change to the meta data as for example when a new track starts with
@@ -33,23 +36,11 @@ This way, the last part of the current track is not truncated by the amount of
 latency introduced by the device's read buffer and the delay introduced by
 filling the read buffer of the next track is minimized.
 
-**Renderer instantiation**
+This feature is enabled on a per encoder or per device basis with the
+``track_metadata`` option. It is enabled by default.
 
-For a new Renderer to be instantiated one needs to know which one of the network
-addresses set by the ``--networks`` command line option will be advertised to
-the DLNA device in the ``SetAVTransportURI`` soap action:
-
-  * If this is triggered by a unicast response to an UPnP msearch SSDP, then
-    this is the destination address of the SSDP response and the Renderer can be
-    instantiated.
-
-  * If this is triggered by a notify SSDP, broadcasted by the device, then we
-    can only instantiate the Renderer if the source address of this packet
-    belongs to one of the network interfaces set by the ``--networks``
-    option. Hence the reason why a network interface entry is preferred in this
-    option.
-
-**Asyncio tasks**
+Asyncio Tasks
+"""""""""""""
 
 Task names in **bold** characters indicate that there is one such task for each
 DLNA device, when in *italics* that there may be one such task for each DLNA
@@ -58,8 +49,8 @@ device.
   UPnPControlPoint tasks:
 
     ================      ======================================================
-    ssdp notify           Monitor reception of notify SSDPs.
-    ssdp msearch          Send msearch SSDPs at regular intervals.
+    ssdp notify           Monitor reception of NOTIFY SSDPs.
+    ssdp msearch          Send MSEARCH SSDPs at regular intervals.
     **root device**       Implement control of the aging of an UPnP root device.
     ================      ======================================================
 

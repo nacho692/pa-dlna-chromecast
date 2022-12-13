@@ -7,7 +7,7 @@ DEFAULT_CONFIG = 'docs/source/default-config.rst'
 HEADER = """\
 .. _default_config:
 
-built-in default configuration
+Built-in Default Configuration
 ==============================
 
 ::

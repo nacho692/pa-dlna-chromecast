@@ -35,14 +35,58 @@ running or the DLNA device is turned off, pulseaudio temporarily uses the
 default sink as the sink for this association, it is usually the host's sound
 card. See `Default/fallback devices`_.
 
-UPnP library:
+**The --networks command line option**
+
+For a new DLNA device to be registered one needs to know which one of the network
+addresses set by the ``--networks`` command line option will be advertised to
+the DLNA device in the ``SetAVTransportURI`` soap action so that the DLNA device
+can initiate an HTTP session to start the streaming:
+
+  * If this is triggered by a unicast response to an UPnP MSEARCH SSDP, then
+    this is the destination address of the SSDP response and the DLNA device is
+    registered.
+
+    MSEARCH SSDP are sent by ``pa-dlna`` every 60 seconds.
+
+  * If this is triggered by a NOTIFY SSDP, broadcasted by the device, then the
+    DLNA device can be registered only if the source address of this packet
+    belongs to one of the network interfaces set by the ``--networks``
+    option. That is, the DLNA device and the host belong to the same network and
+    this network is known because the corresponding local address has been
+    entered in the ``--networks`` option as a local IPv4 interface, not as local
+    IPv4 address. Hence the reason why a network interface entry is preferred
+    with this option.
+
+    The `UPnP Device Architecture`_ specification does not specify the
+    periodicity of NOTIFY SSDPs sent by DLNA devices.
+
+**The --test-devices command line option**
+
+The value of the ``--test-devices`` command line option is a comma separated
+list of distinct audio mime types. A DLNATestDevice is instantiated for each one
+of these mime types and registered as a virtual DLNA device.
+
+Use this feature to test the streaming part of ``pa-dlna`` or to debug the
+failure of a DLNA device to handle an encoder with specific options.
+
+The URL of the DLNATestDevice is printed on the logs when it is registered. Use
+a program that supports HTTP 1.1, such as curl for example, to collect the audio
+stream after the pulseaudio sink of the DLNATestDevice has been associated with
+a source (see above).
+
+DLNATestDevice URLs are built using the sha1 of the audio mime type and
+therefore are consistent across ``pa-dlna`` sessions.
+
+UPnP Library:
 -------------
 
-UPnP devices are discovered by broadcasting MSEARCH SSDPs on the networks listed
-with the ``--networks`` command line option and by handling NOTIFY SSDPs
-broadcasted by the devices. The ``max-age`` directive in MSEARCH responses and
-NOTIFY broadcasts refreshes the aging time of the device. The device is
-discarded of the list of monitored devices when this aging time expires.
+UPnP devices are discovered by broadcasting MSEARCH SSDPs every 60 seconds on
+the networks listed with the ``--networks`` command line option and by handling
+the NOTIFY SSDPs broadcasted by the devices.
+
+The ``max-age`` directive in MSEARCH responses and NOTIFY broadcasts refreshes
+the aging time of the device. The device is discarded of the list of registered
+devices when this aging time expires.
 
 :ref:`upnp-cmd`
 ---------------

@@ -1,7 +1,7 @@
 Configuration
 =============
 
-Encoders configuration
+Encoders Configuration
 ----------------------
 
 The encoders configuration is based on the :ref:`default_config` that may be
@@ -32,7 +32,7 @@ ones:
     * Section names and options are case sensitive.
     * Boolean values are resticted to ``yes`` or ``no``.
 
-User configuration
+User Configuration
 ------------------
 
 The full path name of the  user's ``pa-dlna.conf`` file is determined by
@@ -103,8 +103,8 @@ The options common to all sections are:
   *track_metadata*
 
     * When ``yes``, each track is streamed in its own HTTP session allowing the
-      DLNA device to get the track meta data as described in the :ref:`design`
-      section of this documentation. This is the default.
+      DLNA device to get the track meta data as described in the :ref:`meta
+      data` section. This is the default.
     * When ``no``, there is only one HTTP session for all the tracks. Set this
       option to ``no`` when the logs show ERROR entries upon tracks changes.
 

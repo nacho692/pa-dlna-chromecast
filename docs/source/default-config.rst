@@ -1,6 +1,6 @@
 .. _default_config:
 
-built-in default configuration
+Built-in Default Configuration
 ==============================
 
 ::
