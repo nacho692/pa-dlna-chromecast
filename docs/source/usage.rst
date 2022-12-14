@@ -35,27 +35,27 @@ running or the DLNA device is turned off, pulseaudio temporarily uses the
 default sink as the sink for this association, it is usually the host's sound
 card. See `Default/fallback devices`_.
 
-**The --networks command line option**
+**DLNA device registration**
 
-For a new DLNA device to be registered one needs to know which one of the network
-addresses set by the ``--networks`` command line option will be advertised to
-the DLNA device in the ``SetAVTransportURI`` soap action so that the DLNA device
-can initiate an HTTP session to start the streaming:
+For a new DLNA device to be registered, ``pa-dlna`` must establish the network
+address to be used in the url that must be  advertised to the DLNA device in the
+``SetAVTransportURI`` soap action, so that the DLNA device may initiate the HTTP
+session and start the streaming. This depends on which event triggered this
+registration:
 
-  * If this is triggered by a unicast response to an UPnP MSEARCH SSDP, then
-    this is the destination address of the SSDP response and the DLNA device is
-    registered.
+  Reception of the  unicast response to an UPnP MSEARCH SSDP.
+    The destination address of the SSDP response is the address that is being
+    looked for.
 
     MSEARCH SSDP are sent by ``pa-dlna`` every 60 seconds.
 
-  * If this is triggered by a NOTIFY SSDP, broadcasted by the device, then the
-    DLNA device can be registered only if the source address of this packet
-    belongs to one of the network interfaces set by the ``--networks``
-    option. That is, the DLNA device and the host belong to the same network and
-    this network is known because the corresponding local address has been
-    entered in the ``--networks`` option as a local IPv4 interface, not as local
-    IPv4 address. Hence the reason why a network interface entry is preferred
-    with this option.
+  Reception of an UPnP NOTIFY SSDP, broadcasted by the device [#]_.
+    The DLNA device can be registered only if the source address of this packet
+    belongs to one of the allowed network interfaces. That is, the DLNA device
+    and the host belong to the same network on this interface and the IP address
+    of this interface is the address that is being looked for. Hence the reason
+    why an IPv4 interface is preferred to an IPv4 address in the
+    ``--networks`` option.
 
     The `UPnP Device Architecture`_ specification does not specify the
     periodicity of NOTIFY SSDPs sent by DLNA devices.
@@ -76,17 +76,6 @@ a source (see above).
 
 DLNATestDevice URLs are built using the sha1 of the audio mime type and
 therefore are consistent across ``pa-dlna`` sessions.
-
-UPnP Library:
--------------
-
-UPnP devices are discovered by broadcasting MSEARCH SSDPs every 60 seconds on
-the networks listed with the ``--networks`` command line option and by handling
-the NOTIFY SSDPs broadcasted by the devices.
-
-The ``max-age`` directive in MSEARCH responses and NOTIFY broadcasts refreshes
-the aging time of the device. The device is discarded of the list of registered
-devices when this aging time expires.
 
 :ref:`upnp-cmd`
 ---------------
@@ -130,6 +119,20 @@ The menu hierarchy is as follows:
         [ConnectionManager] or back to step 2 when an embedded device has been
         selected.
 
+UPnP Library:
+-------------
+
+UPnP devices are discovered by broadcasting MSEARCH SSDPs every 60 seconds and
+by handling the NOTIFY SSDPs broadcasted by the devices. The ``max-age``
+directive in MSEARCH responses and NOTIFY broadcasts refreshes the aging time of
+the device. The device is discarded of the list of registered devices when this
+aging time expires.
+
+Control of the UPnP device is done with the ``soap_action()`` method of an
+``UPnPService`` instance.
+
+Eventing is not supported.
+
 .. _Default/fallback devices:
         https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/DefaultDevice/
 .. _Automatic setup and routing:
@@ -150,6 +153,9 @@ The menu hierarchy is as follows:
 .. [#] ``pavucontrol`` and ``pacmd`` are  part of pulseaudio and installed with
        pulseaudio.
 .. [#] A source is called a sink-input by pulseaudio.
+.. [#] All sockets bound to the notify multicast address receive the datagram
+       sent by a DLNA device, even though it has been received by only one
+       interface at the physical layer.
 .. [#] An UPnP device implements the `UPnP Device Architecture`_ specification.
 .. [#] A DLNA device is an UPnP device and implements the `UPnP AV
        Architecture`_ specification and the `ConnectionManager`_, `AVTransport`_

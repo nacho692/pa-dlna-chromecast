@@ -16,12 +16,12 @@ Requirements
 
 Python version 3.8 or more recent.
 
-The UPnP library and the ``upnp-cmd`` command do not have any external
-dependency.
-
 The ``pa-dlna`` command uses the Python ``pulsectl`` and ``pulsectl-asyncio``
 packages. They are automatically installed with pa-dlna when installing with
-pip.
+pip. Optionally this command uses the ``ip`` command from the `iproute2`_
+package when the ``--networks`` command line option is not set. If the
+`iproute2`_ package is not installed then one must specify the network
+interfaces using the ``--networks`` option.
 
 The ``pa-dlna`` command does not require any other dependency when the DLNA
 devices support raw PCM L16 (:rfc:`2586`). If not, then encoders compatible with
@@ -38,6 +38,11 @@ DLNA devices must support HTTP streaming and support HTTP 1.1 as specified by
 Annex A.1 of the `ConnectionManager:3 Service`_ UPnP specification and
 especially chunked transfer encoding.
 
+The UPnP library does not have any external dependency.
+
+The ``upnp-cmd`` command depends on the ``ip`` command when the ``--networks``
+command line option is not set.
+
 Configuration
 -------------
 
@@ -48,6 +53,7 @@ A ``pa-dlna.conf`` user configuration file may be used to:
  * Set an encoder for a given device and customize its options for this device.
 
 .. _documentation: https://readthedocs.org/projects/pa-dlna/
+.. _iproute2: https://en.wikipedia.org/wiki/Iproute2
 .. _ConnectionManager:3 Service:
         http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf
 .. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html

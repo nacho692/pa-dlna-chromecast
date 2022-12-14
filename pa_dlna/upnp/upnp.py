@@ -477,6 +477,7 @@ class UPnPRootDevice(UPnPDevice):
 
             self._closed = False
             self._control_point._put_notification('alive', self)
+            logger.debug(f'{self} has been created')
             await self._age_root_device()
         except asyncio.CancelledError:
             self.close()
@@ -593,8 +594,6 @@ class UPnPControlPoint:
 
     def _put_notification(self, kind, root_device):
         self._upnp_queue.put_nowait((kind, root_device))
-        state = 'created' if kind == 'alive' else 'deleted'
-        logger.debug(f'{root_device} has been {state}')
 
     def _create_root_device(self, header, udn, peer_ipaddress,
                             local_ipaddress):
@@ -622,6 +621,13 @@ class UPnPControlPoint:
 
         else:
             root_device = self._devices[udn]
+            # The root device had been created from reception of a notify
+            # SSDP, this handles the reception of an msearch SSDP so update
+            # 'local_ipaddress' if not already done.
+            if (local_ipaddress is not None and
+                    root_device.local_ipaddress is None):
+                root_device.local_ipaddress = local_ipaddress
+                self._put_notification('alive', root_device)
 
             # Avoid cluttering the logs when the aging refresh occurs within 5
             # seconds of the last one, assuming all max ages are the same.
@@ -640,6 +646,7 @@ class UPnPControlPoint:
         if root_device is not None:
             del self._devices[udn]
             root_device.close()
+            logger.debug(f'{root_device} has been deleted')
             self._put_notification('byebye', root_device)
 
             if exc is not None:
@@ -700,8 +707,9 @@ class UPnPControlPoint:
                         for (data, peer_addr, local_addr) in result:
                             self._process_ssdp(data, peer_addr, local_addr)
                     else:
-                        logger.debug(f'No response to all M-SEARCH messages,'
-                                     f' next try in {MSEARCH_EVERY} seconds')
+                        logger.debug(f'No response on {ip_addr} to all'
+                                     f' M-SEARCH messages, next try in'
+                                     f' {MSEARCH_EVERY} seconds')
                 await asyncio.sleep(MSEARCH_EVERY)
         except asyncio.CancelledError:
             self.close()

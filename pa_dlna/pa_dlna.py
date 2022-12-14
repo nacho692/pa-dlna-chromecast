@@ -572,8 +572,9 @@ class AVControlPoint(UPnPApplication):
                                 break
                         else:
                             logger.warning(
-                                f'{root_device.peer_ipaddress} does not belong'
-                                f' to one of the enabled network interfaces')
+                                f'Ignored: {root_device.peer_ipaddress} does'
+                                f' not belong to one of the known network'
+                                f' interfaces')
                             continue
 
                     renderer = Renderer(self, local_ipaddress, root_device)
