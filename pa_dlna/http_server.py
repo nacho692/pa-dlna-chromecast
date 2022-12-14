@@ -39,7 +39,7 @@ async def kill_process(process):
         logger.debug(f"Ignoring exception: '{e!r}'")
 
 @log_exception(logger)
-async def run_httpserver(server):
+async def run_httpserver(server, av_control_point):
     try:
         aio_server = await asyncio.start_server(server.client_connected,
                                             server.net_ifaces, server.port)
@@ -54,7 +54,8 @@ async def run_httpserver(server):
                 logger.info('Close HTTP server')
 
     except Exception as e:
-        logger.exception(f'Got exception {e!r}')
+        logger.error(f'{e!r}')
+        await av_control_point.close(f'{e!r}')
 
 class Track:
     """An HTTP socket connected to a subprocess stdout.

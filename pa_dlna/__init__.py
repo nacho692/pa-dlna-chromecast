@@ -276,7 +276,7 @@ def main_function(clazz, doc):
     logger.info(f'Start {app}')
     try:
         if pa_dlna:
-            asyncio.run(app.run_control_point())
+            sys.exit(asyncio.run(app.run_control_point()))
         else:
             # Run the control point of upnp-cmd in a thread.
             event = threading.Event()

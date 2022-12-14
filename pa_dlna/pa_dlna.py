@@ -622,7 +622,7 @@ class AVControlPoint(UPnPApplication):
                 # Create the http_server task.
                 http_server = HTTPServer(self, self.networks,
                                          self.port)
-                self.cp_tasks.create_task(run_httpserver(http_server),
+                self.cp_tasks.create_task(run_httpserver(http_server, self),
                                           name='http_server')
 
                 # Register the DLNATestDevices.
@@ -634,9 +634,12 @@ class AVControlPoint(UPnPApplication):
                 await self.handle_upnp_notifications(upn_control_point, http_server)
 
         except asyncio.CancelledError as e:
-            logger.info(f'Main task got: {e!r}')
+            if e.args:
+                logger.info(f'Main task got: {e!r}')
+                return e.args[0]
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
+            return e
         finally:
             await self.close()
 
