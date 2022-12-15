@@ -475,7 +475,7 @@ class AVControlPoint(UPnPApplication):
         self.renderers = set()
         self.curtask = None             # task running run_control_point()
         self.pulse = None               # Pulse instance
-        self.start_event = asyncio.Event()
+        self.start_event = None
         self.faulty_devices = set()     # set of the udn of root devices
                                         # having been disabled
         self.cp_tasks = AsyncioTasks()
@@ -593,6 +593,7 @@ class AVControlPoint(UPnPApplication):
     async def run_control_point(self):
         try:
             self.curtask = asyncio.current_task()
+            self.start_event = asyncio.Event()
 
             if not self.config.any_available():
                 sys.exit('Error: No encoder is available')
