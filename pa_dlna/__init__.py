@@ -218,6 +218,7 @@ def parse_args(doc, pa_dlna):
     logfile_hdler = setup_logging(options)
 
     # Run networks_option() once logging has been setup.
+    logger.info('Python version ' + sys.version)
     logger.info(f'Options {options}')
     options['networks'] = networks_option(options['networks'], parser)
     return options, logfile_hdler
