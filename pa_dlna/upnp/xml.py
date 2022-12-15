@@ -1,5 +1,6 @@
 """XML utilities."""
 
+import sys
 import io
 import functools
 import logging
@@ -7,6 +8,11 @@ import collections
 import xml.etree.ElementTree as ET
 
 from . import UPnPError
+
+if sys.version_info >= (3, 9):
+    functools_cache = functools.cache
+else:
+    functools_cache = functools.lru_cache
 
 logger = logging.getLogger('xml')
 
@@ -25,7 +31,7 @@ ESCAPED_XML_CHARS = {
 class UPnPXMLError(UPnPError): pass
 
 # XML helper functions.
-@functools.cache
+@functools_cache
 def namespace_as_dict(xml):
     return dict(elem for (event, elem) in ET.iterparse(
             io.StringIO(xml), events=['start-ns']))
