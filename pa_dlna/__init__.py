@@ -7,11 +7,12 @@ import ipaddress
 import subprocess
 import json
 import logging
-import pprint
-import functools
 import asyncio
 import threading
 import struct
+
+from .config import DefaultConfig, UserConfig
+from . import encoders as encoders_module
 
 __version__ = '0.1'
 MIN_PYTHON_VERSION = (3, 8)
@@ -21,21 +22,6 @@ if VERSION[:2] < MIN_PYTHON_VERSION:
     print(f'error: the python version must be at least'
           f' {MIN_PYTHON_VERSION}', file=sys.stderr)
     sys.exit(1)
-
-# We want to preserve the order of 'in' and 'out' elements in the 'actionList'
-# of the service xml description.
-# The 'sort_dicts' keyword is supported since 3.8.
-if VERSION[:2] >= (3, 8):
-    pprint_pprint = functools.partial(pprint.pprint, sort_dicts=False)
-    pprint_pformat = functools.partial(pprint.pformat, sort_dicts=False)
-else:
-    pprint_pprint = pprint.pprint
-    pprint_pformat = pprint.pformat
-
-# Import from the config module after pprint_pformat has been defined to avoid
-# circular references.
-from .config import DefaultConfig, UserConfig
-from . import encoders as encoders_module
 
 logger = logging.getLogger('init')
 

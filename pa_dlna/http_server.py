@@ -5,12 +5,12 @@ import io
 import asyncio
 import signal
 import ipaddress
+import pprint
 import http.server
 import urllib.parse
 import logging
 from http import HTTPStatus
 
-from . import pprint_pformat
 from .upnp.util import AsyncioTasks, log_exception
 from .encoders import FFMpegEncoder, L16Encoder
 
@@ -482,7 +482,7 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
                     f'{self.client_address[0]}')
         logger.debug(f"uri path: '{self.path}'")
         logger.debug(f'Request headers:\n'
-                     f"{pprint_pformat(dict(self.headers.items()))}")
+                     f"{pprint.pformat(dict(self.headers.items()))}")
 
 class HTTPServer:
     """HHTP server accepting connections only from 'allowed_ips'.

@@ -2,18 +2,21 @@
 
 import io
 import cmd
+import pprint
+import functools
 import logging
 import asyncio
 import threading
 import textwrap
 import traceback
 
-from . import (main_function, UPnPApplication, pprint_pprint)
+from . import main_function, UPnPApplication
 from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
                    UPnPClosedDeviceError, pprint_xml)
 from .upnp.util import log_exception
 
 logger = logging.getLogger('upnpcmd')
+pprint_pprint = functools.partial(pprint.pprint, sort_dicts=False)
 
 class MissingElementError(Exception): pass
 

@@ -2,11 +2,11 @@
 
 import sys
 import os
+import pprint
 import textwrap
 import logging
 from configparser import ConfigParser, ParsingError
 
-from . import pprint_pformat
 from . import encoders as encoders_module
 
 logger = logging.getLogger('config')
@@ -244,7 +244,7 @@ class UserConfig(DefaultConfig):
         if not config:
             sys.stdout.write('No encoder is available\n')
             return
-        encoders_repr = pprint_pformat(config, sort_dicts=False, compact=True)
+        encoders_repr = pprint.pformat(config, sort_dicts=False, compact=True)
         sys.stdout.write('Internal configuration:\n')
         sys.stdout.write('The keys starting with underscore are read only.\n')
         sys.stdout.write(f'{encoders_repr}\n')
