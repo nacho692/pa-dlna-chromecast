@@ -91,7 +91,7 @@ The options common to all sections are:
 
   *args*
     The arguments of the encoder program's command line. The encoder's specific
-    option, such as bitrate for example, are ignored when this option is
+    options, such as bitrate for example, are ignored when this option is
     overriden in the ``pa-dlna.conf`` file.
 
   *channels*

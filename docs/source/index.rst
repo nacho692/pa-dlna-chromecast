@@ -11,7 +11,7 @@
    ReadMe <self>
    usage
    configuration
-   Default configuration <default-config>
+   Default Configuration <default-config>
    upnp-cmd
    pa-dlna
    development
@@ -20,7 +20,7 @@
 ReadMe
 ======
 
-pa-dlna version |version|.
+pa-dlna version |version|
 
 .. note::
 

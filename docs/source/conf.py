@@ -31,24 +31,8 @@ exclude_patterns = []
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'
+html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
-html_theme_options = {
-    # Add an unicode NO-BREAK SPACE at the end of the string.
-    'description': pa_dlna.__doc__ + '\n\n\n\u00A0',
-    'fixed_sidebar': 'true',
-    'page_width': '90%',
-    'body_max_width': 'auto',
-}
-html_sidebars = {
-    '**': [
-        'about.html',
-        'navigation.html',
-        'relations.html',
-        'searchbox.html',
-        'donate.html',
-    ]
-}
 
 # -- Options for manual page output ------------------------------------------
 

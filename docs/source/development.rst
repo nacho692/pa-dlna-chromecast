@@ -58,15 +58,17 @@ device.
 
     ================      ======================================================
     main                  Instantiate the UPnPControlPoint that starts the UPnP
-                          tasks -
-                          Create the pulse task, the http_server task, the
-                          renderer tasks and the shutdown task -
-                          Handle UPnP notifications.
+                          tasks.
+                          |br| Create the pulse task, the http_server task, the
+                          renderer tasks.
+                          |br| Create the shutdown task.
+                          |br| Handle UPnP notifications.
 
     pulse                 Monitor pulseaudio sink-input events.
-    http_server           Serve DLNA HTTP requests and start the
-                          client_connected tasks.
-    **renderers**         Act upon pulseaudio events and run UPnP soap actions.
+    http_server           Serve DLNA HTTP requests.
+                          |br| Start the client_connected tasks.
+    **renderers**         Act upon pulseaudio events.
+                          |br| Run UPnP soap actions.
     abort                 Abort the pa-dlna program.
     shutdown              Wait on event pushed by the signal handlers.
     ================      ======================================================
@@ -74,10 +76,9 @@ device.
   HTTPServer tasks:
 
     ==================    ======================================================
-    *client_connected*    HTTPServer callback wrapped by asyncio in a task -
-                          Start the tasks that forward the audio stream
-                          from a pulseaudio null-sink monitor to the HTTP
-                          socket via 'parec | encoder program | HTTP socket'.
+    *client_connected*    HTTPServer callback wrapped by asyncio in a task.
+                          |br| Start the StreamSession tasks:
+                          |br| ``parec | encoder program | HTTP socket``.
     ==================    ======================================================
 
   StreamSession tasks:
@@ -99,13 +100,14 @@ device.
 Releasing
 ---------
 
-**Build the documentation**
+Documentation
+"""""""""""""
 
 Generate ``default-config.rst``, build html documentation and man pages::
 
   $ python -m tools.gendoc_default_config
   $ make -C docs clean html man
 
+.. include:: common.txt
+
 .. _Chunked Transfer Coding: https://www.rfc-editor.org/rfc/rfc2616#section-3.6.1
-.. _UPnP AV Architecture:
-        http://upnp.org/specs/av/UPnP-av-AVArchitecture-v2.pdf

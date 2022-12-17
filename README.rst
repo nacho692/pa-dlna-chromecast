@@ -1,11 +1,11 @@
-Python project based on asyncio including three components:
+A Python project based on asyncio composed of three components:
 
  * The ``pa-dlna`` program forwarding PulseAudio streams to DLNA devices.
  * The ``upnp-cmd`` interactive command line tool for introspection and control
    of UPnP devices.
  * A standalone UPnP library used by both commands.
 
-See the `documentation`_.
+See the ``pa-dlna`` `documentation`_.
 
 Installation::
 
@@ -52,7 +52,7 @@ A ``pa-dlna.conf`` user configuration file may be used to:
  * Customize encoder options.
  * Set an encoder for a given device and customize its options for this device.
 
-.. _documentation: https://readthedocs.org/projects/pa-dlna/
+.. _documentation: https://pa-dlna.readthedocs.io/en/latest/
 .. _iproute2: https://en.wikipedia.org/wiki/Iproute2
 .. _ConnectionManager:3 Service:
         http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf

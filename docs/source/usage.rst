@@ -35,7 +35,8 @@ running or the DLNA device is turned off, pulseaudio temporarily uses the
 default sink as the sink for this association, it is usually the host's sound
 card. See `Default/fallback devices`_.
 
-**DLNA device registration**
+DLNA Device Registration
+""""""""""""""""""""""""
 
 For a new DLNA device to be registered, ``pa-dlna`` must establish the network
 address to be used in the url that must be  advertised to the DLNA device in the
@@ -60,7 +61,8 @@ registration:
     The `UPnP Device Architecture`_ specification does not specify the
     periodicity of NOTIFY SSDPs sent by DLNA devices.
 
-**The --test-devices command line option**
+``--test-devices`` Command Line Option
+""""""""""""""""""""""""""""""""""""""
 
 The value of the ``--test-devices`` command line option is a comma separated
 list of distinct audio mime types. A DLNATestDevice is instantiated for each one
@@ -119,8 +121,8 @@ The menu hierarchy is as follows:
         [ConnectionManager] or back to step 2 when an embedded device has been
         selected.
 
-UPnP Library:
--------------
+UPnP Library
+------------
 
 UPnP devices are discovered by broadcasting MSEARCH SSDPs every 60 seconds and
 by handling the NOTIFY SSDPs broadcasted by the devices. The ``max-age``
@@ -133,20 +135,12 @@ Control of the UPnP device is done with the ``soap_action()`` method of an
 
 Eventing is not supported.
 
+.. include:: common.txt
+
 .. _Default/fallback devices:
         https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/DefaultDevice/
 .. _Automatic setup and routing:
         https://gavv.net/articles/pulseaudio-under-the-hood/#automatic-setup-and-routing
-.. _UPnP Device Architecture:
-        https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
-.. _UPnP AV Architecture:
-        http://upnp.org/specs/av/UPnP-av-AVArchitecture-v2.pdf
-.. _ConnectionManager:
-        http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf
-.. _AVTransport:
-        http://upnp.org/specs/av/UPnP-av-AVTransport-v3-Service.pdf
-.. _RenderingControl:
-        http://upnp.org/specs/av/UPnP-av-RenderingControl-v3-Service.pdf
 
 .. rubric:: Footnotes
 

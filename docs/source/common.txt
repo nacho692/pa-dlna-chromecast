@@ -1,0 +1,17 @@
+.. Directives and external links shared by rst files.
+
+
+.. |br| raw:: html
+
+        <br/>
+
+.. _UPnP Device Architecture:
+        https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
+.. _UPnP AV Architecture:
+        http://upnp.org/specs/av/UPnP-av-AVArchitecture-v2.pdf
+.. _ConnectionManager:
+        http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf
+.. _AVTransport:
+        http://upnp.org/specs/av/UPnP-av-AVTransport-v3-Service.pdf
+.. _RenderingControl:
+        http://upnp.org/specs/av/UPnP-av-RenderingControl-v3-Service.pdf
