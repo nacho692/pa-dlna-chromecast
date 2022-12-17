@@ -97,17 +97,46 @@ device.
     *shutdown*            Write the last chunk and close the HTTP socket.
     ==============        ======================================================
 
-Releasing
----------
+Development
+-----------
+
+Requirements
+""""""""""""
+
+Development:
+    * `flit`_ to publish pa-dlna to PyPi. Use the following command to install
+      pa-dlna locally and have the changes in the source code reflected by the
+      ``pa-dlna`` command::
+
+        $ flit install --symlink [--python path/to/python_version]
+
+Documentation:
+    * `Sphinx`_.
+    * `Read the Docs theme`_.
 
 Documentation
 """""""""""""
 
-Generate ``default-config.rst``, build html documentation and man pages::
+To build locally the documentation, generate the ``default-config.rst`` file,
+build the html documentation and the man pages::
 
   $ python -m tools.gendoc_default_config
   $ make -C docs clean html man
 
+Releasing
+"""""""""
+
+* Update ``__version__`` in pa_dlna/__init__.py.
+* Build locally the documentation.
+* Commit the changes.
+* Create a git tag for the new version.
+* Publish the new version to PyPi.
+
 .. include:: common.txt
 
-.. _Chunked Transfer Coding: https://www.rfc-editor.org/rfc/rfc2616#section-3.6.1
+.. _Chunked Transfer Coding:
+    https://www.rfc-editor.org/rfc/rfc2616#section-3.6.1
+.. _Read the Docs theme:
+    https://docs.readthedocs.io/en/stable/faq.html#i-want-to-use-the-read-the-docs-theme-locally
+.. _Sphinx: https://www.sphinx-doc.org/
+.. _flit: https://pypi.org/project/flit/

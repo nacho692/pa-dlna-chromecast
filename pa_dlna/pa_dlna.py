@@ -10,7 +10,7 @@ from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
-from . import main_function, UPnPApplication, ControlPointAbortError
+from . import padlna_main, UPnPApplication, ControlPointAbortError
 from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer, run_httpserver
 from .encoders import select_encoder
@@ -648,5 +648,8 @@ class AVControlPoint(UPnPApplication):
         return 'pa-dlna'
 
 # The main function.
+def main():
+    padlna_main(AVControlPoint, __doc__)
+
 if __name__ == '__main__':
-    main_function(AVControlPoint, __doc__)
+    padlna_main(AVControlPoint, __doc__)

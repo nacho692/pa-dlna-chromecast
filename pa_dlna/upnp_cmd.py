@@ -10,7 +10,7 @@ import threading
 import textwrap
 import traceback
 
-from . import main_function, UPnPApplication
+from . import padlna_main, UPnPApplication
 from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
                    UPnPClosedDeviceError, pprint_xml)
 from .upnp.util import log_exception
@@ -614,5 +614,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         return 'upnp-cmd'
 
 # The main function.
+def main():
+    padlna_main(UPnPControlCmd, __doc__)
+
 if __name__ == '__main__':
-    main_function(UPnPControlCmd, __doc__)
+    padlna_main(UPnPControlCmd, __doc__)

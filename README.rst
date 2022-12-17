@@ -32,8 +32,6 @@ they are available on this host and their options, is printed by the command::
 
   $ pa-dlna --dump-default
 
-whose output is the :ref:`default_config`.
-
 DLNA devices must support HTTP streaming and support HTTP 1.1 as specified by
 Annex A.1 of the `ConnectionManager:3 Service`_ UPnP specification and
 especially chunked transfer encoding.

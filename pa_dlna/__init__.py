@@ -225,7 +225,7 @@ class UPnPApplication:
         raise NotImplementedError
 
 # The main function.
-def main_function(clazz, doc):
+def padlna_main(clazz, doc):
 
     def run_in_thread(coro):
         """Run the UPnP control point in a thread."""
@@ -261,14 +261,15 @@ def main_function(clazz, doc):
 
     # Run the UPnPApplication instance.
     logger.info(f'Start {app}')
+    exit_code = 1
     try:
         if pa_dlna:
-            sys.exit(asyncio.run(app.run_control_point()))
+            exit_code = asyncio.run(app.run_control_point())
         else:
             # Run the control point of upnp-cmd in a thread.
             event = threading.Event()
             cp_thread = run_in_thread(app.run_control_point(event))
-            app.run(cp_thread, event)
+            exit_code = app.run(cp_thread, event)
     except asyncio.CancelledError:
         pass
     except KeyboardInterrupt as e:
@@ -278,3 +279,4 @@ def main_function(clazz, doc):
         if logfile_hdler is not None:
             logfile_hdler.flush()
         logging.shutdown()
+        sys.exit(exit_code)
