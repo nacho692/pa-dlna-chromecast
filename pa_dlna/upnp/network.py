@@ -123,7 +123,10 @@ async def msearch(ip, ttl):
         try:
             sock.bind((ip, 0))
         except OSError as e:
-            raise OSError(e.args[0], f'{ip}: {e.args[1]}') from None
+            # Just log the exception, the associated network interface may be
+            # reconnected later.
+            logger.debug(f'{ip}: {e!r}')
+            return
 
         # Start the server.
         transport = None
