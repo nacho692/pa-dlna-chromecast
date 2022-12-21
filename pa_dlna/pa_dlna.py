@@ -126,7 +126,8 @@ class Renderer:
         """Close the renderer and disable its root device."""
 
         await self.close()
-        self.control_point.disable_root_device(self)
+        self.control_point.disable_root_device(self.root_device,
+                                               name=self.name)
 
     async def register(self):
         nullsink = await self.control_point.pulse.register(self)
@@ -476,8 +477,7 @@ class AVControlPoint(UPnPApplication):
         self.curtask = None             # task running run_control_point()
         self.pulse = None               # Pulse instance
         self.start_event = None
-        self.faulty_devices = set()     # set of the udn of root devices
-                                        # having been disabled
+        self.upnp_control_point = None
         self.cp_tasks = AsyncioTasks()
 
     @log_exception(logger)
@@ -518,11 +518,8 @@ class AVControlPoint(UPnPApplication):
         self.cp_tasks.create_task(self.close(msg), name='abort')
         raise ControlPointAbortError(msg)
 
-    def disable_root_device(self, renderer):
-        udn = renderer.root_device.udn
-        if udn not in self.faulty_devices:
-            logger.info(f'Disable the {renderer.name} device permanently')
-            self.faulty_devices.add(udn)
+    def disable_root_device(self, root_device, name=None):
+        self.upnp_control_point.disable_root_device(root_device, name=name)
 
     async def register(self, renderer, http_server):
         """Load the null-sink module and create the renderer task."""
@@ -533,9 +530,10 @@ class AVControlPoint(UPnPApplication):
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
 
-    async def handle_upnp_notifications(self, upn_control_point, http_server):
+    async def handle_upnp_notifications(self, http_server):
         while True:
-            notif, root_device = await upn_control_point.get_notification()
+            notif, root_device = await (
+                                self.upnp_control_point.get_notification())
             logger.info(f"Got '{notif}' notification for {root_device}")
 
             # Ignore non Renderer devices.
@@ -552,9 +550,8 @@ class AVControlPoint(UPnPApplication):
                 renderer = None
 
             if notif == 'alive':
-                if root_device.udn in self.faulty_devices:
-                    assert renderer is None
-                    logger.info(f'Ignore disabled {root_device}')
+                if self.upnp_control_point.is_disabled(root_device):
+                    logger.debug(f'Ignore disabled {root_device}')
                     continue
 
                 if renderer is None:
@@ -612,7 +609,7 @@ class AVControlPoint(UPnPApplication):
 
             # Run the UPnP control point.
             async with UPnPControlPoint(self.networks,
-                                        self.ttl) as upn_control_point:
+                                        self.ttl) as self.upnp_control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
                 self.cp_tasks.create_task(self.pulse.run(), name='pulse')
@@ -632,7 +629,7 @@ class AVControlPoint(UPnPApplication):
                     await self.register(rndr, http_server)
 
                 # Handle UPnP notifications for ever.
-                await self.handle_upnp_notifications(upn_control_point, http_server)
+                await self.handle_upnp_notifications(http_server)
 
         except asyncio.CancelledError as e:
             if e.args:

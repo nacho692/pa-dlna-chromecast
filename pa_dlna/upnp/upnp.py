@@ -505,6 +505,9 @@ class UPnPControlPoint:
     Methods:
       open          coroutine - start the UPnP Control Point
       close         close the UPnP Control Point
+      disable_root_device
+                    disable permanently a root device
+      is_disabled   return True if the root device is disabled
       get_notification: coroutine - return a notification and the
                     corresponding UPnPRootDevice instance
       __aenter__    UPnPControlPoint is also an asynchronous context manager
@@ -544,7 +547,7 @@ class UPnPControlPoint:
         self._upnp_queue = asyncio.Queue()
         self._devices = {}              # {udn: UPnPRootDevice}
         self._faulty_devices = set()    # set of the udn of root devices
-                                        # having raised an exception
+                                        # permanently disabled
         self._curtask = None            # task running UPnPControlPoint.open()
         self._upnp_tasks = AsyncioTasks()
 
@@ -580,6 +583,23 @@ class UPnPControlPoint:
                 self._curtask = None
 
             logger.info('Close UPnPControlPoint')
+
+    def disable_root_device(self, root_device, name=None):
+        """Disable permanently a root device."""
+
+        udn = root_device.udn
+        if udn in self._faulty_devices:
+            return
+
+        self._faulty_devices.add(udn)
+        if name is not None:
+            logger.info(f'Disable the {name} device permanently')
+        else:
+            logger.info(f'Add {root_device} to the list of faulty root'
+                        f' devices')
+
+    def is_disabled(self, root_device):
+        return root_device.udn in self._faulty_devices
 
     async def get_notification(self):
         """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance).
@@ -650,9 +670,7 @@ class UPnPControlPoint:
             self._put_notification('byebye', root_device)
 
             if exc is not None:
-                self._faulty_devices.add(udn)
-                logger.info(f'Add {shorten(udn)} to the list of faulty root'
-                            f' devices')
+                self.disable_root_device(root_device)
 
     def _process_ssdp(self, datagram, peer_ipaddress, local_ipaddress):
         """Process the received datagrams."""
