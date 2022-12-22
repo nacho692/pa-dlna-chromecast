@@ -4,6 +4,19 @@ Usage
 :ref:`pa-dlna`
 --------------
 
+Basic operation
+"""""""""""""""
+
+``pa-dlna`` registers a new sink with pulseaudio for each DLNA device discovered
+on the networks. When there is an association between a pulseaudio source and
+such a sink (see below) it sends an URL to the device for the device to fetch
+the corresponding audio stream by issuing an HTTP GET for this URL.
+
+See :ref:`pa-dlna` synopsis and command line options.
+
+Source-sink association
+"""""""""""""""""""""""
+
 ``pa-dlna`` registers a new sink with pulseaudio upon the discovery of a DLNA
 device. The sink appears in the ``Output Devices`` tab of the ``pavucontrol``
 graphical tool and is listed by ``pacmd`` [#]_ with the command::
@@ -39,7 +52,7 @@ DLNA Device Registration
 """"""""""""""""""""""""
 
 For a new DLNA device to be registered, ``pa-dlna`` must establish the network
-address to be used in the url that must be  advertised to the DLNA device in the
+address to be used in the URL that must be  advertised to the DLNA device in the
 ``SetAVTransportURI`` soap action, so that the DLNA device may initiate the HTTP
 session and start the streaming. This depends on which event triggered this
 registration:
@@ -87,7 +100,8 @@ devices. For example, when the UPnP device [#]_ is a DLNA device [#]_, running
 the ``GetProtocolInfo`` command in the ``ConnectionManager`` service with
 ``upnp-cmd`` allows to get the ordered list of mime types supported by the
 device, and commands in the ``RenderingControl`` service allow to control the
-volume or mute the device.
+volume or mute the device. See :ref:`upnp-cmd` synopsis and command line
+options.
 
 **Note**: One must allow for the devices discovery process to complete before
 being able to select a device after command startup.
@@ -151,6 +165,6 @@ Eventing is not supported.
        sent by a DLNA device, even though it has been received by only one
        interface at the physical layer.
 .. [#] An UPnP device implements the `UPnP Device Architecture`_ specification.
-.. [#] A DLNA device is an UPnP device and implements the `UPnP AV
-       Architecture`_ specification and the `ConnectionManager`_, `AVTransport`_
-       and `RenderingControl`_ services.
+.. [#] A DLNA device is an UPnP device and implements the `MediaRenderer
+       Device`_ specification and the `ConnectionManager`_, `AVTransport`_ and
+       `RenderingControl`_ services.

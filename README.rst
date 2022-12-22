@@ -1,8 +1,8 @@
-A Python project based on asyncio composed of three components:
+A Python project based on asyncio and composed of three components:
 
- * The ``pa-dlna`` program forwarding PulseAudio streams to DLNA devices.
- * The ``upnp-cmd`` interactive command line tool for introspection and control
-   of UPnP devices.
+ * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices.
+ * The ``upnp-cmd`` is an interactive command line tool for introspection and
+   control of UPnP devices.
  * A standalone UPnP library used by both commands.
 
 See the ``pa-dlna`` `documentation`_.
@@ -15,6 +15,13 @@ Requirements
 ------------
 
 Python version 3.8 or more recent.
+
+DLNA devices must support the HTTP GET transfer protocol and must support HTTP
+1.1 as specified by Annex A.1 of the `ConnectionManager:3 Service`_ UPnP
+specification.
+
+Dependencies
+------------
 
 The ``pa-dlna`` command uses the Python ``pulsectl`` and ``pulsectl-asyncio``
 packages. They are automatically installed with pa-dlna when installing with
@@ -31,10 +38,6 @@ currently supports `ffmpeg`_ (mp3, wav, aiff, flac, opus, vorbis, aac), the
 they are available on this host and their options, is printed by the command::
 
   $ pa-dlna --dump-default
-
-DLNA devices must support HTTP streaming and support HTTP 1.1 as specified by
-Annex A.1 of the `ConnectionManager:3 Service`_ UPnP specification and
-especially chunked transfer encoding.
 
 The UPnP library does not have any external dependency.
 

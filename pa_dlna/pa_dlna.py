@@ -537,8 +537,10 @@ class AVControlPoint(UPnPApplication):
             logger.info(f"Got '{notif}' notification for {root_device}")
 
             # Ignore non Renderer devices.
-            if re.match(rf'{MEDIARENDERER}(1|2)',
+            if re.match(rf'{MEDIARENDERER}(\d+)',
                         root_device.deviceType) is None:
+                logger.info(f"Ignore '{root_device.modelName}': "
+                            f'not a MediaRenderer')
                 continue
 
             # Find an existing Renderer instance.
