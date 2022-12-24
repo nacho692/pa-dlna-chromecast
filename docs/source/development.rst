@@ -97,8 +97,32 @@ device.
     *shutdown*            Write the last chunk and close the HTTP socket.
     ==============        ======================================================
 
-Development
------------
+DLNA Device Registration
+""""""""""""""""""""""""
+
+For a new DLNA device to be registered, ``pa-dlna`` must establish the network
+address to be used in the URL that must be  advertised to the DLNA device in the
+``SetAVTransportURI`` soap action, so that the DLNA device may initiate the HTTP
+session and start the streaming. This depends on which event triggered this
+registration:
+
+  Reception of the  unicast response to an UPnP MSEARCH SSDP.
+    The destination address of the SSDP response is the address that is being
+    looked for.
+
+    MSEARCH SSDP are sent by ``pa-dlna`` every 60 seconds.
+
+  Reception of an UPnP NOTIFY SSDP, broadcasted by the device [#]_.
+    The DLNA device can be registered only if the source address of this packet
+    belongs to one of the subnets of the network interfaces. That is, the DLNA
+    device and the host belong to the same subnet on this interface and the
+    local IP address on this subnet is the address that is being looked for.
+
+    The `UPnP Device Architecture`_ specification does not specify the
+    periodicity of NOTIFY SSDPs sent by DLNA devices.
+
+Development process
+-------------------
 
 Requirements
 """"""""""""
@@ -140,3 +164,9 @@ Releasing
     https://docs.readthedocs.io/en/stable/faq.html#i-want-to-use-the-read-the-docs-theme-locally
 .. _Sphinx: https://www.sphinx-doc.org/
 .. _flit: https://pypi.org/project/flit/
+
+.. rubric:: Footnotes
+
+.. [#] All sockets bound to the notify multicast address receive the datagram
+       sent by a DLNA device, even though it has been received by only one
+       interface at the physical layer.

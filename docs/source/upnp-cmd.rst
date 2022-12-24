@@ -19,14 +19,12 @@ Options
 
    Show program's version number and exit.
 
-.. option::  --networks NETWORKS, -n NETWORKS
+.. option:: --nics NICS, -n NICS
 
-   NETWORKS is a comma separated list of local IPv4 interfaces or local IPv4
-   addresses where UPnP devices may be discovered. An IPv4 interface is written
-   using the "IP address/network prefix" slash notation (aka CIDR notation) as
-   printed by the 'ip address' linux command. When this option is an empty
-   string or the option is missing, all the interfaces are used, except the
-   127.0.0.1/8 loopback interface.
+   NICS is a comma separated list of the names of network interface controllers
+   where UPnP devices may be discovered, such as ``wlan0,enp5s0`` for
+   example. All the interfaces are used when this option is an empty string or
+   the option is missing (default: ``''``)
 
 .. option::  --port PORT
 

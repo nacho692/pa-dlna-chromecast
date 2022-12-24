@@ -18,8 +18,8 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Players",
     ]
 dependencies = [
-    "pulsectl",
     "pulsectl_asyncio",
+    "psutil >= 3.0.0",
 ]
 dynamic = ["version", "description"]
 

@@ -4,7 +4,6 @@ import os
 import io
 import asyncio
 import signal
-import ipaddress
 import pprint
 import http.server
 import urllib.parse
@@ -12,6 +11,7 @@ import logging
 from http import HTTPStatus
 
 from .upnp.util import AsyncioTasks, log_exception
+from .upnp.network import ipv4_addresses
 from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
@@ -41,8 +41,9 @@ async def kill_process(process):
 @log_exception(logger)
 async def run_httpserver(server, av_control_point):
     try:
+        ip_addresses = ipv4_addresses(server.nics)
         aio_server = await asyncio.start_server(server.client_connected,
-                                            server.net_ifaces, server.port)
+                                                ip_addresses, server.port)
         addrs = ', '.join(str(sock.getsockname())
                           for sock in aio_server.sockets)
         logger.info(f'Serve HTTP requests on {addrs}')
@@ -490,12 +491,9 @@ class HTTPServer:
     Reference: Hypertext Transfer Protocol -- HTTP/1.1 - RFC 7230.
     """
 
-    def __init__(self, control_point, networks, port):
+    def __init__(self, control_point, nics, port):
         self.control_point = control_point
-        self.net_ifaces = [(str(net.ip) if
-                            isinstance(net, ipaddress.IPv4Interface) else
-                            str(net)) for
-                           net in networks]
+        self.nics = nics
         self.port = port
         self.allowed_ips = set()
 

@@ -3,9 +3,6 @@
 import sys
 import os
 import argparse
-import ipaddress
-import subprocess
-import json
 import logging
 import asyncio
 import threading
@@ -70,61 +67,6 @@ def setup_logging(options, loglevel='warning'):
 
     return None
 
-def networks_option(networks, parser):
-    """Return a list of ipaddress objects from a comma separated list.
-
-    NETWORKS is a comma separated list of local IPv4 interfaces or local IPv4
-    addresses where UPnP devices may be discovered. An IPv4 interface is
-    written using the "IP address/network prefix" slash notation (aka CIDR
-    notation) as printed by the 'ip address' linux command.
-    When this option is an empty string or the option is missing, all the
-    interfaces are used, except the 127.0.0.1/8 loopback interface.
-    """
-
-    network_objects = []
-    if networks:
-        for network in (x.strip() for x in networks.split(',')):
-            try:
-                if '/' in network:
-                    obj = ipaddress.IPv4Interface(network)
-                    if obj.network.prefixlen == 32:
-                        parser.error(
-                            f'{network} not a valid network interface')
-                        continue
-                else:
-                    obj = ipaddress.IPv4Address(network)
-            except ValueError as e:
-                parser.error(e)
-            network_objects.append(obj)
-
-    else:
-        # Use the ip command to get the list of the IPv4 interfaces.
-        cmd = 'ip -family inet -brief -json address show'
-        try:
-            proc = subprocess.run(cmd.split(),
-              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        except FileNotFoundError as e:
-            parser.error("'ip' command not available, please use the"
-                         ' --networks option')
-        try:
-            json_out = json.loads(proc.stdout)
-        except json.JSONDecodeError as e:
-            parser.error(f'json loads exception in {proc.stdout}: {e}')
-
-        logger.debug(f'Output of "{cmd}"\n:{json_out}')
-        for item in json_out:
-            for addr in item['addr_info']:
-                ip = addr['local']
-                prefixlen = addr['prefixlen']
-                if ip != '127.0.0.1' and prefixlen != 32:
-                    iface = ipaddress.IPv4Interface((ip, prefixlen))
-                    network_objects.append(iface)
-
-    if not network_objects:
-        parser.error('no network interface available')
-
-    return network_objects
-
 def parse_args(doc, pa_dlna):
     """Parse the command line."""
 
@@ -150,9 +92,13 @@ def parse_args(doc, pa_dlna):
     parser.prog = prog
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
-    parser.add_argument('--networks', '-n', default='',
-                        help=' '.join(line.strip() for line in
-                                     networks_option.__doc__.split('\n')[2:]))
+    parser.add_argument('--nics', '-n', default='',
+                        help='NICS is a comma separated list of the names of'
+                        ' network interface controllers where UPnP devices'
+                        " may be discovered, such as 'wlan0,enp5s0' for"
+                        ' example. All the interfaces are used when this'
+                        ' option is an empty string or the option is missing'
+                        " (default: '%(default)s')")
     parser.add_argument('--port', type=int, default=8080,
                         help='set the TCP port on which the HTTP server'
                         ' handles DLNA requests (default: %(default)s)')
@@ -202,11 +148,10 @@ def parse_args(doc, pa_dlna):
         return options, None
 
     logfile_hdler = setup_logging(options)
-
-    # Run networks_option() once logging has been setup.
     logger.info('Python version ' + sys.version)
+    options['nics'] = [nic for nic in
+                       (x.strip() for x in options['nics'].split(',')) if nic]
     logger.info(f'Options {options}')
-    options['networks'] = networks_option(options['networks'], parser)
     return options, logfile_hdler
 
 # Classes.

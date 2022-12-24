@@ -16,6 +16,7 @@ from .http_server import StreamSessions, HTTPServer, run_httpserver
 from .encoders import select_encoder
 from .upnp import UPnPControlPoint, UPnPClosedDeviceError, UPnPSoapFaultError
 from .upnp.util import NL_INDENT, shorten, log_exception, AsyncioTasks
+from .upnp.network import ipv4_addresses
 
 logger = logging.getLogger('pa-dlna')
 
@@ -82,6 +83,8 @@ class Renderer:
         self.new_pulse_session = False
         self.stream_sessions = StreamSessions(self)
         self.pulse_queue = asyncio.Queue()
+        if control_point.http_server is None:
+            control_point.run_httpserver()
 
     async def close(self):
         if not self.closing:
@@ -478,6 +481,7 @@ class AVControlPoint(UPnPApplication):
         self.pulse = None               # Pulse instance
         self.start_event = None
         self.upnp_control_point = None
+        self.http_server = None
         self.cp_tasks = AsyncioTasks()
 
     @log_exception(logger)
@@ -521,16 +525,25 @@ class AVControlPoint(UPnPApplication):
     def disable_root_device(self, root_device, name=None):
         self.upnp_control_point.disable_root_device(root_device, name=name)
 
-    async def register(self, renderer, http_server):
+    async def register(self, renderer):
         """Load the null-sink module and create the renderer task."""
 
         if await renderer.register():
-            http_server.allow_from(renderer.root_device.peer_ipaddress)
+            self.http_server.allow_from(renderer.root_device.peer_ipaddress)
             self.renderers.add(renderer)
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
 
-    async def handle_upnp_notifications(self, http_server):
+    def run_httpserver(self):
+        """Create the http_server task."""
+
+        if self.http_server is not None:
+            return
+        self.http_server = HTTPServer(self, self.nics, self.port)
+        self.cp_tasks.create_task(run_httpserver(self.http_server, self),
+                                  name='http_server')
+
+    async def handle_upnp_notifications(self):
         while True:
             notif, root_device = await (
                                 self.upnp_control_point.get_notification())
@@ -564,7 +577,8 @@ class AVControlPoint(UPnPApplication):
                     # one of the networks of our local network interfaces.
                     if local_ipaddress is None:
                         ip_addr = IPv4Address(root_device.peer_ipaddress)
-                        for obj in self.networks:
+                        for obj in self.ipv4_addresses(
+                                                self.nics, yield_str=False):
                             if (isinstance(obj, IPv4Interface) and
                                     ip_addr in obj.network):
                                 local_ipaddress = str(obj.ip)
@@ -577,7 +591,7 @@ class AVControlPoint(UPnPApplication):
                             continue
 
                     renderer = Renderer(self, local_ipaddress, root_device)
-                    await self.register(renderer, http_server)
+                    await self.register(renderer)
             else:
                 if renderer is not None:
                     if not renderer.closing:
@@ -610,7 +624,7 @@ class AVControlPoint(UPnPApplication):
                 loop.add_signal_handler(sig, end_event.set)
 
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.networks,
+            async with UPnPControlPoint(self.nics,
                                         self.ttl) as self.upnp_control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
@@ -619,19 +633,13 @@ class AVControlPoint(UPnPApplication):
                 # Wait for the connection to PulseAudio to be ready.
                 await self.start_event.wait()
 
-                # Create the http_server task.
-                http_server = HTTPServer(self, self.networks,
-                                         self.port)
-                self.cp_tasks.create_task(run_httpserver(http_server, self),
-                                          name='http_server')
-
                 # Register the DLNATestDevices.
                 for mtype in self.test_devices:
                     rndr = DLNATestDevice(self, mtype)
-                    await self.register(rndr, http_server)
+                    await self.register(rndr)
 
                 # Handle UPnP notifications for ever.
-                await self.handle_upnp_notifications(http_server)
+                await self.handle_upnp_notifications()
 
         except asyncio.CancelledError as e:
             if e.args:

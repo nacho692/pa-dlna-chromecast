@@ -1,12 +1,14 @@
 """Networking utilities."""
 
-import logging
 import asyncio
 import socket
 import struct
 import time
 import re
+import logging
 import urllib.parse
+import psutil
+from ipaddress import IPv4Interface, IPv4Address
 
 from . import UPnPError
 
@@ -33,6 +35,22 @@ class UPnPInvalidSsdpError(UPnPError): pass
 class UPnPInvalidHttpError(UPnPError): pass
 
 # Networking helper functions.
+def ipv4_addresses(ifaces, yield_str=True):
+    """Yield IPv4 addresses on 'ifaces' network interface cards.
+
+    Use all existing network interface cards when 'ifaces' is empty.
+    """
+
+    nics = psutil.net_if_addrs()
+    for nic in filter(lambda x: not ifaces or x in ifaces, nics):
+        for addr in filter(lambda x: x.family == socket.AF_INET, nics[nic]):
+            if addr.netmask is not None:
+                ipadd = IPv4Interface(f'{addr.address}/{addr.netmask}')
+                if ipadd.network.prefixlen != 32:
+                    yield addr.address if yield_str else ipadd
+            else:
+                yield addr.address if yield_str else IPv4Address(addr.address)
+
 def http_header_as_dict(header):
     """Return the http header as a dict."""
 
@@ -161,55 +179,6 @@ async def msearch(ip, ttl):
         # Needed when OSError is raised upon binding the socket.
         sock.close()
 
-async def notify(ip_addresses, process_datagram):
-    """Implement the SSDP advertisement protocol."""
-
-    # See section 21.10 Sending and Receiving in
-    # "Network Programming Volume 1, Third Edition" Stevens et al.
-    # See also section 5.10.2 Receiving IP Multicast Datagrams
-    # in "An Advanced 4.4BSD Interprocess Communication Tutorial".
-
-    # Create the socket.
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setblocking(False)
-
-    try:
-        for ip in ip_addresses:
-            # Become a member of the IP multicast group on this interface.
-            mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
-                               socket.inet_aton(ip))
-            try:
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                                mreq)
-            except OSError as e:
-                logger.warning(f'SSDP notify: {ip} cannot become member of'
-                               f' multicast goup: {e.args[1]}')
-
-        # Allow other processes to bind to the same multicast group and port.
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        # Bind to the multicast (group, port).
-        # Binding to (INADDR_ANY, port) would also work, except
-        # that in that case the socket would also receive the datagrams
-        # destined to (any other address, MCAST_PORT).
-        sock.bind(MCAST_ADDR)
-
-        # Start the server.
-        transport = None
-        try:
-            loop = asyncio.get_running_loop()
-            on_con_lost = loop.create_future()
-            transport, protocol = await loop.create_datagram_endpoint(
-                lambda: NotifyServerProtocol(process_datagram, on_con_lost),
-                sock=sock)
-            await on_con_lost
-        finally:
-            if transport is not None:
-                transport.close()
-    finally:
-        # Needed when OSError is raised upon setting IP_ADD_MEMBERSHIP.
-        sock.close()
-
 async def http_query(method, url, header='', body=''):
     """An HTTP 1.0 GET or POST request."""
 
@@ -292,6 +261,74 @@ async def http_soap(url, header, body):
         raise UPnPInvalidHttpError(f"Header={header}, Body={body}"
                                    f" from {host}")
     return is_fault, body
+
+# Classes.
+class Notify:
+    """Implement the SSDP advertisement protocol.
+
+    See section 21.10 Sending and Receiving in
+    "Network Programming Volume 1, Third Edition" Stevens et al.
+    See also section 5.10.2 Receiving IP Multicast Datagrams
+    in "An Advanced 4.4BSD Interprocess Communication Tutorial".
+    """
+
+    def __init__(self, process_datagram, ip_addresses):
+        self.process_datagram = process_datagram
+
+        # Create the socket.
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setblocking(False)
+
+        self.ip_addresses = set()
+        self.manage_membership(ip_addresses)
+
+    def manage_membership(self, ip_addresses):
+        def member(ip, optname):
+            msg = ('member of' if optname == socket.IP_ADD_MEMBERSHIP else
+                   'dropped from')
+            mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
+                               socket.inet_aton(ip))
+            try:
+                self.sock.setsockopt(socket.IPPROTO_IP, optname, mreq)
+                logger.debug(f'SSDP notify: {ip} {msg} multicast group'
+                             f' {MCAST_GROUP}')
+            except OSError as e:
+                logger.warning(f'SSDP notify: {ip} cannot be {msg}'
+                               f' {MCAST_GROUP}: {e.args[1]}')
+                return False
+            return True
+
+        for ip in ip_addresses.difference(self.ip_addresses):
+            if member(ip, socket.IP_ADD_MEMBERSHIP):
+                self.ip_addresses.add(ip)
+
+        for ip in self.ip_addresses.difference(ip_addresses):
+            if member(ip, socket.IP_DROP_MEMBERSHIP):
+                self.ip_addresses.remove(ip)
+
+    async def run(self):
+        # Allow other processes to bind to the same multicast group and port.
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # Bind to the multicast (group, port).
+        # Binding to (INADDR_ANY, port) would also work, except
+        # that in that case the socket would also receive the datagrams
+        # destined to (any other address, MCAST_PORT).
+        self.sock.bind(MCAST_ADDR)
+
+        # Start the server.
+        transport = None
+        try:
+            loop = asyncio.get_running_loop()
+            on_con_lost = loop.create_future()
+            transport, protocol = await loop.create_datagram_endpoint(
+                lambda: NotifyServerProtocol(self.process_datagram,
+                                             on_con_lost),
+                sock=self.sock)
+            await on_con_lost
+        finally:
+            if transport is not None:
+                transport.close()
 
 # Network protocols.
 class MsearchServerProtocol:

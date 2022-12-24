@@ -7,8 +7,8 @@ discover the UPnP device at 192.168.0.254.
 >>> import asyncio
 >>> import upnp
 >>>
->>> async def main(networks):
-...   async with upnp.UPnPControlPoint(networks) as control_point:
+>>> async def main(nics):
+...   async with upnp.UPnPControlPoint(nics) as control_point:
 ...     notification, root_device = await control_point.get_notification()
 ...     print(f"  Got '{notification}' from {root_device.peer_ipaddress}")
 ...     print(f'  deviceType: {root_device.deviceType}')
@@ -17,7 +17,7 @@ discover the UPnP device at 192.168.0.254.
 ...       print(f'    serviceId: {service.serviceId}')
 ...
 >>> try:
-...   asyncio.run(main(['192.168.0.254/24']))
+...   asyncio.run(main(['enp0s31f6']))
 ... except KeyboardInterrupt:
 ...   pass
 ...
@@ -49,12 +49,12 @@ import logging
 import time
 import collections
 import urllib.parse
-from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError
 from .util import NL_INDENT, shorten, log_exception, AsyncioTasks
-from .network import parse_ssdp, msearch, notify, http_get, http_soap
+from .network import (ipv4_addresses, parse_ssdp, msearch, Notify, http_get,
+                      http_soap)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
                   dict_to_xml, parse_soap_response, parse_soap_fault)
@@ -66,7 +66,6 @@ ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
 
 class UPnPClosedControlPointError(UPnPError): pass
-class UPnPControlPointError(UPnPError): pass
 class UPnPClosedDeviceError(UPnPError): pass
 class UPnPInvalidSoapError(UPnPError): pass
 class UPnPSoapFaultError(UPnPError): pass
@@ -498,8 +497,8 @@ class UPnPControlPoint:
     """An UPnP control point.
 
     Attributes:
-      networks      list of the local IP network interfaces and local IP
-                    addresses where UPnP devices may be discovered
+      nics          list of the network interfaces where UPnP devices may be
+                    discovered
       ttl           the IP packets time to live
 
     Methods:
@@ -514,36 +513,12 @@ class UPnPControlPoint:
       __aclose__
     """
 
-    def __init__(self, networks, ttl=2):
-        def _ipaddress(address):
-            try:
-                address = str(address)
-                if '/' in address:
-                    obj = IPv4Interface(address)
-                    if obj.network.prefixlen == 32:
-                        raise UPnPControlPointError(
-                            f'{address} not a valid network interface')
-                else:
-                    obj = IPv4Address(address)
-                return obj
-            except ValueError:
-                exception = UPnPControlPointError(
-                    f'{address} is not a valid IP interface or IP address')
-                raise exception from None
-
-        if not networks:
-            raise UPnPControlPointError(
-                'The list of local IP networks cannot be empty')
-        # The 'networks' attribute is a list of IPv4Interface and IPv4Address
-        # instances.
-        self.networks = list(map(_ipaddress, networks))
+    def __init__(self, nics, ttl=2):
+        self.nics = nics
         self.ttl = ttl
 
-        self._ip_addresses = [(str(net.ip) if
-                               isinstance(net, IPv4Interface) else
-                               str(net)) for
-                              net in self.networks]
         self._closed = False
+        self._notify = None
         self._upnp_queue = asyncio.Queue()
         self._devices = {}              # {udn: UPnPRootDevice}
         self._faulty_devices = set()    # set of the udn of root devices
@@ -676,7 +651,7 @@ class UPnPControlPoint:
         """Process the received datagrams."""
 
         if (local_ipaddress is not None and local_ipaddress not in
-                                                        self._ip_addresses):
+                                                ipv4_addresses(self.nics)):
             logger.warning(
                 f'Ignore msearch SSDP received on {local_ipaddress}')
             return
@@ -719,7 +694,13 @@ class UPnPControlPoint:
 
         try:
             while True:
-                for ip_addr in self._ip_addresses:
+                ip_addresses = set(ipv4_addresses(self.nics))
+
+                # Update the notify task with the ip addresses.
+                if self._notify is not None:
+                    self._notify.manage_membership(ip_addresses)
+
+                for ip_addr in ip_addresses:
                     result = await msearch(ip_addr, self.ttl)
                     if result:
                         for (data, peer_addr, local_addr) in result:
@@ -740,12 +721,18 @@ class UPnPControlPoint:
         """Listen to SSDP notifications."""
 
         try:
-            await notify(self._ip_addresses, self._process_ssdp)
+            self._notify = Notify(self._process_ssdp,
+                                  set(ipv4_addresses(self.nics)))
+            await self._notify.run()
         except asyncio.CancelledError:
             self.close()
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
+        finally:
+            # Drop multicast group membership for all IP addresses.
+            if self._notify is not None:
+                self._notify.manage_membership(set())
 
     async def __aenter__(self):
         await self.open()

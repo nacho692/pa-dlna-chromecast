@@ -23,12 +23,9 @@ specification.
 Dependencies
 ------------
 
-The ``pa-dlna`` command uses the Python ``pulsectl`` and ``pulsectl-asyncio``
-packages. They are automatically installed with pa-dlna when installing with
-pip. Optionally this command uses the ``ip`` command from the `iproute2`_
-package when the ``--networks`` command line option is not set. If the
-`iproute2`_ package is not installed then one must specify the network
-interfaces using the ``--networks`` option.
+The ``pa-dlna`` command uses the Python packages ``psutil`` and
+``pulsectl-asyncio``. They are automatically installed with pa-dlna when
+installing with pip.
 
 The ``pa-dlna`` command does not require any other dependency when the DLNA
 devices support raw PCM L16 (:rfc:`2586`). If not, then encoders compatible with
@@ -39,10 +36,8 @@ they are available on this host and their options, is printed by the command::
 
   $ pa-dlna --dump-default
 
-The UPnP library does not have any external dependency.
-
-The ``upnp-cmd`` command depends on the ``ip`` command when the ``--networks``
-command line option is not set.
+The  UPnP library  and the ``upnp-cmd`` command depends on the ``psutil``
+Python package.
 
 Configuration
 -------------

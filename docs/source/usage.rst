@@ -8,7 +8,7 @@ Basic operation
 """""""""""""""
 
 ``pa-dlna`` registers a new sink with pulseaudio for each DLNA device discovered
-on the networks. When there is an association between a pulseaudio source and
+on the network. When there is an association between a pulseaudio source and
 such a sink (see below) it sends an URL to the device for the device to fetch
 the corresponding audio stream by issuing an HTTP GET for this URL.
 
@@ -48,49 +48,29 @@ running or the DLNA device is turned off, pulseaudio temporarily uses the
 default sink as the sink for this association, it is usually the host's sound
 card. See `Default/fallback devices`_.
 
-DLNA Device Registration
-""""""""""""""""""""""""
-
-For a new DLNA device to be registered, ``pa-dlna`` must establish the network
-address to be used in the URL that must be  advertised to the DLNA device in the
-``SetAVTransportURI`` soap action, so that the DLNA device may initiate the HTTP
-session and start the streaming. This depends on which event triggered this
-registration:
-
-  Reception of the  unicast response to an UPnP MSEARCH SSDP.
-    The destination address of the SSDP response is the address that is being
-    looked for.
-
-    MSEARCH SSDP are sent by ``pa-dlna`` every 60 seconds.
-
-  Reception of an UPnP NOTIFY SSDP, broadcasted by the device [#]_.
-    The DLNA device can be registered only if the source address of this packet
-    belongs to one of the allowed network interfaces. That is, the DLNA device
-    and the host belong to the same network on this interface and the IP address
-    of this interface is the address that is being looked for. Hence the reason
-    why an IPv4 interface is preferred to an IPv4 address in the
-    ``--networks`` option.
-
-    The `UPnP Device Architecture`_ specification does not specify the
-    periodicity of NOTIFY SSDPs sent by DLNA devices.
-
-``--test-devices`` Command Line Option
-""""""""""""""""""""""""""""""""""""""
+Testing encoder options
+"""""""""""""""""""""""
 
 The value of the ``--test-devices`` command line option is a comma separated
 list of distinct audio mime types. A DLNATestDevice is instantiated for each one
 of these mime types and registered as a virtual DLNA device.
 
-Use this feature to test the streaming part of ``pa-dlna`` or to debug the
-failure of a DLNA device to handle an encoder with specific options.
-
-The URL of the DLNATestDevice is printed on the logs when it is registered. Use
-a program that supports HTTP 1.1, such as curl for example, to collect the audio
-stream after the pulseaudio sink of the DLNATestDevice has been associated with
-a source (see above).
+Use this feature to debug the failure of a DLNA device to handle an encoder with
+specific options. The URL of the DLNATestDevice is printed on the logs when it
+is registered. Use a program that supports HTTP 1.1, such as curl for example,
+to collect the audio stream after the pulseaudio sink of the DLNATestDevice has
+been associated with a source (see above).
 
 DLNATestDevice URLs are built using the sha1 of the audio mime type and
 therefore are consistent across ``pa-dlna`` sessions.
+
+Limitations
+"""""""""""
+
+The HTTP server is started when the first DLNA device is discovered. If another
+network interface is activated later, a DLNA device may be discovered on this
+interface but it is unable to play the audio streams because the HTTP
+server did not know the interface IP address upon starting.
 
 :ref:`upnp-cmd`
 ---------------
@@ -100,8 +80,9 @@ devices. For example, when the UPnP device [#]_ is a DLNA device [#]_, running
 the ``GetProtocolInfo`` command in the ``ConnectionManager`` service with
 ``upnp-cmd`` allows to get the ordered list of mime types supported by the
 device, and commands in the ``RenderingControl`` service allow to control the
-volume or mute the device. See :ref:`upnp-cmd` synopsis and command line
-options.
+volume or mute the device.
+
+See :ref:`upnp-cmd` synopsis and command line options.
 
 **Note**: One must allow for the devices discovery process to complete before
 being able to select a device after command startup.
@@ -161,9 +142,6 @@ Eventing is not supported.
 .. [#] ``pavucontrol`` and ``pacmd`` are  part of pulseaudio and installed with
        pulseaudio.
 .. [#] A source is called a sink-input by pulseaudio.
-.. [#] All sockets bound to the notify multicast address receive the datagram
-       sent by a DLNA device, even though it has been received by only one
-       interface at the physical layer.
 .. [#] An UPnP device implements the `UPnP Device Architecture`_ specification.
 .. [#] A DLNA device is an UPnP device and implements the `MediaRenderer
        Device`_ specification and the `ConnectionManager`_, `AVTransport`_ and
