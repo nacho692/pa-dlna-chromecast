@@ -26,11 +26,6 @@ Options
    example. All the interfaces are used when this option is an empty string or
    the option is missing (default: ``''``)
 
-.. option::  --port PORT
-
-   Set the TCP port on which the HTTP server handles DLNA requests (default:
-   8080).
-
 .. option::  --ttl TTL
 
    Set the IP packets time to live to TTL (default: 2).

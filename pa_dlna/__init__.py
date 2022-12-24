@@ -99,13 +99,13 @@ def parse_args(doc, pa_dlna):
                         ' example. All the interfaces are used when this'
                         ' option is an empty string or the option is missing'
                         " (default: '%(default)s')")
-    parser.add_argument('--port', type=int, default=8080,
-                        help='set the TCP port on which the HTTP server'
-                        ' handles DLNA requests (default: %(default)s)')
     parser.add_argument('--ttl', type=pack_B, default=b'\x02',
                         help='set the IP packets time to live to TTL'
                         ' (default: 2)')
     if pa_dlna:
+        parser.add_argument('--port', type=int, default=8080,
+                            help='set the TCP port on which the HTTP server'
+                            ' handles DLNA requests (default: %(default)s)')
         parser.add_argument('--dump-default', '-d', action='store_true',
                             help='write to stdout (and exit) the default'
                             ' built-in configuration')

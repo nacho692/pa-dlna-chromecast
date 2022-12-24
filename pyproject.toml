@@ -30,7 +30,7 @@ Source = "https://gitlab.com/xdegaye/pa-dlna"
 
 [project.scripts]
 pa-dlna = "pa_dlna.pa_dlna:main"
-upnp_cmd = "pa_dlna.upnp_cmd:main"
+upnp-cmd = "pa_dlna.upnp_cmd:main"
 
 [tool.flit.module]
 name = "pa_dlna"
