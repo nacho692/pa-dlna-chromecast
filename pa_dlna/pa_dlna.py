@@ -12,7 +12,7 @@ from collections import namedtuple
 
 from . import padlna_main, UPnPApplication, ControlPointAbortError
 from .pulseaudio import Pulse
-from .http_server import StreamSessions, HTTPServer, run_httpserver
+from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
 from .upnp import UPnPControlPoint, UPnPClosedDeviceError, UPnPSoapFaultError
 from .upnp.util import NL_INDENT, shorten, log_exception, AsyncioTasks
@@ -83,8 +83,6 @@ class Renderer:
         self.new_pulse_session = False
         self.stream_sessions = StreamSessions(self)
         self.pulse_queue = asyncio.Queue()
-        if control_point.http_server is None:
-            control_point.run_httpserver()
 
     async def close(self):
         if not self.closing:
@@ -481,7 +479,7 @@ class AVControlPoint(UPnPApplication):
         self.pulse = None               # Pulse instance
         self.start_event = None
         self.upnp_control_point = None
-        self.http_server = None
+        self.http_servers = {}          # {IPv4 address: http server instance}
         self.cp_tasks = AsyncioTasks()
 
     @log_exception(logger)
@@ -526,22 +524,28 @@ class AVControlPoint(UPnPApplication):
         self.upnp_control_point.disable_root_device(root_device, name=name)
 
     async def register(self, renderer):
-        """Load the null-sink module and create the renderer task."""
+        """Load the null-sink module.
+
+        If successfull, create the http_server if needed and create the
+        renderer task.
+        """
 
         if await renderer.register():
-            self.http_server.allow_from(renderer.root_device.peer_ipaddress)
             self.renderers.add(renderer)
+            http_server = self.create_httpserver(renderer.local_ipaddress)
+            http_server.allow_from(renderer.root_device.peer_ipaddress)
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
 
-    def run_httpserver(self):
+    def create_httpserver(self, ip_address):
         """Create the http_server task."""
 
-        if self.http_server is not None:
-            return
-        self.http_server = HTTPServer(self, self.nics, self.port)
-        self.cp_tasks.create_task(run_httpserver(self.http_server, self),
-                                  name='http_server')
+        if ip_address not in self.http_servers:
+            http_server = HTTPServer(self, ip_address, self.port)
+            self.cp_tasks.create_task(http_server.run(),
+                                      name=f'http_server-{ip_address}')
+            self.http_servers[ip_address] = http_server
+        return self.http_servers[ip_address]
 
     async def handle_upnp_notifications(self):
         while True:

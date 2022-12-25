@@ -11,7 +11,6 @@ import logging
 from http import HTTPStatus
 
 from .upnp.util import AsyncioTasks, log_exception
-from .upnp.network import ipv4_addresses
 from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
@@ -37,26 +36,6 @@ async def kill_process(process):
             process._transport.close()
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
-
-@log_exception(logger)
-async def run_httpserver(server, av_control_point):
-    try:
-        ip_addresses = ipv4_addresses(server.nics)
-        aio_server = await asyncio.start_server(server.client_connected,
-                                                ip_addresses, server.port)
-        addrs = ', '.join(str(sock.getsockname())
-                          for sock in aio_server.sockets)
-        logger.info(f'Serve HTTP requests on {addrs}')
-
-        async with aio_server:
-            try:
-                await aio_server.serve_forever()
-            finally:
-                logger.info('Close HTTP server')
-
-    except Exception as e:
-        logger.error(f'{e!r}')
-        await av_control_point.close(f'{e!r}')
 
 class Track:
     """An HTTP socket connected to a subprocess stdout.
@@ -491,9 +470,9 @@ class HTTPServer:
     Reference: Hypertext Transfer Protocol -- HTTP/1.1 - RFC 7230.
     """
 
-    def __init__(self, control_point, nics, port):
+    def __init__(self, control_point, ip_address, port):
         self.control_point = control_point
-        self.nics = nics
+        self.ip_address = ip_address
         self.port = port
         self.allowed_ips = set()
 
@@ -568,3 +547,23 @@ class HTTPServer:
             if do_close:
                 writer.close()
                 await writer.wait_closed()
+
+    @log_exception(logger)
+    async def run(self):
+        task_name = asyncio.current_task().get_name()
+        try:
+            aio_server = await asyncio.start_server(self.client_connected,
+                                                    self.ip_address, self.port)
+            addrs = ', '.join(str(sock.getsockname())
+                              for sock in aio_server.sockets)
+            logger.info(f'{task_name} serve HTTP requests on {addrs}')
+
+            async with aio_server:
+                try:
+                    await aio_server.serve_forever()
+                finally:
+                    logger.info(f'{task_name} closed')
+
+        except Exception as e:
+            logger.error(f'{task_name}: {e!r}')
+            await self.control_point.close(f'{e!r}')

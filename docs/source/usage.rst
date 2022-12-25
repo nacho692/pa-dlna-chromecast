@@ -7,10 +7,15 @@ Usage
 Basic operation
 """""""""""""""
 
-``pa-dlna`` registers a new sink with pulseaudio for each DLNA device discovered
-on the network. When there is an association between a pulseaudio source and
-such a sink (see below) it sends an URL to the device for the device to fetch
-the corresponding audio stream by issuing an HTTP GET for this URL.
+``pa-dlna`` discovers DLNA devices and selects the encoder to be used for a
+given device based on the availability of the encoders on the host, the list of
+the device preferred mime types and the list of ``pa-dlna`` preferred encoders
+from the built-in configuration, overriden by the user configuration file if
+any. Once the encoder is selected, a new sink is registered with pulseaudio and
+an HTTP server is started. Then when there is an association between a
+pulseaudio source and this sink (see below), ``pa-dlna`` sends an URL to the
+device so that the device may fetch the corresponding audio stream by issuing an
+HTTP GET for this URL.
 
 See :ref:`pa-dlna` synopsis and command line options.
 
@@ -63,14 +68,6 @@ been associated with a source (see above).
 
 DLNATestDevice URLs are built using the sha1 of the audio mime type and
 therefore are consistent across ``pa-dlna`` sessions.
-
-Limitations
-"""""""""""
-
-The HTTP server is started when the first DLNA device is discovered. If another
-network interface is activated later, a DLNA device may be discovered on this
-interface but it is unable to play the audio streams because the HTTP
-server did not know the interface IP address upon starting.
 
 :ref:`upnp-cmd`
 ---------------

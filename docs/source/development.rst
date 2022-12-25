@@ -43,7 +43,7 @@ Asyncio Tasks
 """""""""""""
 
 Task names in **bold** characters indicate that there is one such task for each
-DLNA device, when in *italics* that there may be one such task for each DLNA
+DLNA device, when in *italics* that there may be such tasks for each DLNA
 device.
 
   UPnPControlPoint tasks:
@@ -51,7 +51,7 @@ device.
     ================      ======================================================
     ssdp notify           Monitor reception of NOTIFY SSDPs.
     ssdp msearch          Send MSEARCH SSDPs at regular intervals.
-    **root device**       Implement control of the aging of an UPnP root device.
+    **root devices**      Implement control of the aging of an UPnP root device.
     ================      ======================================================
 
   AVControlPoint tasks:
@@ -65,7 +65,7 @@ device.
                           |br| Handle UPnP notifications.
 
     pulse                 Monitor pulseaudio sink-input events.
-    http_server           Serve DLNA HTTP requests.
+    *http_server*         Serve DLNA HTTP requests, one task per IP address.
                           |br| Start the client_connected tasks.
     **renderers**         Act upon pulseaudio events.
                           |br| Run UPnP soap actions.
