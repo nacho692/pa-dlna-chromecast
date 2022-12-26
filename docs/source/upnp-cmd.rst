@@ -26,6 +26,11 @@ Options
    example. All the interfaces are used when this option is an empty string or
    the option is missing (default: ``''``)
 
+.. option::  --msearch-interval MSEARCH_INTERVAL, -m MSEARCH_INTERVAL
+
+   Set the time interval in seconds between the sending of the MSEARCH datagrams
+   used for device discovery (default: 60)
+
 .. option::  --ttl TTL
 
    Set the IP packets time to live to TTL (default: 2).

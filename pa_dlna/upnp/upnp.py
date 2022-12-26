@@ -7,8 +7,8 @@ discover the UPnP device at 192.168.0.254.
 >>> import asyncio
 >>> import upnp
 >>>
->>> async def main(nics):
-...   async with upnp.UPnPControlPoint(nics) as control_point:
+>>> async def main(nics, interval):
+...   async with upnp.UPnPControlPoint(nics, interval) as control_point:
 ...     notification, root_device = await control_point.get_notification()
 ...     print(f"  Got '{notification}' from {root_device.peer_ipaddress}")
 ...     print(f'  deviceType: {root_device.deviceType}')
@@ -17,7 +17,7 @@ discover the UPnP device at 192.168.0.254.
 ...       print(f'    serviceId: {service.serviceId}')
 ...
 >>> try:
-...   asyncio.run(main(['enp0s31f6']))
+...   asyncio.run(main(['enp0s31f6'], 10))
 ... except KeyboardInterrupt:
 ...   pass
 ...
@@ -61,7 +61,6 @@ from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
 
 logger = logging.getLogger('upnp')
 
-MSEARCH_EVERY = 60                      # send MSEARCH every n seconds
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
 
@@ -497,24 +496,29 @@ class UPnPControlPoint:
     """An UPnP control point.
 
     Attributes:
-      nics          list of the network interfaces where UPnP devices may be
-                    discovered
-      ttl           the IP packets time to live
+      nics          List of the network interfaces where UPnP devices may be
+                    discovered.
+      msearch_interval
+                    The time interval in seconds between the sending of the
+                    MSEARCH datagrams used for device discovery.
+      ttl           The IP packets time to live.
 
     Methods:
-      open          coroutine - start the UPnP Control Point
-      close         close the UPnP Control Point
+      open          Coroutine - start the UPnP Control Point.
+      close         Close the UPnP Control Point.
       disable_root_device
-                    disable permanently a root device
-      is_disabled   return True if the root device is disabled
-      get_notification: coroutine - return a notification and the
-                    corresponding UPnPRootDevice instance
-      __aenter__    UPnPControlPoint is also an asynchronous context manager
+                    Disable permanently a root device.
+      is_disabled   Return True if the root device is disabled.
+      get_notification
+                    Coroutine - return a notification and the corresponding
+                    UPnPRootDevice instance.
+      __aenter__    UPnPControlPoint is also an asynchronous context manager.
       __aclose__
     """
 
-    def __init__(self, nics, ttl=2):
+    def __init__(self, nics, msearch_interval, ttl=2):
         self.nics = nics
+        self.msearch_interval = msearch_interval
         self.ttl = ttl
 
         self._closed = False
@@ -708,8 +712,8 @@ class UPnPControlPoint:
                     else:
                         logger.debug(f'No response on {ip_addr} to all'
                                      f' M-SEARCH messages, next try in'
-                                     f' {MSEARCH_EVERY} seconds')
-                await asyncio.sleep(MSEARCH_EVERY)
+                                     f' {self.msearch_interval} seconds')
+                await asyncio.sleep(self.msearch_interval)
         except asyncio.CancelledError:
             self.close()
         except Exception as e:

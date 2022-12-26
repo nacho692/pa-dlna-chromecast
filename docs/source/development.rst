@@ -18,7 +18,7 @@ a new song, the following sequence of events occurs:
  * ``pa-dlna``:
 
    + Writes the last chunk to the HTTP socket (see `Chunked Transfer Coding`_)
-     and sends a ``SetNextAVTransportURI`` soap action with the new meta data.
+     and sends a ``SetNextAVTransportURI`` SOAP action with the new meta data.
    + Upon receiving the HTTP GET request from the device, instantiates a new
      Track and starts its task to run the pulseaudio stream.
 
@@ -68,7 +68,7 @@ device.
     *http_server*         Serve DLNA HTTP requests, one task per IP address.
                           |br| Start the client_connected tasks.
     **renderers**         Act upon pulseaudio events.
-                          |br| Run UPnP soap actions.
+                          |br| Run UPnP SOAP actions.
     abort                 Abort the pa-dlna program.
     shutdown              Wait on event pushed by the signal handlers.
     ================      ======================================================
@@ -102,7 +102,7 @@ DLNA Device Registration
 
 For a new DLNA device to be registered, ``pa-dlna`` must establish the network
 address to be used in the URL that must be  advertised to the DLNA device in the
-``SetAVTransportURI`` soap action, so that the DLNA device may initiate the HTTP
+``SetAVTransportURI`` SOAP action, so that the DLNA device may initiate the HTTP
 session and start the streaming. This depends on which event triggered this
 registration:
 

@@ -99,6 +99,10 @@ def parse_args(doc, pa_dlna):
                         ' example. All the interfaces are used when this'
                         ' option is an empty string or the option is missing'
                         " (default: '%(default)s')")
+    parser.add_argument('--msearch-interval', '-m', type=int, default=60,
+                        help='set the time interval in seconds between the'
+                        ' sending of the MSEARCH datagrams used for device'
+                        ' discovery (default: %(default)s)')
     parser.add_argument('--ttl', type=pack_B, default=b'\x02',
                         help='set the IP packets time to live to TTL'
                         ' (default: 2)')
