@@ -73,6 +73,7 @@ class Renderer:
         udn_tail = root_device.udn[-5:]
         self.name = f'{root_device.modelName}-{udn_tail}'
         self.description = f'{root_device.friendlyName} - {udn_tail}'
+        self.curtask = None             # Renderer.run() task
         self.closing = False
         self.nullsink = None            # NullSink instance
         self.previous_idx = None        # index of previous sink input
@@ -89,6 +90,9 @@ class Renderer:
             self.closing = True
             logger.info(f'Close {self.name} renderer')
             if self.nullsink is not None:
+                if (self.curtask is not None and
+                        asyncio.current_task() != self.curtask):
+                    self.curtask.cancel()
                 await self.control_point.pulse.unregister(self.nullsink)
                 self.nullsink = None
             await self.stream_sessions.close_session()
@@ -405,6 +409,7 @@ class Renderer:
     async def run(self):
         """Run the Renderer task."""
 
+        self.curtask = asyncio.current_task()
         try:
             udn = self.root_device.udn
             if not await self.select_encoder(udn):

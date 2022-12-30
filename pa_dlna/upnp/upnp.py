@@ -399,11 +399,12 @@ class UPnPRootDevice(UPnPDevice):
     def __init__(self, control_point, udn, peer_ipaddress, local_ipaddress,
                  location, max_age):
         super().__init__(self, self)
-        self._control_point = control_point  # UPnPControlPoint instance
+        self._control_point = control_point     # UPnPControlPoint instance
         self.udn = udn
         self.peer_ipaddress = peer_ipaddress
         self.local_ipaddress = local_ipaddress
         self.location = location
+        self._curtask = None                    # UPnPRootDevice._run() task
         self._set_valid_until(max_age)
         self._closed = True
 
@@ -417,6 +418,9 @@ class UPnPRootDevice(UPnPDevice):
         if not self._closed:
             self._closed = True
             logger.info(f'Close {self}')
+            if (self._curtask is not None and
+                    asyncio.current_task() != self._curtask):
+                self._curtask.cancel()
             self._control_point._remove_root_device(self.udn, exc=exc)
 
     def _set_valid_until(self, max_age):
@@ -450,6 +454,7 @@ class UPnPRootDevice(UPnPDevice):
 
     @log_exception(logger)
     async def _run(self):
+        self._curtask = asyncio.current_task()
         try:
             description = await http_get(self.location)
             description = description.decode()
