@@ -250,8 +250,10 @@ class Renderer:
         # The 'sink' and 'sink_input' variables define the new state.
         # 'self.nullsink' holds the state prior to this event.
         event, sink, sink_input = await self.pulse_queue.get()
+        if self.nullsink is None:
+            # The Renderer instance is now temporarily disabled.
+            return
 
-        assert self.nullsink is not None
         prev_state, new_state = self.pulse_states(sink)
         self.log_pulse_event(event, prev_state, new_state, sink_input)
 
@@ -307,6 +309,9 @@ class Renderer:
         elif (prev_state, new_state) == ('running', 'idle'):
             await self.handle_action('Pause')
 
+        if self.nullsink is None:
+            # The Renderer instance is now temporarily disabled.
+            return
         self.nullsink.sink = sink
         self.nullsink.sink_input = sink_input
 
