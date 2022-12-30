@@ -110,7 +110,7 @@ registration:
     The destination address of the SSDP response is the address that is being
     looked for.
 
-    MSEARCH SSDP are sent by ``pa-dlna`` every 60 seconds.
+    MSEARCH SSDP are sent by ``pa-dlna`` every 60 seconds (default).
 
   Reception of an UPnP NOTIFY SSDP, broadcasted by the device [#]_.
     The DLNA device can be registered only if the source address of this packet
@@ -150,11 +150,24 @@ build the html documentation and the man pages::
 Releasing
 """""""""
 
+* Run the test suite::
+
+    $ python -m unittest
+
 * Update ``__version__`` in pa_dlna/__init__.py.
 * Build locally the documentation.
-* Commit the changes.
-* Create a git tag for the new version.
-* Publish the new version to PyPi.
+* Commit the changes::
+
+    $ git commit -m 'Version 0.n'
+
+* Publish the new version to PyPi::
+
+    $ flit publish
+
+* Tag the release and push::
+
+    $ git tag -a v0.n -m 'Version 0.n'
+    $ git push
 
 .. include:: common.txt
 
