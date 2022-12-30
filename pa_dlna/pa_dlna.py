@@ -89,12 +89,10 @@ class Renderer:
         if not self.closing:
             self.closing = True
             logger.info(f'Close {self.name} renderer')
-            if self.nullsink is not None:
-                if (self.curtask is not None and
-                        asyncio.current_task() != self.curtask):
-                    self.curtask.cancel()
-                await self.control_point.pulse.unregister(self.nullsink)
-                self.nullsink = None
+            if (self.curtask is not None and
+                    asyncio.current_task() != self.curtask):
+                self.curtask.cancel()
+            await self.pulse_unregister()
             await self.stream_sessions.close_session()
 
             # Closing the root device will trigger a 'byebye' notification and
@@ -104,28 +102,22 @@ class Renderer:
     async def disable_for(self, *, period):
         """Disable the renderer for 'period' seconds."""
 
-        # Pulse events related to this sink are now discarded.
-        nullsink = self.nullsink
-        self.nullsink = None
-
         # Unload the null-sink module, sleep 'period' seconds and load a new
         # module. During  the sleep period, the stream that was routed to this
         # null-sink is routed to the default sink instead of being silently
         # discarded by the null-sink. After loading the new null-sink module,
         # the renderer receives a 'change' pulse event and starts a new stream
         # session.
-        if nullsink is not None:
-            pulse = self.control_point.pulse
-            await pulse.unregister(nullsink)
-            if period:
-                logger.info(f'Wait {period} seconds before'
-                            f' re-enabling {self.name}')
-                await asyncio.sleep(period)
-            self.nullsink = await pulse.register(self)
-            if self.nullsink is None:
-                logger.error(f'Cannot load a new null-sink module'
-                             f' for {self.name}')
-                await self.close()
+        await self.pulse_unregister()
+
+        if period:
+            logger.info(f'Wait {period} seconds before'
+                        f' re-enabling {self.name}')
+            await asyncio.sleep(period)
+
+        if not await self.pulse_register():
+            logger.error(f'Cannot load new null-sink module for {self.name}')
+            await self.close()
 
     async def disable_root_device(self):
         """Close the renderer and disable its root device."""
@@ -134,10 +126,14 @@ class Renderer:
         self.control_point.disable_root_device(self.root_device,
                                                name=self.name)
 
-    async def register(self):
-        nullsink = await self.control_point.pulse.register(self)
-        if nullsink is not None:
-            self.nullsink = nullsink
+    async def pulse_unregister(self):
+        if self.nullsink is not None:
+            await self.control_point.pulse.unregister(self.nullsink)
+            self.nullsink = None
+
+    async def pulse_register(self):
+        self.nullsink = await self.control_point.pulse.register(self)
+        if self.nullsink is not None:
             return True
         else:
             await self.disable_root_device()
@@ -490,6 +486,7 @@ class AVControlPoint(UPnPApplication):
         self.start_event = None
         self.upnp_control_point = None
         self.http_servers = {}          # {IPv4 address: http server instance}
+        self.register_sem = asyncio.Semaphore()
         self.cp_tasks = AsyncioTasks()
 
     @log_exception(logger)
@@ -510,8 +507,9 @@ class AVControlPoint(UPnPApplication):
         try:
             if not self.closing:
                 self.closing = True
-                for renderer in list(self.renderers):
-                    await renderer.close()
+                async with self.register_sem:
+                    for renderer in list(self.renderers):
+                        await renderer.close()
 
                 if self.pulse is not None:
                     await self.pulse.close()
@@ -540,8 +538,14 @@ class AVControlPoint(UPnPApplication):
         renderer task.
         """
 
-        if await renderer.register():
-            self.renderers.add(renderer)
+        async with self.register_sem:
+            if self.closing:
+                return
+            registered = await renderer.pulse_register()
+            if registered:
+                self.renderers.add(renderer)
+
+        if registered:
             http_server = self.create_httpserver(renderer.local_ipaddress)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
             self.cp_tasks.create_task(renderer.run(),
