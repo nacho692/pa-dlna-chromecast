@@ -1,4 +1,4 @@
-"""Utilities for starting an UPnPApplication."""
+"""Forward pulseaudio streams to DLNA devices."""
 
 import sys
 import os

@@ -101,7 +101,6 @@ The options common to all sections are:
     The pulseaudio sample rate.
 
   *track_metadata*
-
     * When ``yes``, each track is streamed in its own HTTP session allowing the
       DLNA device to get the track meta data as described in the :ref:`meta
       data` section. This is the default.

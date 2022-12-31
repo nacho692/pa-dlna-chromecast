@@ -15,6 +15,11 @@
    upnp-cmd
    pa-dlna
    development
+
+.. toctree::
+   :maxdepth: 1
+
+   history
    Repository <https://gitlab.com/xdegaye/pa-dlna>
 
 ReadMe

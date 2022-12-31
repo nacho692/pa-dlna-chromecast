@@ -1,4 +1,4 @@
-.emacs.desktop*
-dist/*
-docs/build/*
+/dist/
+/docs/build/
+/.coverage
 *.pyc

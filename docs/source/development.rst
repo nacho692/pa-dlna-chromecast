@@ -155,6 +155,7 @@ Releasing
     $ python -m unittest
 
 * Update ``__version__`` in pa_dlna/__init__.py.
+* Update docs/source/history.rst
 * Build locally the documentation.
 * Commit the changes::
 

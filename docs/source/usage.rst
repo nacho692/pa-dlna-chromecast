@@ -11,13 +11,16 @@ Basic operation
 given device based on the availability of the encoders on the host, the list of
 the device preferred mime types and the list of ``pa-dlna`` preferred encoders
 from the built-in configuration, overriden by the user configuration file if
-any. Once the encoder is selected, a new sink is registered with pulseaudio and
-an HTTP server is started. Then when there is an association between a
-pulseaudio source and this sink (see below), ``pa-dlna`` sends an URL to the
-device so that the device may fetch the corresponding audio stream by issuing an
-HTTP GET for this URL.
+any.
 
-See :ref:`pa-dlna` synopsis and command line options.
+Once the encoder is selected, a new sink is registered with pulseaudio and an
+HTTP server is started.
+
+Then when there is an association between a pulseaudio source and this sink (see
+below), ``pa-dlna`` sends an URL to the device so that the device may fetch the
+corresponding audio stream by issuing an HTTP GET for this URL.
+
+See the :ref:`pa-dlna` man page.
 
 Source-sink association
 """""""""""""""""""""""
@@ -79,7 +82,7 @@ the ``GetProtocolInfo`` command in the ``ConnectionManager`` service with
 device, and commands in the ``RenderingControl`` service allow to control the
 volume or mute the device.
 
-See :ref:`upnp-cmd` synopsis and command line options.
+See the :ref:`upnp-cmd` man page.
 
 **Note**: One must allow for the devices discovery process to complete before
 being able to select a device after command startup.
@@ -116,11 +119,12 @@ The menu hierarchy is as follows:
 UPnP Library
 ------------
 
-UPnP devices are discovered by broadcasting MSEARCH SSDPs every 60 seconds and
-by handling the NOTIFY SSDPs broadcasted by the devices. The ``max-age``
-directive in MSEARCH responses and NOTIFY broadcasts refreshes the aging time of
-the device. The device is discarded of the list of registered devices when this
-aging time expires.
+UPnP devices are discovered by broadcasting MSEARCH SSDPs every 60 seconds (the
+default) and by handling the NOTIFY SSDPs broadcasted by the devices.
+
+The ``max-age`` directive in MSEARCH responses and NOTIFY broadcasts refreshes
+the aging time of the device. The device is discarded of the list of registered
+devices when this aging time expires.
 
 Control of the UPnP device is done with the ``soap_action()`` method of an
 ``UPnPService`` instance.

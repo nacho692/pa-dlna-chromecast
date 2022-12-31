@@ -24,9 +24,9 @@ dependencies = [
 dynamic = ["version", "description"]
 
 [project.urls]
-Home = "https://gitlab.com/xdegaye/pa-dlna"
-Documentation = "https://xdegaye.gitlab.io/pa-dlna/"
+Documentation = "https://pa-dlna.readthedocs.io/en/latest/"
 Source = "https://gitlab.com/xdegaye/pa-dlna"
+Changelog = "https://pa-dlna.readthedocs.io/en/latest/history.html"
 
 [project.scripts]
 pa-dlna = "pa_dlna.pa_dlna:main"
@@ -34,6 +34,3 @@ upnp-cmd = "pa_dlna.upnp_cmd:main"
 
 [tool.flit.module]
 name = "pa_dlna"
-
-[tool.flit.sdist]
-exclude = ["doc"]

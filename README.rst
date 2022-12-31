@@ -1,15 +1,16 @@
-A Python project based on asyncio and composed of three components:
+The **pa-dlna** Python project forwards pulseaudio streams to DLNA devices. It
+is based on asyncio and is composed of the following components:
 
  * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices.
  * The ``upnp-cmd`` is an interactive command line tool for introspection and
    control of UPnP devices.
  * A standalone UPnP library used by both commands.
 
-See the ``pa-dlna`` `documentation`_.
+See the **pa-dlna** `documentation`_.
 
 Installation::
 
-  $ pip install pa-dlna
+  $ python -m pip install pa-dlna
 
 Requirements
 ------------
@@ -28,11 +29,13 @@ The ``pa-dlna`` command uses the Python packages ``psutil`` and
 installing with pip.
 
 The ``pa-dlna`` command does not require any other dependency when the DLNA
-devices support raw PCM L16 (:rfc:`2586`). If not, then encoders compatible with
-the audio mime types supported by the devices are required. ``pa-dlna``
-currently supports `ffmpeg`_ (mp3, wav, aiff, flac, opus, vorbis, aac), the
-`flac`_ and the `lame`_ (mp3) encoders. The list of supported encoders, whether
-they are available on this host and their options, is printed by the command::
+devices support raw PCM L16 (:rfc:`2586`).
+
+If not, then encoders compatible with the audio mime types supported by the
+devices are required. ``pa-dlna`` currently supports `ffmpeg`_ (mp3, wav, aiff,
+flac, opus, vorbis, aac), the `flac`_ and the `lame`_ (mp3) encoders. The list
+of supported encoders, whether they are available on this host and their
+options, is printed by the command::
 
   $ pa-dlna --dump-default
 
