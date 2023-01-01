@@ -39,7 +39,7 @@ options, is printed by the command::
 
   $ pa-dlna --dump-default
 
-The  UPnP library  and the ``upnp-cmd`` command depends on the ``psutil``
+The  UPnP library  and the ``upnp-cmd`` command depend on the ``psutil``
 Python package.
 
 Configuration

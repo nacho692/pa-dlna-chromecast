@@ -1,0 +1,28 @@
+# Built from template located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Python.gitlab-ci.yml
+
+default:
+    cache:
+        paths:
+            - .cache/pip
+
+    before_script:
+        - python --version    # For debugging.
+
+.unittest:
+    stage: test
+    variables:
+        # Change pip's cache directory to be inside the project directory.
+        PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+    script:
+        - python -m pip install psutil pulsectl-asyncio
+        - python -m unittest --verbose
+
+py38:
+    image: python:3.8
+    extends: .unittest
+
+py39:
+    image: python:3.9
+    extends: .unittest

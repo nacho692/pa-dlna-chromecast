@@ -152,7 +152,7 @@ Releasing
 
 * Run the test suite::
 
-    $ python -m unittest
+    $ python -m unittest --verbose
 
 * Update ``__version__`` in pa_dlna/__init__.py.
 * Update docs/source/history.rst
