@@ -10,7 +10,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath('../..'))
-from pa_dlna import __version__, pa_dlna
+from pa_dlna import __version__
 
 project = 'pa-dlna'
 copyright = '2022, Xavier de Gaye'

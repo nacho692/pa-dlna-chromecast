@@ -10,7 +10,7 @@ import threading
 import textwrap
 import traceback
 
-from . import padlna_main, UPnPApplication
+from .init import padlna_main, UPnPApplication
 from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
                    UPnPClosedDeviceError, pprint_xml)
 from .upnp.util import log_exception

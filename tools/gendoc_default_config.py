@@ -63,6 +63,7 @@ def main():
         print(f'{e!r}: {DEFAULT_CONFIG}',
               file=sys.stderr)
         sys.exit(1)
+    print(f"A new '{DEFAULT_CONFIG}' file has been written.")
 
 if __name__ == '__main__':
     main()
