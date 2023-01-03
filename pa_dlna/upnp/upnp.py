@@ -600,7 +600,7 @@ class UPnPControlPoint:
         self._upnp_queue.put_nowait((kind, root_device))
 
     def _create_root_device(self, header, udn, peer_ipaddress,
-                            local_ipaddress):
+                            is_msearch, local_ipaddress):
         # Get the max-age.
         # 'max_age' None means no aging.
         max_age = None
@@ -639,6 +639,9 @@ class UPnPControlPoint:
             if (timeleft is not None and
                     max_age is not None and
                     max_age - timeleft > 5):
+                msg = ('msearch response' if is_msearch else
+                       'notify advertisement')
+                logger.debug(f'Got {msg} from {peer_ipaddress}')
                 logger.debug(f'Refresh with max-age={max_age}'
                              f' for {root_device}')
 
@@ -673,16 +676,13 @@ class UPnPControlPoint:
         if header is None:
             return
 
-        msg = 'msearch response' if is_msearch else 'notify advertisement'
-        logger.debug(f'Got {msg} from {peer_ipaddress}')
-
         if is_msearch or (header['NTS'] == 'ssdp:alive'):
             udn = header['USN'].split('::')[0]
             if udn in self._faulty_devices:
                 logger.debug(f'Ignore faulty root device {shorten(udn)}')
             else:
                 self._create_root_device(header, udn, peer_ipaddress,
-                                         local_ipaddress)
+                                         is_msearch, local_ipaddress)
         else:
             nts = header['NTS']
             if nts == 'ssdp:byebye':

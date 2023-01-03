@@ -161,6 +161,8 @@ async def msearch(ip, ttl):
 
             expire = time.monotonic() + MX
 
+            logger.debug(f'Sending {MSEARCH_COUNT} M-SEARCH datagrams to'
+                         f' {MCAST_ADDR} from {ip}')
             for i in range(MSEARCH_COUNT):
                 await asyncio.sleep(MSEARCH_INTERVAL)
                 if not protocol.closed():
@@ -361,8 +363,6 @@ class MsearchServerProtocol:
 
     def m_search(self, message, sock):
         try:
-            logger.debug(f'Send mcast M-SEARCH msg to {MCAST_ADDR}'
-                         f' on {self.ip} interface')
             self.transport.sendto(message.encode(), MCAST_ADDR)
         except Exception as e:
             self.error_received(e)
