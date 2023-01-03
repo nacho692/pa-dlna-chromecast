@@ -51,7 +51,7 @@ A ``pa-dlna.conf`` user configuration file may be used to:
  * Customize encoder options.
  * Set an encoder for a given device and customize its options for this device.
 
-.. _documentation: https://pa-dlna.readthedocs.io/en/latest/
+.. _documentation: https://pa-dlna.readthedocs.io/en/stable/
 .. _iproute2: https://en.wikipedia.org/wiki/Iproute2
 .. _ConnectionManager:3 Service:
         http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf

@@ -160,6 +160,7 @@ Releasing
 * Commit the changes::
 
     $ git commit -m 'Version 0.n'
+    $ git push
 
 * Publish the new version to PyPi::
 
@@ -168,7 +169,7 @@ Releasing
 * Tag the release and push::
 
     $ git tag -a v0.n -m 'Version 0.n'
-    $ git push
+    $ git push --tags
 
 .. include:: common.txt
 
