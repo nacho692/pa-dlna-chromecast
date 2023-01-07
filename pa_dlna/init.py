@@ -45,8 +45,8 @@ def setup_logging(options, loglevel='warning'):
         logfile = os.path.expanduser(options['logfile'])
         try:
             logfile_hdler = logging.FileHandler(logfile, mode='w')
-        except IOError as e:
-            logging.error(f'cannot setup the log file: {e}')
+        except OSError as e:
+            logging.error(f'cannot setup the log file: {e!r}')
         else:
             logfile_hdler.setLevel(logging.DEBUG)
             formatter = logging.Formatter(
@@ -57,7 +57,7 @@ def setup_logging(options, loglevel='warning'):
 
     return None
 
-def parse_args(doc, pa_dlna):
+def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
     """Parse the command line."""
 
     def pack_B(ttl):
@@ -131,7 +131,7 @@ def parse_args(doc, pa_dlna):
                             ' for testing.')
 
     # Options as a dict.
-    options = vars(parser.parse_args())
+    options = vars(parser.parse_args(argv))
 
     dump_default = options.get('dump_default')
     dump_internal = options.get('dump_internal')
@@ -142,6 +142,10 @@ def parse_args(doc, pa_dlna):
         return options, None
 
     logfile_hdler = setup_logging(options)
+    if options['logfile'] is not None and logfile_hdler is None:
+        logging.shutdown()
+        sys.exit(2)
+
     logger.info('Python version ' + sys.version)
     options['nics'] = [nic for nic in
                        (x.strip() for x in options['nics'].split(',')) if nic]

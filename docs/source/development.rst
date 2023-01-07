@@ -135,7 +135,7 @@ Development:
         $ flit install --symlink [--python path/to/python_version]
 
 Documentation:
-    * `Sphinx`_.
+    * `Sphinx`_ [#]_.
     * `Read the Docs theme`_.
 
 Documentation
@@ -150,9 +150,9 @@ build the html documentation and the man pages::
 Releasing
 """""""""
 
-* Run the test suite::
+* Run the test suite [#]_::
 
-    $ python -m unittest --verbose
+    $ python -m unittest --verbose --catch --failfast
 
 * Update ``__version__`` in pa_dlna/__init__.py.
 * Update docs/source/history.rst
@@ -179,9 +179,13 @@ Releasing
     https://docs.readthedocs.io/en/stable/faq.html#i-want-to-use-the-read-the-docs-theme-locally
 .. _Sphinx: https://www.sphinx-doc.org/
 .. _flit: https://pypi.org/project/flit/
+.. _unittest command line options:
+    https://docs.python.org/3/library/unittest.html#command-line-options
 
 .. rubric:: Footnotes
 
 .. [#] All sockets bound to the notify multicast address receive the datagram
        sent by a DLNA device, even though it has been received by only one
        interface at the physical layer.
+.. [#] Required versions at ``docs/requirements.txt``.
+.. [#] See `unittest command line options`_.
