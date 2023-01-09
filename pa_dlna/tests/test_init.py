@@ -1,12 +1,19 @@
 """Command line test cases."""
 
+import io
 import struct
 import logging
 import unittest
+from contextlib import redirect_stdout
 from unittest import mock
 
+# Load the tests in the order they are declared.
+from . import load_ordered_tests as load_tests
+
 from . import BaseTestCase, requires_resources
-from ..init import parse_args
+from ..init import parse_args, padlna_main, UPnPApplication
+from ..encoders import Encoder
+from ..config import user_config_pathname
 
 @requires_resources('os.devnull')
 class Argv(BaseTestCase):
@@ -77,15 +84,16 @@ class Argv(BaseTestCase):
 
     def test_failed_logfile(self):
         error_msg = 'Test cannot open logfile'
-        with (mock.patch('builtins.open', mock.mock_open()) as m_open,
-                self.assertLogs(level=logging.ERROR) as m_logs,
-                self.assertRaises(SystemExit) as cm):
+        with mock.patch('builtins.open', mock.mock_open()) as m_open,\
+                self.assertLogs(level=logging.ERROR) as m_logs,\
+                self.assertRaises(SystemExit) as cm:
             m_open.side_effect = OSError(error_msg)
             options, logfile_hdler = parse_args(
                 self.__doc__, argv=['--logfile', '/dummy/file/name'])
+
+        self.assertEqual(cm.exception.args[0], 2)
         m_open.assert_called_once()
         self.assertRegex(m_logs.output[-1], f'OSError.*{error_msg}')
-        self.assertEqual(cm.exception.args[0], 2)
 
     def tearDown(self):
         super().tearDown()
@@ -96,6 +104,74 @@ class Main(BaseTestCase):
 
     def setUp(self):
         super().setUp()
+
+    def test_main(self):
+        with mock.patch('pa_dlna.pa_dlna.AVControlPoint') as clazz,\
+                mock.patch('pa_dlna.config.UserConfig'),\
+                self.assertLogs() as logs,\
+                self.assertRaises(SystemExit) as cm:
+            clazz.__name__ = 'AVControlPoint'
+            app = clazz()
+            coro = mock.AsyncMock()
+            app.run_control_point = coro
+            padlna_main(clazz, self.__doc__, argv=['pa-dlna'])
+
+        # unittest.mock BUG ?
+        # cm.exception.args[0]) is instead of the exit status:
+        # <AsyncMock name='AVControlPoint().run_control_point()' ...>
+        # self.assertEqual(cm.exception.args[0], 0)
+        self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
+        app.run_control_point.assert_called_once()
+        coro.assert_awaited()
+
+    def test_upnp_cmd(self):
+        with mock.patch('pa_dlna.upnp_cmd.UPnPControlCmd') as clazz,\
+                self.assertLogs() as logs,\
+                self.assertRaises(SystemExit) as cm:
+            clazz.__name__ = 'UPnPControlCmd'
+            app = clazz()
+            coro = mock.AsyncMock()
+            app.run_control_point = coro
+            padlna_main(clazz, self.__doc__, argv=['upnp-cmd'])
+
+        self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
+        app.run_control_point.assert_called_once()
+        app.run.assert_called_once()
+
+    def test_upnpapplication(self):
+        app = UPnPApplication(logfile='foo')
+        self.assertEqual(app.logfile, 'foo')
+
+    def test_defaultconfig(self):
+        with mock.patch('pa_dlna.pa_dlna.AVControlPoint') as clazz,\
+                redirect_stdout(io.StringIO()) as output,\
+                self.assertRaises(SystemExit) as cm:
+            clazz.__name__ = 'AVControlPoint'
+            padlna_main(clazz, self.__doc__, argv=['pa-dlna',
+                                                   '--dump-default'])
+        self.assertEqual(cm.exception.args[0], 0)
+        doc = '# ' + Encoder.__doc__.split('\n')[0]
+        self.assertEqual(output.getvalue().split('\n')[0], doc)
+
+    def test_internalconfig(self):
+        PA_DLNA_CONF = """
+        [DEFAULT]
+        selection = L16Encoder
+        """
+
+        with mock.patch('pa_dlna.pa_dlna.AVControlPoint') as clazz,\
+                mock.patch('builtins.open', mock.mock_open(
+                    read_data=PA_DLNA_CONF)) as conf,\
+                redirect_stdout(io.StringIO()) as output,\
+                self.assertRaises(SystemExit) as cm:
+            clazz.__name__ = 'AVControlPoint'
+            padlna_main(clazz, self.__doc__, argv=['pa-dlna',
+                                                   '--dump-internal'])
+
+        self.assertEqual(cm.exception.args[0], 0)
+        conf.assert_called_once_with(user_config_pathname())
+        self.assertIn("'L16Encoder': {'_mime_types': ['audio/l16']",
+                      output.getvalue())
 
     def tearDown(self):
         super().tearDown()

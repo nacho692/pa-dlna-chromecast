@@ -11,6 +11,26 @@ if sys.version_info >= (3, 9):
 else:
     functools_cache = functools.lru_cache
 
+def load_ordered_tests(loader, standard_tests, pattern):
+    """Keep the tests in the order they were declared in the class.
+
+    Thanks to https://stackoverflow.com/a/62073640
+    """
+
+    ordered_cases = []
+    for test_suite in standard_tests:
+        ordered = []
+        for test_case in test_suite:
+            test_case_type = type(test_case)
+            method_name = test_case._testMethodName
+            testMethod = getattr(test_case, method_name)
+            line = testMethod.__code__.co_firstlineno
+            ordered.append( (line, test_case_type, method_name) )
+        ordered.sort()
+        for line, case_type, name in ordered:
+            ordered_cases.append(case_type(name))
+    return unittest.TestSuite(ordered_cases)
+
 def _id(obj):
     return obj
 

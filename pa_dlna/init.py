@@ -168,7 +168,7 @@ class UPnPApplication:
         raise NotImplementedError
 
 # The main function.
-def padlna_main(clazz, doc):
+def padlna_main(clazz, doc, argv=sys.argv):
 
     def run_in_thread(coro):
         """Run the UPnP control point in a thread."""
@@ -181,7 +181,7 @@ def padlna_main(clazz, doc):
     pa_dlna = True if clazz.__name__ == 'AVControlPoint' else False
 
     # Parse the arguments.
-    options, logfile_hdler = parse_args(doc, pa_dlna)
+    options, logfile_hdler = parse_args(doc, pa_dlna, argv[1:])
 
     # Instantiate the UPnPApplication.
     if pa_dlna:
