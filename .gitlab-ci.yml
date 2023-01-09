@@ -7,6 +7,7 @@ default:
             - .cache/pip
 
     before_script:
+        - apt-get update -yq && apt-get install -yq pulseaudio
         - python --version    # For debugging.
 
 .unittest:
