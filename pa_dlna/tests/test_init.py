@@ -107,7 +107,7 @@ class Main(BaseTestCase):
 
     def test_main(self):
         with mock.patch('pa_dlna.pa_dlna.AVControlPoint') as clazz,\
-                mock.patch('pa_dlna.config.UserConfig'),\
+                mock.patch('pa_dlna.init.UserConfig') as cfg,\
                 self.assertLogs() as logs,\
                 self.assertRaises(SystemExit) as cm:
             clazz.__name__ = 'AVControlPoint'
@@ -120,6 +120,7 @@ class Main(BaseTestCase):
         # cm.exception.args[0]) is instead of the exit status:
         # <AsyncMock name='AVControlPoint().run_control_point()' ...>
         # self.assertEqual(cm.exception.args[0], 0)
+        cfg.assert_called_once()
         self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
         app.run_control_point.assert_called_once()
         coro.assert_awaited()

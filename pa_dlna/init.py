@@ -196,7 +196,7 @@ def padlna_main(clazz, doc, argv=sys.argv):
                 config.print_internal_config()
                 sys.exit(0)
         except Exception as e:
-            logger.exception(f'{e!r}')
+            logger.error(f'{e!r}')
             sys.exit(1)
         app = clazz(config=config, **options)
     else:
