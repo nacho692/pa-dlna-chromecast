@@ -95,7 +95,9 @@ class Encoder:
 
     @property
     def available(self):
-        return self._available
+        if hasattr(self, '_available'):
+            return self._available
+        return True
 
     @property
     def mime_type(self):
@@ -111,8 +113,12 @@ class Encoder:
         """Return True is 'args' is not set in the user configuration file."""
         return str(self.args) == 'None'
 
+    @property
     def command(self):
-        raise NotImplementedError
+        if hasattr(self, '_pgm'):
+            cmd = [self._pgm]
+            cmd.extend(self.args.split())
+            return cmd
 
     def __str__(self):
         return self.__class__.__name__
@@ -178,12 +184,6 @@ class FlacEncoder(StandAloneEncoder):
                      f'--sample-rate {self.rate} '
                      f'--sign signed --bps 16 --endian {endian}')
 
-    @property
-    def command(self):
-        cmd = [self._pgm]
-        cmd.extend(self.args.split())
-        return cmd
-
 class L16Encoder(L16Mixin, StandAloneEncoder):
     """Lossless PCM L16 encoder without a container.
 
@@ -243,12 +243,6 @@ class Mp3Encoder(StandAloneEncoder):
         self.args = (f'-r -s {sampling} --signed --bitwidth 16 '
                      f'--{endian}-endian '
                      f'-q {self.quality} -b {self.bitrate} -')
-
-    @property
-    def command(self):
-        cmd = [self._pgm]
-        cmd.extend(self.args.split())
-        return cmd
 
 
 class FFMpegEncoder(Encoder):
@@ -313,12 +307,6 @@ class FFMpegEncoder(Encoder):
         if extra:
             self.args += f' {extra}'
         self.args += ' pipe:1'
-
-    @property
-    def command(self):
-        cmd = [self._pgm]
-        cmd.extend(self.args.split())
-        return cmd
 
 class FFMpegAacEncoder(FFMpegEncoder):
     """Aac encoder.

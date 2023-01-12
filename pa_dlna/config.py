@@ -181,9 +181,10 @@ class UserConfig(DefaultConfig):
 
     def build_dictionaries(self):
         def validate(encoder):
+            if not encoder.available:
+                return False
+            # Do not print these attributes.
             if hasattr(encoder, '_available'):
-                if not encoder._available:
-                    return False
                 del encoder._available
             if hasattr(encoder, 'selection'):
                 del encoder.selection

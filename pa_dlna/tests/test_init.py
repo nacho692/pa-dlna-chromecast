@@ -4,7 +4,7 @@ import io
 import struct
 import logging
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from unittest import mock
 
 # Load the tests in the order they are declared.
@@ -14,6 +14,19 @@ from . import BaseTestCase, requires_resources
 from ..init import parse_args, padlna_main, UPnPApplication
 from ..encoders import Encoder
 from ..config import user_config_pathname
+
+class Init(unittest.TestCase):
+    def test_python_version(self):
+        with mock.patch('pa_dlna.py_version') as py_version,\
+             redirect_stderr(io.StringIO()) as output,\
+             self.assertRaises(SystemExit) as cm:
+
+            py_version.return_value = (3, 7)
+            from .. import check_python_version, MIN_PYTHON_VERSION
+            check_python_version()
+
+        self.assertEqual(cm.exception.args[0], 1)
+        self.assertRegex(output.getvalue(), str(MIN_PYTHON_VERSION))
 
 @requires_resources('os.devnull')
 class Argv(BaseTestCase):
@@ -106,35 +119,54 @@ class Main(BaseTestCase):
         super().setUp()
 
     def test_main(self):
-        with mock.patch('pa_dlna.pa_dlna.AVControlPoint') as clazz,\
-                mock.patch('pa_dlna.init.UserConfig') as cfg,\
+        clazz = mock.MagicMock()
+        coro = mock.AsyncMock()
+        exit_code = 'foo'
+
+        clazz.__name__ = 'AVControlPoint'
+        app = clazz()
+        app.run_control_point = coro
+        coro.return_value = exit_code
+
+        with mock.patch('pa_dlna.init.UserConfig') as cfg,\
                 self.assertLogs() as logs,\
                 self.assertRaises(SystemExit) as cm:
-            clazz.__name__ = 'AVControlPoint'
-            app = clazz()
-            coro = mock.AsyncMock()
-            app.run_control_point = coro
             padlna_main(clazz, self.__doc__, argv=['pa-dlna'])
 
-        # unittest.mock BUG ?
-        # cm.exception.args[0]) is instead of the exit status:
-        # <AsyncMock name='AVControlPoint().run_control_point()' ...>
-        # self.assertEqual(cm.exception.args[0], 0)
+        self.assertEqual(cm.exception.args[0], exit_code)
         cfg.assert_called_once()
         self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
         app.run_control_point.assert_called_once()
         coro.assert_awaited()
 
-    def test_upnp_cmd(self):
-        with mock.patch('pa_dlna.upnp_cmd.UPnPControlCmd') as clazz,\
-                self.assertLogs() as logs,\
+    def test_PermissionError(self):
+        clazz = mock.MagicMock()
+        clazz.__name__ = 'AVControlPoint'
+
+        with self.assertLogs() as logs,\
+                mock.patch('builtins.open', mock.mock_open()) as m_open,\
                 self.assertRaises(SystemExit) as cm:
-            clazz.__name__ = 'UPnPControlCmd'
-            app = clazz()
-            coro = mock.AsyncMock()
-            app.run_control_point = coro
+            m_open.side_effect = PermissionError()
+            padlna_main(clazz, self.__doc__, argv=['pa-dlna'])
+
+        self.assertEqual(cm.exception.args[0], 1)
+        self.assertEqual(logs.output[-1], 'ERROR:init:PermissionError()')
+
+    def test_upnp_cmd(self):
+        clazz = mock.MagicMock()
+        coro = mock.AsyncMock()
+        exit_code = 'foo'
+
+        clazz.__name__ = 'UPnPControlCmd'
+        app = clazz()
+        app.run_control_point = coro
+        app.run.return_value = exit_code
+
+        with self.assertLogs() as logs,\
+                self.assertRaises(SystemExit) as cm:
             padlna_main(clazz, self.__doc__, argv=['upnp-cmd'])
 
+        self.assertEqual(cm.exception.args[0], exit_code)
         self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
         app.run_control_point.assert_called_once()
         app.run.assert_called_once()
@@ -144,10 +176,11 @@ class Main(BaseTestCase):
         self.assertEqual(app.logfile, 'foo')
 
     def test_defaultconfig(self):
-        with mock.patch('pa_dlna.pa_dlna.AVControlPoint') as clazz,\
-                redirect_stdout(io.StringIO()) as output,\
+        clazz = mock.MagicMock()
+        clazz.__name__ = 'AVControlPoint'
+
+        with redirect_stdout(io.StringIO()) as output,\
                 self.assertRaises(SystemExit) as cm:
-            clazz.__name__ = 'AVControlPoint'
             padlna_main(clazz, self.__doc__, argv=['pa-dlna',
                                                    '--dump-default'])
         self.assertEqual(cm.exception.args[0], 0)
@@ -155,17 +188,17 @@ class Main(BaseTestCase):
         self.assertEqual(output.getvalue().split('\n')[0], doc)
 
     def test_internalconfig(self):
-        PA_DLNA_CONF = """
+        pa_dlna_conf = """
         [DEFAULT]
         selection = L16Encoder
         """
+        clazz = mock.MagicMock()
+        clazz.__name__ = 'AVControlPoint'
 
-        with mock.patch('pa_dlna.pa_dlna.AVControlPoint') as clazz,\
-                mock.patch('builtins.open', mock.mock_open(
-                    read_data=PA_DLNA_CONF)) as conf,\
+        with mock.patch('builtins.open', mock.mock_open(
+                    read_data=pa_dlna_conf)) as conf,\
                 redirect_stdout(io.StringIO()) as output,\
                 self.assertRaises(SystemExit) as cm:
-            clazz.__name__ = 'AVControlPoint'
             padlna_main(clazz, self.__doc__, argv=['pa-dlna',
                                                    '--dump-internal'])
 
