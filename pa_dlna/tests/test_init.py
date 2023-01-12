@@ -17,16 +17,24 @@ from ..config import user_config_pathname
 
 class Init(unittest.TestCase):
     def test_python_version(self):
-        with mock.patch('pa_dlna.py_version') as py_version,\
-             redirect_stderr(io.StringIO()) as output,\
-             self.assertRaises(SystemExit) as cm:
+        import sys
+        import importlib
+        import pa_dlna
+        from .. import MIN_PYTHON_VERSION
 
-            py_version.return_value = (3, 7)
-            from .. import check_python_version, MIN_PYTHON_VERSION
-            check_python_version()
+        version = (MIN_PYTHON_VERSION[0], MIN_PYTHON_VERSION[1] - 1)
+        try:
+            with mock.patch.object(sys, 'version_info', version),\
+                 redirect_stderr(io.StringIO()) as output,\
+                 self.assertRaises(SystemExit) as cm:
 
-        self.assertEqual(cm.exception.args[0], 1)
-        self.assertRegex(output.getvalue(), str(MIN_PYTHON_VERSION))
+                pa_dlna = importlib.reload(pa_dlna)
+
+            self.assertEqual(cm.exception.args[0], 1)
+            self.assertRegex(output.getvalue(),
+                             f'^error.*{MIN_PYTHON_VERSION}')
+        finally:
+            pa_dlna = importlib.reload(pa_dlna)
 
 @requires_resources('os.devnull')
 class Argv(BaseTestCase):
