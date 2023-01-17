@@ -507,6 +507,11 @@ class AVControlPoint(UPnPApplication):
         try:
             if not self.closing:
                 self.closing = True
+
+                # The semaphore prevents a race condition where a new Renderer
+                # is awaiting the registration of a sink with pulseaudio while
+                # the list of renderers is being emptied here. In that case,
+                # this sink would never be unregistered.
                 async with self.register_sem:
                     for renderer in list(self.renderers):
                         await renderer.close()

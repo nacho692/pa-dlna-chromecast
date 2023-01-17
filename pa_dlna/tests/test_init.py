@@ -91,10 +91,12 @@ class Argv(BaseTestCase):
         self.assertEqual(cm.exception.args[0], 2)
 
     def test_log_options(self):
-        options, _ = parse_args(self.__doc__, argv=['--nolog-upnp',
-                                                      '--log-aio'])
+        with mock.patch('pa_dlna.init.setup_logging') as setup_logging:
+            options, _ = parse_args(self.__doc__, argv=['--nolog-upnp',
+                                                        '--log-aio'])
         self.assertEqual(options['nolog_upnp'], True)
         self.assertEqual(options['log_aio'], True)
+        setup_logging.assert_called_once()
 
     def test_logfile(self):
         with mock.patch('builtins.open', mock.mock_open()) as m:

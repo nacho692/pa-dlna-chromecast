@@ -5,6 +5,9 @@ import sys
 __version__ = '0.1'
 MIN_PYTHON_VERSION = (3, 8)
 
+# TEST_LOGLEVEL is below logging.DEBUG and is only used by the test suite.
+TEST_LOGLEVEL = 5
+
 _version = sys.version_info[:2]
 if _version < MIN_PYTHON_VERSION:
     print(f'error: the python version must be at least'

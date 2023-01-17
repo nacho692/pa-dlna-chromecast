@@ -53,11 +53,12 @@ from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError
 from .util import NL_INDENT, shorten, log_exception, AsyncioTasks
-from .network import (ipv4_addresses, parse_ssdp, msearch, Notify, http_get,
-                      http_soap)
+from .network import (ipv4_addresses, parse_ssdp, send_mcast, Notify,
+                      http_get, http_soap)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
                   dict_to_xml, parse_soap_response, parse_soap_fault)
+from .. import TEST_LOGLEVEL
 
 logger = logging.getLogger('upnp')
 
@@ -521,7 +522,7 @@ class UPnPControlPoint:
       __aclose__
     """
 
-    def __init__(self, nics, msearch_interval, ttl=2):
+    def __init__(self, nics, msearch_interval, ttl=2, semaphore=None):
         self.nics = nics
         self.msearch_interval = msearch_interval
         self.ttl = ttl
@@ -533,6 +534,7 @@ class UPnPControlPoint:
         self._faulty_devices = set()    # set of the udn of root devices
                                         # permanently disabled
         self._curtask = None            # task running UPnPControlPoint.open()
+        self._semaphore = semaphore     # send_mcast() parameter
         self._upnp_tasks = AsyncioTasks()
 
     async def open(self):
@@ -547,7 +549,8 @@ class UPnPControlPoint:
         self._upnp_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
 
         # Start the notify task.
-        self._upnp_tasks.create_task(self._ssdp_notify(), name='ssdp notify')
+        self._notify_task = self._upnp_tasks.create_task(self._ssdp_notify(),
+                                                         name='ssdp notify')
 
     def close(self, exc=None):
         """Close the UPnP Control Point."""
@@ -668,6 +671,8 @@ class UPnPControlPoint:
                 f'Ignore msearch SSDP received on {local_ipaddress}')
             return
 
+        logger.log(TEST_LOGLEVEL, datagram.decode())
+
         # 'is_msearch' is True when processing a msearch response,
         # otherwise it is a notify advertisement.
         is_msearch = True if local_ipaddress is not None else False
@@ -710,7 +715,8 @@ class UPnPControlPoint:
                     self._notify.manage_membership(ip_addresses)
 
                 for ip_addr in ip_addresses:
-                    result = await msearch(ip_addr, self.ttl)
+                    result = await send_mcast(ip_addr, self._semaphore,
+                                              ttl=self.ttl)
                     if result:
                         for (data, peer_addr, local_addr) in result:
                             self._process_ssdp(data, peer_addr, local_addr)
@@ -738,10 +744,6 @@ class UPnPControlPoint:
         except Exception as e:
             logger.exception(f'{e!r}')
             self.close(exc=e)
-        finally:
-            # Drop multicast group membership for all IP addresses.
-            if self._notify is not None:
-                self._notify.manage_membership(set())
 
     async def __aenter__(self):
         await self.open()

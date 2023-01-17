@@ -29,7 +29,9 @@ MSEARCH = '\r\n'.join([
         f'MAN: "ssdp:discover"',
         f'ST: {UPNP_ROOTDEVICE}',
         f'MX: {MX}',
-    ]) + '\r\n'
+        f'',
+        f'',
+        ])
 
 class UPnPInvalidSsdpError(UPnPError): pass
 class UPnPInvalidHttpError(UPnPError): pass
@@ -123,63 +125,84 @@ def parse_ssdp(datagram, peer_ipaddress, is_msearch):
 
     return header
 
-async def msearch(ip, ttl):
+async def msearch(ip, protocol):
     """Implement the SSDP search protocol on the 'ip' network interface.
 
     Return the list of received (data, peer_addr, local_addr).
     """
 
-    # Create the socket.
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setblocking(False)
+    expire = time.monotonic() + MX
 
+    for i in range(MSEARCH_COUNT):
+        await asyncio.sleep(MSEARCH_INTERVAL)
+        if not protocol.closed():
+            protocol.send_datagram(MSEARCH)
+        else:
+            break
+    logger.debug(f'Sent {i + 1} M-SEARCH datagrams to {MCAST_ADDR} from {ip}')
+
+    if not protocol.closed():
+        remain = expire - time.monotonic()
+        if remain > 0:
+            await asyncio.sleep(expire - time.monotonic())
+
+    return  protocol.get_result()
+
+async def send_mcast(ip, semaphore, ttl=2, coro=msearch):
+    """Send multicast datagrams.
+
+    The 'coro' coroutine is awaited with the 'protocol' end point as parameter
+    for sending and receiving datagrams.
+    The semaphore is used because this coroutine may be awaited simultaneously
+    by the UPnP control point and a test case (the sent datagrams are received
+    by the notify task when using the loop back interface),
+    """
+
+    if semaphore is not None:
+        await semaphore.acquire()
     try:
-        # Prevent multicast datagrams to be looped back to ourself.
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
+        # Create the socket.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setblocking(False)
 
-        # Let the operating system choose the port.
         try:
-            sock.bind((ip, 0))
-        except OSError as e:
-            # Just log the exception, the associated network interface may be
-            # reconnected later.
-            logger.debug(f'{ip}: {e!r}')
-            return
+            # Prevent multicast datagrams to be looped back to ourself.
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
 
-        # Start the server.
-        transport = None
-        try:
-            loop = asyncio.get_running_loop()
-            transport, protocol = await loop.create_datagram_endpoint(
-                lambda: MsearchServerProtocol(ip), sock=sock)
+            # Let the operating system choose the port.
+            try:
+                sock.bind((ip, 0))
+            except OSError as e:
+                # Just log the exception, the associated network interface may
+                # be reconnected later.
+                logger.debug(f'Cannot bind to IP address {ip}: {e!r}')
+                return
 
-            # Prepare the socket for sending from the network
-            # interface of 'ip'.
-            sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
-                            socket.inet_aton(ip))
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+            # Start the server.
+            transport = None
+            try:
+                loop = asyncio.get_running_loop()
+                transport, protocol = await loop.create_datagram_endpoint(
+                    lambda: MsearchServerProtocol(ip), sock=sock)
 
-            expire = time.monotonic() + MX
+                # Prepare the socket for sending from the network
+                # interface of 'ip'.
+                sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
+                                socket.inet_aton(ip))
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL,
+                                ttl)
 
-            logger.debug(f'Sending {MSEARCH_COUNT} M-SEARCH datagrams to'
-                         f' {MCAST_ADDR} from {ip}')
-            for i in range(MSEARCH_COUNT):
-                await asyncio.sleep(MSEARCH_INTERVAL)
-                if not protocol.closed():
-                    protocol.m_search(MSEARCH, sock)
+                return await coro(ip, protocol)
 
-            if not protocol.closed():
-                remain = expire - time.monotonic()
-                if remain > 0:
-                    await asyncio.sleep(expire - time.monotonic())
-
-            return  protocol.get_result()
+            finally:
+                if transport is not None:
+                    transport.close()
         finally:
-            if transport is not None:
-                transport.close()
+            # Needed when OSError is raised upon binding the socket.
+            sock.close()
     finally:
-        # Needed when OSError is raised upon binding the socket.
-        sock.close()
+        if semaphore is not None:
+            semaphore.release()
 
 async def http_query(method, url, header='', body=''):
     """An HTTP 1.0 GET or POST request."""
@@ -328,7 +351,10 @@ class Notify:
                                              on_con_lost),
                 sock=self.sock)
             await on_con_lost
+            logger.debug("Future 'on_con_lost' is done.")
         finally:
+            # Drop multicast group membership for all IP addresses.
+            self.manage_membership(set())
             if transport is not None:
                 transport.close()
 
@@ -361,7 +387,7 @@ class MsearchServerProtocol:
                          f' MsearchServerProtocol: {exc!r}')
         self._closed = True
 
-    def m_search(self, message, sock):
+    def send_datagram(self, message):
         try:
             self.transport.sendto(message.encode(), MCAST_ADDR)
         except Exception as e:
@@ -376,26 +402,24 @@ class MsearchServerProtocol:
 class NotifyServerProtocol:
     """The NOTIFY asyncio server."""
 
-    def __init__(self ,process_datagram, on_con_lost):
+    def __init__(self, process_datagram, on_con_lost):
         self.process_datagram = process_datagram
         self.on_con_lost = on_con_lost
-        self.transport = None
 
     def connection_made(self, transport):
-        self.transport = transport
+        pass
 
     def datagram_received(self, data, addr):
         try:
             self.process_datagram(data, addr[0], None)
         except Exception as exc:
+            if not self.on_con_lost.done():
+                self.on_con_lost.set_result(True)
             self.error_received(exc)
 
     def error_received(self, exc):
         logger.warning(f'Error received by NotifyServerProtocol: {exc!r}')
-        self.transport.abort()
 
     def connection_lost(self, exc):
-        if not self.on_con_lost.done():
-            self.on_con_lost.set_result(True)
         if exc:
             logger.debug(f'Connection lost by NotifyServerProtocol: {exc!r}')
