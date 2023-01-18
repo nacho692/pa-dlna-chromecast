@@ -51,14 +51,13 @@ import collections
 import urllib.parse
 from signal import SIGINT, SIGTERM, strsignal
 
-from . import UPnPError
+from . import UPnPError, TEST_LOGLEVEL
 from .util import NL_INDENT, shorten, log_exception, AsyncioTasks
 from .network import (ipv4_addresses, parse_ssdp, send_mcast, Notify,
                       http_get, http_soap)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
                   dict_to_xml, parse_soap_response, parse_soap_fault)
-from .. import TEST_LOGLEVEL
 
 logger = logging.getLogger('upnp')
 

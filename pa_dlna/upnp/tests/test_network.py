@@ -10,8 +10,8 @@ from . import load_ordered_tests as load_tests
 
 from . import find_in_logs, search_in_logs
 from .. import TEST_LOGLEVEL
-from ..upnp.upnp import UPnPControlPoint
-from ..upnp.network import send_mcast
+from ..upnp import UPnPControlPoint
+from ..network import send_mcast
 
 SSDP_ALIVE = '\r\n'.join([
     'NOTIFY * HTTP/1.1',
