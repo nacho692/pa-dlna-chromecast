@@ -10,12 +10,13 @@ from unittest import mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import BaseTestCase, requires_resources
+from . import requires_resources, BaseTestCase
 from ..init import parse_args, padlna_main, UPnPApplication
 from ..encoders import Encoder
 from ..config import user_config_pathname
 
-class Init(unittest.TestCase):
+@requires_resources('os.devnull')
+class Init(BaseTestCase):
     def test_python_version(self):
         import sys
         import importlib
@@ -39,9 +40,6 @@ class Init(unittest.TestCase):
 @requires_resources('os.devnull')
 class Argv(BaseTestCase):
     """Command line tests."""
-
-    def setUp(self):
-        super().setUp()
 
     def test_no_args(self):
         options, _ = parse_args(self.__doc__, argv=[])
@@ -118,15 +116,9 @@ class Argv(BaseTestCase):
         m_open.assert_called_once()
         self.assertRegex(m_logs.output[-1], f'OSError.*{error_msg}')
 
-    def tearDown(self):
-        super().tearDown()
-
 @requires_resources('os.devnull')
 class Main(BaseTestCase):
     """padlna_main() tests."""
-
-    def setUp(self):
-        super().setUp()
 
     def test_main(self):
         clazz = mock.MagicMock()
@@ -216,9 +208,6 @@ class Main(BaseTestCase):
         conf.assert_called_once_with(user_config_pathname())
         self.assertIn("'L16Encoder': {'_mime_types': ['audio/l16']",
                       output.getvalue())
-
-    def tearDown(self):
-        super().tearDown()
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

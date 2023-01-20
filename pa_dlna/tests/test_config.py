@@ -44,9 +44,6 @@ class encoders_module:
 class DefaultConfig(BaseTestCase):
     """Default configuration tests."""
 
-    def setUp(self):
-        super().setUp()
-
     def test_invalid_section(self):
         name = 'InvalidEncoder'
         class _Encoder(Encoder):
@@ -63,15 +60,9 @@ class DefaultConfig(BaseTestCase):
         self.assertEqual(cm.exception.args[0],
                          f"'{name}' is not a valid class name")
 
-    def tearDown(self):
-        super().tearDown()
-
 @requires_resources('os.devnull')
 class UserConfig(BaseTestCase):
     """User configuration tests."""
-
-    def setUp(self):
-        super().setUp()
 
     def test_invalid_value(self):
         value = 'string'
@@ -204,15 +195,9 @@ class UserConfig(BaseTestCase):
         self.assertIn(f"{{'{UDN}': {{'_encoder': 'TestEncoder'",
                       output.getvalue())
 
-    def tearDown(self):
-        super().tearDown()
-
 @requires_resources('os.devnull')
 class Encoders(BaseTestCase):
     """Encoders tests."""
-
-    def setUp(self):
-        super().setUp()
 
     def l16_mime_type(self, mime_type, rate=0, channels=0, udn=None):
 
@@ -287,9 +272,6 @@ class Encoders(BaseTestCase):
                         read_data=pa_dlna_conf)):
                 res = self.l16_mime_type(mtype, udn=UDN)
                 self.assertEqual(res, None)
-
-    def tearDown(self):
-        super().tearDown()
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

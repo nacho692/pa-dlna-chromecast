@@ -72,7 +72,7 @@ def http_header_as_dict(header):
     try:
         return dict(normalize(line.split(':', maxsplit=1))
                     for line in compacted.splitlines())
-    except ValueError:
+    except (ValueError, IndexError):
         raise UPnPInvalidSsdpError(f'malformed HTTP header:\n{header}')
 
 def check_ssdp_header(header, is_msearch):
@@ -148,61 +148,54 @@ async def msearch(ip, protocol):
 
     return  protocol.get_result()
 
-async def send_mcast(ip, semaphore, ttl=2, coro=msearch):
+async def send_mcast(ip, port=None, ttl=2, coro=msearch):
     """Send multicast datagrams.
 
     The 'coro' coroutine is awaited with the 'protocol' end point as parameter
     for sending and receiving datagrams.
-    The semaphore is used because this coroutine may be awaited simultaneously
-    by the UPnP control point and a test case (the sent datagrams are received
-    by the notify task when using the loop back interface),
     """
 
-    if semaphore is not None:
-        await semaphore.acquire()
+    # Create the socket.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setblocking(False)
+
     try:
-        # Create the socket.
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setblocking(False)
+        # Prevent multicast datagrams to be looped back to ourself.
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
 
         try:
-            # Prevent multicast datagrams to be looped back to ourself.
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
-
             # Let the operating system choose the port.
-            try:
-                sock.bind((ip, 0))
-            except OSError as e:
-                # Just log the exception, the associated network interface may
-                # be reconnected later.
-                logger.debug(f'Cannot bind to IP address {ip}: {e!r}')
-                return
+            if port is None:
+                port = 0
+            sock.bind((ip, port))
+        except OSError as e:
+            # Just log the exception, the associated network interface may
+            # be reconnected later.
+            logger.debug(f'Cannot bind to IP address {ip}: {e!r}')
+            return
 
-            # Start the server.
-            transport = None
-            try:
-                loop = asyncio.get_running_loop()
-                transport, protocol = await loop.create_datagram_endpoint(
-                    lambda: MsearchServerProtocol(ip), sock=sock)
+        # Start the server.
+        transport = None
+        try:
+            loop = asyncio.get_running_loop()
+            transport, protocol = await loop.create_datagram_endpoint(
+                lambda: MsearchServerProtocol(ip), sock=sock)
 
-                # Prepare the socket for sending from the network
-                # interface of 'ip'.
-                sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
-                                socket.inet_aton(ip))
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL,
-                                ttl)
+            # Prepare the socket for sending from the network
+            # interface of 'ip'.
+            sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
+                            socket.inet_aton(ip))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL,
+                            ttl)
 
-                return await coro(ip, protocol)
+            return await coro(ip, protocol)
 
-            finally:
-                if transport is not None:
-                    transport.close()
         finally:
-            # Needed when OSError is raised upon binding the socket.
-            sock.close()
+            if transport is not None:
+                transport.close()
     finally:
-        if semaphore is not None:
-            semaphore.release()
+        # Needed when OSError is raised upon binding the socket.
+        sock.close()
 
 async def http_query(method, url, header='', body=''):
     """An HTTP 1.0 GET or POST request."""
@@ -357,6 +350,7 @@ class Notify:
             self.manage_membership(set())
             if transport is not None:
                 transport.close()
+            logger.info('End of the SSDP notify task')
 
 # Network protocols.
 class MsearchServerProtocol:
@@ -418,8 +412,8 @@ class NotifyServerProtocol:
             self.error_received(exc)
 
     def error_received(self, exc):
-        logger.warning(f'Error received by NotifyServerProtocol: {exc!r}')
+        logger.error(f'Error received by NotifyServerProtocol: {exc!r}')
 
     def connection_lost(self, exc):
         if exc:
-            logger.debug(f'Connection lost by NotifyServerProtocol: {exc!r}')
+            logger.warning(f'Connection lost by NotifyServerProtocol: {exc!r}')

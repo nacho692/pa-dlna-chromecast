@@ -53,7 +53,7 @@ from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError, TEST_LOGLEVEL
 from .util import NL_INDENT, shorten, log_exception, AsyncioTasks
-from .network import (ipv4_addresses, parse_ssdp, send_mcast, Notify,
+from .network import (ipv4_addresses, parse_ssdp, msearch, send_mcast, Notify,
                       http_get, http_soap)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
@@ -521,7 +521,7 @@ class UPnPControlPoint:
       __aclose__
     """
 
-    def __init__(self, nics, msearch_interval, ttl=2, semaphore=None):
+    def __init__(self, nics, msearch_interval, ttl=2):
         self.nics = nics
         self.msearch_interval = msearch_interval
         self.ttl = ttl
@@ -533,7 +533,6 @@ class UPnPControlPoint:
         self._faulty_devices = set()    # set of the udn of root devices
                                         # permanently disabled
         self._curtask = None            # task running UPnPControlPoint.open()
-        self._semaphore = semaphore     # send_mcast() parameter
         self._upnp_tasks = AsyncioTasks()
 
     async def open(self):
@@ -701,28 +700,31 @@ class UPnPControlPoint:
                 logger.warning(f"Unknown NTS field '{nts}' in SSDP notify"
                                ' from {peer_ipaddress}')
 
+    async def _one_shot_msearch(self, coro, port=None):
+        ip_addresses = set(ipv4_addresses(self.nics))
+
+        # Update the notify task with the ip addresses.
+        if self._notify is not None:
+            self._notify.manage_membership(ip_addresses)
+
+        for ip_addr in ip_addresses:
+            result = await send_mcast(ip_addr, port=port, ttl=self.ttl,
+                                      coro=coro)
+            if result:
+                for (data, peer_addr, local_addr) in result:
+                    self._process_ssdp(data, peer_addr, local_addr)
+            else:
+                logger.debug(f'No response on {ip_addr} to all'
+                             f' M-SEARCH messages, next try in'
+                             f' {self.msearch_interval} seconds')
+
     @log_exception(logger)
-    async def _ssdp_msearch(self):
+    async def _ssdp_msearch(self, coro=msearch):
         """Send msearch multicast SSDPs and process unicast responses."""
 
         try:
             while True:
-                ip_addresses = set(ipv4_addresses(self.nics))
-
-                # Update the notify task with the ip addresses.
-                if self._notify is not None:
-                    self._notify.manage_membership(ip_addresses)
-
-                for ip_addr in ip_addresses:
-                    result = await send_mcast(ip_addr, self._semaphore,
-                                              ttl=self.ttl)
-                    if result:
-                        for (data, peer_addr, local_addr) in result:
-                            self._process_ssdp(data, peer_addr, local_addr)
-                    else:
-                        logger.debug(f'No response on {ip_addr} to all'
-                                     f' M-SEARCH messages, next try in'
-                                     f' {self.msearch_interval} seconds')
+                await self._one_shot_msearch(coro)
                 await asyncio.sleep(self.msearch_interval)
         except asyncio.CancelledError:
             self.close()
