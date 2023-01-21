@@ -31,28 +31,39 @@ SSDP_NOTIFY = '\r\n'.join([
 SSDP_ALIVE = SSDP_NOTIFY.format(nts=NTS_ALIVE)
 
 MSEARCH_PORT = 9999
-MSEARCH_RESPONSE = '\r\n'.join([
+ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
+SSDP_MSEARCH = '\r\n'.join([
     'HTTP/1.1 200 OK',
     'Location: http://192.168.0.212:49154/MediaRenderer/desc.xml',
     'Cache-Control: max-age=1800',
     'Content-Length: 0',
     'Server: Linux',
     'EXT:',
-    'ST: upnp:rootdevice',
+    '{st}',
     'USN: uuid:ffffffff-ffff-ffff-ffff-ffffffffffff::upnp:rootdevice',
     '',
     '',
 ])
+MSEARCH_RESPONSE = SSDP_MSEARCH.format(st=ST_ROOT_DEVICE)
 
-async def loopback(datagrams, wait_for_termination=False, setup=None,
-                   coro=None):
-    """Loopback the 'datagrams' to the notify task.
+NOT_FOUND_REASON = 'A dummy reason'
+NOT_FOUND = '\r\n'.join([
+    f'HTTP/1.1 404 {NOT_FOUND_REASON}',
+    'Content-Length: 0',
+    '',
+    '',
+])
 
+async def loopback(datagrams, wait_for_termination=False, setup=None):
+    """Loopback datagrams to the notify or msearch task.
+
+    'datagrams' is either a coroutine that send datagrams or a list of
+    datagrams to be broadcasted to the UPnP multicast address.
     'setup' is a coroutine to be awaited for before sending the datagrams.
-    'coro' is a coroutine to be used instead of upnp.network.msearch()
     """
 
     async def send_datagrams(ip, protocol):
+        # 'protocol' is the protocol of the MsearchServerProtocol instance.
         for datagram in datagrams:
             protocol.send_datagram(datagram)
 
@@ -62,7 +73,9 @@ async def loopback(datagrams, wait_for_termination=False, setup=None,
             if create.called or remove.called:
                 break
 
-    if coro is None:
+    if asyncio.iscoroutinefunction(datagrams):
+        coro = datagrams
+    else:
         coro = send_datagrams
     control_point = UPnPControlPoint(['lo'], 3600)
     try:
@@ -71,10 +84,10 @@ async def loopback(datagrams, wait_for_termination=False, setup=None,
                 mock.patch.object(control_point,
                                '_remove_root_device') as remove,\
                 mock.patch.object(control_point,
-                               '_ssdp_msearch') as search:
+                               '_ssdp_msearch') as ssdp_msearch:
 
             # Prevent the msearch task to run UPnPControlPoint._ssdp_msearch.
-            search.side_effect = [None]
+            ssdp_msearch.side_effect = [None]
             if setup is not None:
                 await setup(control_point)
 
@@ -91,6 +104,36 @@ async def loopback(datagrams, wait_for_termination=False, setup=None,
         control_point.close()
 
     return control_point
+
+async def get_result(protocol):
+    """Loop for ever waiting for a result.
+
+    'protocol' is the protocol of the MsearchServerProtocol instance.
+    """
+
+    while True:
+        await asyncio.sleep(0)
+        result = protocol.get_result()
+        if result:
+            return result
+
+def sendto_coro(datagram):
+    """Return a coroutine to send a datagram using directly a socket.
+
+    The datagram is received by the MsearchServerProtocol instance.
+    """
+
+    async def send_datagram(ip, protocol):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.setblocking(False)
+            sock.sendto(datagram.encode(),
+                        ('127.0.0.1', MSEARCH_PORT))
+            try:
+                return await asyncio.wait_for(get_result(protocol), 1)
+            except asyncio.TimeoutError:
+                raise AssertionError ('The sent datagram has not been'
+                                      ' received')
+    return send_datagram
 
 @requires_resources('os.devnull')
 class SSDP_notify(BaseTestCase):
@@ -149,6 +192,41 @@ class SSDP_notify(BaseTestCase):
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                         re.compile(f'missing "NTS" field')))
+
+@requires_resources('os.devnull')
+class SSDP_msearch(BaseTestCase):
+    """SSDP msearch test cases."""
+
+    def test_ssdp_msearch(self):
+        coro = sendto_coro(MSEARCH_RESPONSE)
+        with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
+            asyncio.run(loopback(coro, wait_for_termination=True))
+
+        self.assertTrue(find_in_logs(m_logs.output, 'upnp', MSEARCH_RESPONSE))
+
+    def test_bad_start_line(self):
+        coro = sendto_coro(NOT_FOUND)
+        with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
+            asyncio.run(loopback(coro))
+
+        self.assertTrue(search_in_logs(m_logs.output, 'network',
+                re.compile(f"Ignore '{NOT_FOUND.splitlines()[0]}' request")))
+
+    def test_not_root_device(self):
+        device = 'urn:schemas-upnp-org:device:MediaServer:1'
+        st = f'ST: {device}'
+        coro = sendto_coro(SSDP_MSEARCH.format(st=st))
+        with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
+            asyncio.run(loopback(coro))
+
+        self.assertTrue(search_in_logs(m_logs.output, 'network',
+                re.compile(f"Ignore '{device}': non root device")))
+    def test_invalid_ip(self):
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            asyncio.run(send_mcast('256.0.0.0', None))
+
+        self.assertTrue(search_in_logs(m_logs.output, 'network',
+                                re.compile('Cannot bind.*256\.0\.0\.0')))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -10,7 +10,7 @@ import urllib.parse
 import psutil
 from ipaddress import IPv4Interface, IPv4Address
 
-from . import UPnPError
+from . import UPnPError, TEST_LOGLEVEL
 
 logger = logging.getLogger('network')
 
@@ -106,8 +106,7 @@ def parse_ssdp(datagram, peer_ipaddress, is_msearch):
         return None
     start_line = header[0].strip()
     if start_line != req_line:
-        # Comment out verbose log:
-        # logger.debug(f"Ignore '{start_line}' request from {peer_ipaddress}")
+        logger.log(TEST_LOGLEVEL, f"Ignore '{start_line}' request")
         return None
 
     # Parse the HTTP header as a dict.
@@ -121,6 +120,7 @@ def parse_ssdp(datagram, peer_ipaddress, is_msearch):
     # Ignore non root device responses.
     _type = header['ST'] if is_msearch else header['NT']
     if _type != UPNP_ROOTDEVICE:
+        logger.log(TEST_LOGLEVEL, f"Ignore '{_type}': non root device")
         return None
 
     return header
