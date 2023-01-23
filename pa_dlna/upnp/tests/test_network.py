@@ -12,14 +12,19 @@ from . import load_ordered_tests as load_tests
 from . import requires_resources, BaseTestCase, find_in_logs, search_in_logs
 from .. import TEST_LOGLEVEL
 from ..upnp import UPnPControlPoint
-from ..network import send_mcast
+from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
+                       http_soap, Notify)
+from ..util import HTTPRequestHandler
 
+HOST = '127.0.0.1'
+PORT = 9999
+URL = f'http://{HOST}:{PORT}/MediaRenderer/desc.xml'
 NTS_ALIVE = 'NTS: ssdp:alive'
 SSDP_NOTIFY = '\r\n'.join([
     'NOTIFY * HTTP/1.1',
     'Host: 239.255.255.250:1900',
     'Content-Length: 0',
-    'Location: http://127.0.0.1:49154/MediaRenderer/desc.xml',
+    ('Location: ' + URL),
     'Cache-Control: max-age=1800',
     'Server: Linux',
     'NT: upnp:rootdevice',
@@ -30,19 +35,18 @@ SSDP_NOTIFY = '\r\n'.join([
 ])
 SSDP_ALIVE = SSDP_NOTIFY.format(nts=NTS_ALIVE)
 
-MSEARCH_PORT = 9999
+MSEARCH_PORT = PORT
 ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
 SSDP_MSEARCH = '\r\n'.join([
     'HTTP/1.1 200 OK',
-    'Location: http://192.168.0.212:49154/MediaRenderer/desc.xml',
+    ('Location: ' + URL),
     'Cache-Control: max-age=1800',
     'Content-Length: 0',
     'Server: Linux',
     'EXT:',
     '{st}',
     'USN: uuid:ffffffff-ffff-ffff-ffff-ffffffffffff::upnp:rootdevice',
-    '',
-    '',
+    '', '',
 ])
 MSEARCH_RESPONSE = SSDP_MSEARCH.format(st=ST_ROOT_DEVICE)
 
@@ -50,8 +54,7 @@ NOT_FOUND_REASON = 'A dummy reason'
 NOT_FOUND = '\r\n'.join([
     f'HTTP/1.1 404 {NOT_FOUND_REASON}',
     'Content-Length: 0',
-    '',
-    '',
+    '', '',
 ])
 
 async def loopback(datagrams, wait_for_termination=False, setup=None):
@@ -92,6 +95,7 @@ async def loopback(datagrams, wait_for_termination=False, setup=None):
                 await setup(control_point)
 
             await control_point.open()
+            await control_point._notify.startup
             await control_point._one_shot_msearch(coro, port=MSEARCH_PORT)
 
             if wait_for_termination:
@@ -105,35 +109,46 @@ async def loopback(datagrams, wait_for_termination=False, setup=None):
 
     return control_point
 
-async def get_result(protocol):
-    """Loop for ever waiting for a result.
+class HTTPServer:
+    def __init__(self, body, content_length=None, start_line=None):
+        self.body = body.encode()
+        self.body_length = len(self.body)
+        content_length = (self.body_length if content_length is None else
+                          content_length)
 
-    'protocol' is the protocol of the MsearchServerProtocol instance.
-    """
+        header = ['HTTP/1.1 200 OK' if start_line is None else
+                  start_line]
+        header.append(f'Content-Length: {content_length}')
+        header.extend(['', ''])
+        self.header = '\r\n'.join(header).encode('latin-1')
 
-    while True:
-        await asyncio.sleep(0)
-        result = protocol.get_result()
-        if result:
-            return result
+        loop = asyncio.get_running_loop()
+        self.startup = loop.create_future()
 
-def sendto_coro(datagram):
-    """Return a coroutine to send a datagram using directly a socket.
+    async def client_connected(self, reader, writer):
+        """Handle an HTTP GET request and return the response."""
 
-    The datagram is received by the MsearchServerProtocol instance.
-    """
+        peername = writer.get_extra_info('peername')
+        try:
+            handler = HTTPRequestHandler(reader, writer, peername)
+            await handler.set_rfile()
+            handler.handle_one_request()
 
-    async def send_datagram(ip, protocol):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.setblocking(False)
-            sock.sendto(datagram.encode(),
-                        ('127.0.0.1', MSEARCH_PORT))
-            try:
-                return await asyncio.wait_for(get_result(protocol), 1)
-            except asyncio.TimeoutError:
-                raise AssertionError ('The sent datagram has not been'
-                                      ' received')
-    return send_datagram
+            # Write the response.
+            writer.write(self.header)
+            if self.body_length:
+                writer.write(self.body)
+        finally:
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+
+    async def run(self):
+        aio_server = await asyncio.start_server(self.client_connected,
+                                                HOST, PORT)
+        async with aio_server:
+            self.startup.set_result(None)
+            await aio_server.serve_forever()
 
 @requires_resources('os.devnull')
 class SSDP_notify(BaseTestCase):
@@ -148,6 +163,18 @@ class SSDP_notify(BaseTestCase):
             asyncio.run(loopback([SSDP_ALIVE], wait_for_termination=True))
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp', SSDP_ALIVE))
+
+    def test_membership_OSError(self):
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            try:
+                notify = Notify(None, set())
+                notify.manage_membership(set(['256.0.0.0']))
+            finally:
+                if notify is not None:
+                    notify.sock.close()
+
+        self.assertTrue(search_in_logs(m_logs.output, 'network',
+            re.compile('256\.0\.0\.0 cannot be member of 239.255.255.250')))
 
     def test_notify_OSError(self):
         async def setup(control_point):
@@ -197,15 +224,48 @@ class SSDP_notify(BaseTestCase):
 class SSDP_msearch(BaseTestCase):
     """SSDP msearch test cases."""
 
+    @staticmethod
+    def _sendto_coro(datagram):
+        """Return a coroutine to send a datagram using a socket.
+
+        The datagram is received by the MsearchServerProtocol instance.
+        """
+
+        async def _get_result(protocol):
+            return protocol.get_result()
+
+        async def send_datagram(ip, protocol):
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.setblocking(False)
+                sock.sendto(datagram.encode(),
+                            (HOST, MSEARCH_PORT))
+                try:
+                    return await asyncio.wait_for(_get_result(protocol), 1)
+                except asyncio.TimeoutError:
+                    raise AssertionError ('The sent datagram has not been'
+                                          ' received')
+        return send_datagram
+
     def test_ssdp_msearch(self):
-        coro = sendto_coro(MSEARCH_RESPONSE)
+        async def _msearch(ip, protocol):
+            await msearch(ip, protocol, msearch_count=1, msearch_interval=0,
+                          mx=0)
+
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            asyncio.run(loopback(_msearch))
+
+        self.assertTrue(search_in_logs(m_logs.output, 'network', re.compile(
+            "Sent 1 M-SEARCH datagrams to \('239\.255\.255\.250', 1900\)")))
+
+    def test_ssdp_socket_msearch(self):
+        coro = self._sendto_coro(MSEARCH_RESPONSE)
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
             asyncio.run(loopback(coro, wait_for_termination=True))
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp', MSEARCH_RESPONSE))
 
     def test_bad_start_line(self):
-        coro = sendto_coro(NOT_FOUND)
+        coro = self._sendto_coro(NOT_FOUND)
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
             asyncio.run(loopback(coro))
 
@@ -215,18 +275,98 @@ class SSDP_msearch(BaseTestCase):
     def test_not_root_device(self):
         device = 'urn:schemas-upnp-org:device:MediaServer:1'
         st = f'ST: {device}'
-        coro = sendto_coro(SSDP_MSEARCH.format(st=st))
+        coro = self._sendto_coro(SSDP_MSEARCH.format(st=st))
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
             asyncio.run(loopback(coro))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                 re.compile(f"Ignore '{device}': non root device")))
+
     def test_invalid_ip(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             asyncio.run(send_mcast('256.0.0.0', None))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                                 re.compile('Cannot bind.*256\.0\.0\.0')))
+
+@requires_resources('os.devnull')
+class SSDP_http(BaseTestCase):
+    """Http test cases."""
+
+    @staticmethod
+    async def _loopback_get(body, content_length=None, start_line=None):
+        """Start the http server and send the query."""
+
+        http_server = HTTPServer(body, content_length, start_line)
+        asyncio.create_task(http_server.run())
+        await http_server.startup
+        return await asyncio.wait_for(http_get(URL), 1)
+
+    @staticmethod
+    async def _loopback_soap(body, start_line=None):
+        """Start the http server and send the query."""
+
+        soap_body = 'The soap action'
+        soap_header = f'Content-length: {len(body.encode())}\r\n'
+        http_server = HTTPServer(body, start_line=start_line)
+        asyncio.create_task(http_server.run())
+        await http_server.startup
+        return await asyncio.wait_for(http_soap(URL, soap_header, soap_body),
+                                      1)
+
+    def test_http_get(self):
+        body = 'Some content.'
+        received_body = asyncio.run(self._loopback_get(body))
+
+        self.assertEqual(body, received_body.decode())
+
+    def test_zero_length(self):
+        body = 'Some content.'
+        received_body = asyncio.run(self._loopback_get(body,
+                                                       content_length=0))
+
+        self.assertEqual(received_body, b'')
+
+    def test_length_mismatch(self):
+        body = 'Some content.'
+        with self.assertRaises(UPnPInvalidHttpError) as cm:
+            received_body = asyncio.run(self._loopback_get(body,
+                                                           content_length=1))
+
+        self.assertIn(f'mismatch (1 != {len(body)})', cm.exception.args[0])
+
+    def test_bad_http_version(self):
+        body = 'Some content.'
+        start_line = 'HTTP/2.0 200 OK'
+        with self.assertRaises(UPnPInvalidHttpError) as cm:
+            received_body = asyncio.run(self._loopback_get(body,
+                                                    start_line=start_line))
+
+        self.assertIn(start_line, cm.exception.args[0])
+
+    def test_http_soap(self):
+        body = 'soap response'
+        is_fault, received_body = asyncio.run(self._loopback_soap(body))
+
+        self.assertEqual(body, received_body.decode())
+        self.assertFalse(is_fault)
+
+    def test_soap_fault(self):
+        body = 'soap response'
+        is_fault, received_body = asyncio.run(self._loopback_soap(body,
+                            start_line='HTTP/1.0 500 Internal Server Error'))
+
+        self.assertEqual(body, received_body.decode())
+        self.assertTrue(is_fault)
+
+    def test_bad_soap(self):
+        body = 'soap response'
+        start_line = 'HTTP/2.0 200 OK'
+        with self.assertRaises(UPnPInvalidHttpError) as cm:
+            is_fault, received_body = asyncio.run(self._loopback_soap(body,
+                                                    start_line=start_line))
+
+        self.assertIn(start_line, cm.exception.args[0])
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

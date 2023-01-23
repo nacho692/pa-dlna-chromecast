@@ -1,5 +1,12 @@
 Release history
 ===============
 
+Version 0.2
+  - Fix IndexError exception raised upon OSError in
+    network.Notify.manage_membership().
+  - Fix removing multicast membership when the socket is closed.
+  - Don't print a stack traceback upon error parsing the configuration file.
+  - Abort on error setting the file logging handler with '--logfile PATH'.
+
 Version 0.1
   - Publish the project on Pypi.

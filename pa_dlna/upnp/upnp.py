@@ -176,7 +176,7 @@ class UPnPService(UPnPElement):
         body = ''.join(line.strip() for line in body.splitlines())
 
         header = (
-            f'Content-length: {len(body)}\r\n'
+            f'Content-length: {len(body.encode())}\r\n'
             f'Content-type: text/xml; charset="utf-8"\r\n'
             f'Soapaction: "{self.serviceType}#{action}"\r\n'
         )
@@ -547,6 +547,8 @@ class UPnPControlPoint:
         self._upnp_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
 
         # Start the notify task.
+        self._notify = Notify(self._process_ssdp,
+                              set(ipv4_addresses(self.nics)))
         self._notify_task = self._upnp_tasks.create_task(self._ssdp_notify(),
                                                          name='ssdp notify')
 
@@ -737,8 +739,6 @@ class UPnPControlPoint:
         """Listen to SSDP notifications."""
 
         try:
-            self._notify = Notify(self._process_ssdp,
-                                  set(ipv4_addresses(self.nics)))
             await self._notify.run()
         except asyncio.CancelledError:
             self.close()

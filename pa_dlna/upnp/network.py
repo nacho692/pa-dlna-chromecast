@@ -98,15 +98,12 @@ def parse_ssdp(datagram, peer_ipaddress, is_msearch):
     req_line = 'HTTP/1.1 200 OK' if is_msearch else 'NOTIFY * HTTP/1.1'
 
     # Ignore non 'notify' and non 'msearch' SSDPs.
-    try:
-       header = datagram.decode().splitlines()
-    except UnicodeError:
-        return None
-    if not header:
-        return None
-    start_line = header[0].strip()
-    if start_line != req_line:
-        logger.log(TEST_LOGLEVEL, f"Ignore '{start_line}' request")
+    header = datagram.decode().splitlines()
+    start_line = header[:1]
+    if not start_line or start_line[0].strip() != req_line:
+        if start_line:
+            logger.log(TEST_LOGLEVEL,
+                       f"Ignore '{start_line[0].strip()}' request")
         return None
 
     # Parse the HTTP header as a dict.
@@ -125,16 +122,17 @@ def parse_ssdp(datagram, peer_ipaddress, is_msearch):
 
     return header
 
-async def msearch(ip, protocol):
+async def msearch(ip, protocol, msearch_count=MSEARCH_COUNT,
+                  msearch_interval=MSEARCH_INTERVAL, mx=MX):
     """Implement the SSDP search protocol on the 'ip' network interface.
 
     Return the list of received (data, peer_addr, local_addr).
     """
 
-    expire = time.monotonic() + MX
+    expire = time.monotonic() + mx
 
-    for i in range(MSEARCH_COUNT):
-        await asyncio.sleep(MSEARCH_INTERVAL)
+    for i in range(msearch_count):
+        await asyncio.sleep(msearch_interval)
         if not protocol.closed():
             protocol.send_datagram(MSEARCH)
         else:
@@ -214,8 +212,9 @@ async def http_query(method, url, header='', body=''):
             f"{method} {request or '/'} HTTP/1.0\r\n"
             f"Host: {host}:{port}\r\n"
         )
-        query = query + header + '\r\n' + body
+        query = query + header + '\r\n'
         writer.write(query.encode('latin-1'))
+        writer.write(body.encode())
 
         # Parse the http header.
         header = []
@@ -300,19 +299,26 @@ class Notify:
         self.ip_addresses = set()
         self.manage_membership(ip_addresses)
 
+        # Future used by the test suite.
+        try:
+            loop = asyncio.get_running_loop()
+            self.startup = loop.create_future()
+        except RuntimeError:
+            self.startup = None
+
     def manage_membership(self, ip_addresses):
         def member(ip, optname):
             msg = ('member of' if optname == socket.IP_ADD_MEMBERSHIP else
                    'dropped from')
-            mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
-                               socket.inet_aton(ip))
             try:
+                mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
+                                   socket.inet_aton(ip))
                 self.sock.setsockopt(socket.IPPROTO_IP, optname, mreq)
                 logger.debug(f'SSDP notify: {ip} {msg} multicast group'
                              f' {MCAST_GROUP}')
             except OSError as e:
                 logger.warning(f'SSDP notify: {ip} cannot be {msg}'
-                               f' {MCAST_GROUP}: {e.args[1]}')
+                               f' {MCAST_GROUP}: {e.args[0]}')
                 return False
             return True
 
@@ -343,6 +349,7 @@ class Notify:
                 lambda: NotifyServerProtocol(self.process_datagram,
                                              on_con_lost),
                 sock=self.sock)
+            self.startup.set_result(None)
             await on_con_lost
             logger.debug("Future 'on_con_lost' is done.")
         finally:
