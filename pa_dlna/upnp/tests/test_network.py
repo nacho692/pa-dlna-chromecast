@@ -9,15 +9,15 @@ from unittest import mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, BaseTestCase, find_in_logs, search_in_logs
+from . import (requires_resources, BaseTestCase, find_in_logs, search_in_logs,
+               loopback_datagrams, MSEARCH_PORT)
 from .. import TEST_LOGLEVEL
-from ..upnp import UPnPControlPoint
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
                        http_soap, Notify)
 from ..util import HTTPRequestHandler
 
 HOST = '127.0.0.1'
-PORT = 9999
+PORT = MSEARCH_PORT
 URL = f'http://{HOST}:{PORT}/MediaRenderer/desc.xml'
 NTS_ALIVE = 'NTS: ssdp:alive'
 SSDP_NOTIFY = '\r\n'.join([
@@ -35,7 +35,6 @@ SSDP_NOTIFY = '\r\n'.join([
 ])
 SSDP_ALIVE = SSDP_NOTIFY.format(nts=NTS_ALIVE)
 
-MSEARCH_PORT = PORT
 ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
 SSDP_MSEARCH = '\r\n'.join([
     'HTTP/1.1 200 OK',
@@ -56,58 +55,6 @@ NOT_FOUND = '\r\n'.join([
     'Content-Length: 0',
     '', '',
 ])
-
-async def loopback(datagrams, wait_for_termination=False, setup=None):
-    """Loopback datagrams to the notify or msearch task.
-
-    'datagrams' is either a coroutine that send datagrams or a list of
-    datagrams to be broadcasted to the UPnP multicast address.
-    'setup' is a coroutine to be awaited for before sending the datagrams.
-    """
-
-    async def send_datagrams(ip, protocol):
-        # 'protocol' is the protocol of the MsearchServerProtocol instance.
-        for datagram in datagrams:
-            protocol.send_datagram(datagram)
-
-    async def termination():
-        while True:
-            await asyncio.sleep(0)
-            if create.called or remove.called:
-                break
-
-    if asyncio.iscoroutinefunction(datagrams):
-        coro = datagrams
-    else:
-        coro = send_datagrams
-    control_point = UPnPControlPoint(['lo'], 3600)
-    try:
-        with mock.patch.object(control_point,
-                               '_create_root_device') as create,\
-                mock.patch.object(control_point,
-                               '_remove_root_device') as remove,\
-                mock.patch.object(control_point,
-                               '_ssdp_msearch') as ssdp_msearch:
-
-            # Prevent the msearch task to run UPnPControlPoint._ssdp_msearch.
-            ssdp_msearch.side_effect = [None]
-            if setup is not None:
-                await setup(control_point)
-
-            await control_point.open()
-            await control_point._notify.startup
-            await control_point._one_shot_msearch(coro, port=MSEARCH_PORT)
-
-            if wait_for_termination:
-                try:
-                    await asyncio.wait_for(termination(), 1)
-                except asyncio.TimeoutError:
-                    raise AssertionError('_create_root_device() and '
-                                '_remove_root_device() not called') from None
-    finally:
-        control_point.close()
-
-    return control_point
 
 class HTTPServer:
     def __init__(self, body, content_length=None, start_line=None):
@@ -160,18 +107,22 @@ class SSDP_notify(BaseTestCase):
 
     def test_ssdp_notify(self):
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback([SSDP_ALIVE], wait_for_termination=True))
+            asyncio.run(loopback_datagrams([SSDP_ALIVE],
+                                        patch_method='_create_root_device'))
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp', SSDP_ALIVE))
 
     def test_membership_OSError(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
+        async def coro():
             try:
                 notify = Notify(None, set())
                 notify.manage_membership(set(['256.0.0.0']))
             finally:
                 if notify is not None:
                     notify.sock.close()
+
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            asyncio.run(coro())
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
             re.compile('256\.0\.0\.0 cannot be member of 239.255.255.250')))
@@ -183,7 +134,8 @@ class SSDP_notify(BaseTestCase):
             proc_ssdp.side_effect = OSError(err_msg)
 
         async def run_notify():
-            control_point = await loopback([SSDP_ALIVE], setup=setup)
+            control_point = await loopback_datagrams([SSDP_ALIVE],
+                                                     setup=setup)
             # Wait until completion of the notify task.
             try:
                 await asyncio.wait_for(control_point._notify_task, 1)
@@ -202,9 +154,9 @@ class SSDP_notify(BaseTestCase):
     def test_invalid_field(self):
         field = 'invalid NTS field'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback([SSDP_NOTIFY.format(nts=field),
+            asyncio.run(loopback_datagrams([SSDP_NOTIFY.format(nts=field),
                                   SSDP_ALIVE],
-                                 wait_for_termination=True))
+                                 patch_method='_create_root_device'))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                         re.compile(f'malformed HTTP header:\n.*{field}',
@@ -213,9 +165,9 @@ class SSDP_notify(BaseTestCase):
     def test_no_NTS_field(self):
         not_nts = 'FOO: dummy field name'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback([SSDP_NOTIFY.format(nts=not_nts),
+            asyncio.run(loopback_datagrams([SSDP_NOTIFY.format(nts=not_nts),
                                   SSDP_ALIVE],
-                                 wait_for_termination=True))
+                                 patch_method='_create_root_device'))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                         re.compile(f'missing "NTS" field')))
@@ -252,7 +204,7 @@ class SSDP_msearch(BaseTestCase):
                           mx=0)
 
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback(_msearch))
+            asyncio.run(loopback_datagrams(_msearch))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network', re.compile(
             "Sent 1 M-SEARCH datagrams to \('239\.255\.255\.250', 1900\)")))
@@ -260,14 +212,15 @@ class SSDP_msearch(BaseTestCase):
     def test_ssdp_socket_msearch(self):
         coro = self._sendto_coro(MSEARCH_RESPONSE)
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback(coro, wait_for_termination=True))
+            asyncio.run(loopback_datagrams(coro,
+                                        patch_method='_create_root_device'))
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp', MSEARCH_RESPONSE))
 
     def test_bad_start_line(self):
         coro = self._sendto_coro(NOT_FOUND)
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback(coro))
+            asyncio.run(loopback_datagrams(coro))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                 re.compile(f"Ignore '{NOT_FOUND.splitlines()[0]}' request")))
@@ -277,7 +230,7 @@ class SSDP_msearch(BaseTestCase):
         st = f'ST: {device}'
         coro = self._sendto_coro(SSDP_MSEARCH.format(st=st))
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback(coro))
+            asyncio.run(loopback_datagrams(coro))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                 re.compile(f"Ignore '{device}': non root device")))

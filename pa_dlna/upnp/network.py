@@ -149,8 +149,9 @@ async def msearch(ip, protocol, msearch_count=MSEARCH_COUNT,
 async def send_mcast(ip, port=None, ttl=2, coro=msearch):
     """Send multicast datagrams.
 
-    The 'coro' coroutine is awaited with the 'protocol' end point as parameter
-    for sending and receiving datagrams.
+    'coro' is a coroutine *function* and when invoked, the coroutine is
+    awaited with the 'protocol' end point as parameter for sending and
+    receiving datagrams.
     """
 
     # Create the socket.
@@ -300,11 +301,8 @@ class Notify:
         self.manage_membership(ip_addresses)
 
         # Future used by the test suite.
-        try:
-            loop = asyncio.get_running_loop()
-            self.startup = loop.create_future()
-        except RuntimeError:
-            self.startup = None
+        loop = asyncio.get_running_loop()
+        self.startup = loop.create_future()
 
     def manage_membership(self, ip_addresses):
         def member(ip, optname):

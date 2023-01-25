@@ -702,7 +702,7 @@ class UPnPControlPoint:
                 logger.warning(f"Unknown NTS field '{nts}' in SSDP notify"
                                ' from {peer_ipaddress}')
 
-    async def _one_shot_msearch(self, coro, port=None):
+    async def msearch_once(self, coro, port=None):
         ip_addresses = set(ipv4_addresses(self.nics))
 
         # Update the notify task with the ip addresses.
@@ -710,6 +710,7 @@ class UPnPControlPoint:
             self._notify.manage_membership(ip_addresses)
 
         for ip_addr in ip_addresses:
+            # 'coro' is a coroutine *function*.
             result = await send_mcast(ip_addr, port=port, ttl=self.ttl,
                                       coro=coro)
             if result:
@@ -726,7 +727,7 @@ class UPnPControlPoint:
 
         try:
             while True:
-                await self._one_shot_msearch(coro)
+                await self.msearch_once(coro)
                 await asyncio.sleep(self.msearch_interval)
         except asyncio.CancelledError:
             self.close()
