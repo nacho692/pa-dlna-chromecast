@@ -11,8 +11,10 @@ from . import UPnPError
 
 if sys.version_info >= (3, 9):
     functools_cache = functools.cache
+    ET_indent = ET.indent
 else:
     functools_cache = functools.lru_cache
+    ET_indent = (lambda x: None)
 
 logger = logging.getLogger('xml')
 
@@ -192,7 +194,7 @@ def pprint_xml(xml):
 
     root, namespace = upnp_org_etree(xml)
     tree = ET.ElementTree(root)
-    ET.indent(tree)
+    ET_indent(tree)
 
     # A namespace qualified with the '' prefix causes xml.etree.ElementTree to
     # throw the following exception in tree.write():
