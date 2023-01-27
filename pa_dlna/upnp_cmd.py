@@ -12,8 +12,7 @@ import traceback
 
 from .init import padlna_main, UPnPApplication
 from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
-                   UPnPClosedDeviceError, pprint_xml)
-from .upnp.util import log_exception
+                   UPnPClosedDeviceError, pformat_xml, log_exception)
 
 logger = logging.getLogger('upnpcmd')
 pprint_pprint = functools.partial(pprint.pprint, sort_dicts=False)
@@ -252,7 +251,7 @@ class UPnPServiceCmd(_Cmd):
 
     def do_description(self, unused):
         """Print the xml 'description'"""
-        pprint_xml(self.upnp_service.description)
+        print(pformat_xml(self.upnp_service.description))
 
     def help_root_device(self):
         print('Shortened UDN of the root device')
@@ -488,7 +487,7 @@ class UPnPDeviceCmd(_Cmd):
 
     def do_description(self, unused):
         """Print the xml 'description'"""
-        pprint_xml(self.upnp_device.description)
+        print(pformat_xml(self.upnp_device.description))
 
     def do_iconList(self, unused):
         """Print the value of 'iconList'"""

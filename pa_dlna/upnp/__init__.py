@@ -8,4 +8,7 @@ TEST_LOGLEVEL = 5
 from .upnp import (UPnPClosedDeviceError, UPnPInvalidSoapError,
                    UPnPSoapFaultError,
                    UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService)
-from .xml import UPnPXMLError, pprint_xml
+from .network import ipv4_addresses
+from .util import (NL_INDENT, shorten, log_exception, AsyncioTasks,
+                   log_exception)
+from .xml import UPnPXMLError, pformat_xml

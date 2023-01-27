@@ -189,8 +189,8 @@ def parse_soap_fault(xml):
     d = dict((e.tag[ns_len:], e.text) for e in error)
     return SoapFault(**d)
 
-def pprint_xml(xml):
-    """Pretty print an xml string."""
+def pformat_xml(xml):
+    """Pretty format an xml string."""
 
     root, namespace = upnp_org_etree(xml)
     tree = ET.ElementTree(root)
@@ -204,7 +204,7 @@ def pprint_xml(xml):
     with io.StringIO() as out:
         tree.write(out, encoding="unicode",
                    default_namespace=default_namespace)
-        print(out.getvalue())
+        return out.getvalue()
 
 # Helper classes.
 SoapFault = collections.namedtuple('SoapFault', 'errorCode errorDescription',

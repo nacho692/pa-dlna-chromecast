@@ -14,9 +14,9 @@ from .init import padlna_main, UPnPApplication, ControlPointAbortError
 from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
-from .upnp import UPnPControlPoint, UPnPClosedDeviceError, UPnPSoapFaultError
-from .upnp.util import NL_INDENT, shorten, log_exception, AsyncioTasks
-from .upnp.network import ipv4_addresses
+from .upnp import (UPnPControlPoint, UPnPClosedDeviceError,
+                   UPnPSoapFaultError, ipv4_addresses, NL_INDENT, shorten,
+                   log_exception, AsyncioTasks)
 
 logger = logging.getLogger('pa-dlna')
 
