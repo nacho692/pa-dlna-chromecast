@@ -190,20 +190,15 @@ def parse_soap_fault(xml):
     return SoapFault(**d)
 
 def pformat_xml(xml):
-    """Pretty format an xml string."""
+    """Pretty format an UPnP xml string."""
 
     root, namespace = upnp_org_etree(xml)
+    ET.register_namespace('', str(namespace))
     tree = ET.ElementTree(root)
     ET_indent(tree)
 
-    # A namespace qualified with the '' prefix causes xml.etree.ElementTree to
-    # throw the following exception in tree.write():
-    # ValueError: cannot use non-qualified names with default_namespace option
-    default_namespace = str(namespace) if namespace.key else None
-
     with io.StringIO() as out:
-        tree.write(out, encoding="unicode",
-                   default_namespace=default_namespace)
+        tree.write(out, encoding='unicode')
         return out.getvalue()
 
 # Helper classes.

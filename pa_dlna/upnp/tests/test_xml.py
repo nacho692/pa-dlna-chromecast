@@ -30,7 +30,7 @@ class XML(BaseTestCase):
         self.assertEqual(xml_of_subelement(device, 'FOO'), None)
 
     def test_dict_to_xml(self):
-        expect = '<ns0:foo>&lt;testing escape characters&gt;</ns0:foo>'
+        expect = '<foo>&lt;testing escape characters&gt;</foo>'
         elements = dict_to_xml({
             'foo': '<testing escape characters>',
             'bar': 123,

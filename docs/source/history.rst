@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.2
+  - The ``description`` commands of ``upnp-cmd`` don't prefix tags with a
+    namespace.
   - Fix the ``description`` commands of ``upnp-cmd`` when run with Python 3.8.
   - Fix IndexError exception raised upon OSError in
     network.Notify.manage_membership().
