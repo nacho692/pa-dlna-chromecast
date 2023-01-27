@@ -11,7 +11,8 @@ from .device_resps import (device_description, scpd, soap_response,
                            soap_fault)
 from ..xml import (xml_of_subelement, dict_to_xml, pformat_xml,
                    upnp_org_etree, scpd_actionlist, scpd_servicestatetable,
-                   parse_soap_response, UPnPXMLError, parse_soap_fault)
+                   parse_soap_response, UPnPXMLError, parse_soap_fault,
+                   UPnPNamespace)
 
 @requires_resources('os.devnull')
 class XML(BaseTestCase):
@@ -110,6 +111,10 @@ class XML(BaseTestCase):
         xml_string = soap_fault()
         fault = parse_soap_fault(xml_string)
         self.assertEqual(fault._asdict(), expect)
+
+    def test_UPnPNamespace(self):
+        with self.assertRaises(UPnPXMLError):
+            UPnPNamespace(soap_fault(), 'urn:schemas-FOO-org:')
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

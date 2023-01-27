@@ -205,29 +205,20 @@ def pformat_xml(xml):
 SoapFault = collections.namedtuple('SoapFault', 'errorCode errorDescription',
                                    defaults=['Not specified'])
 class UPnPNamespace:
-    """A namespace value."""
+    """A namespace uri."""
 
-    def __init__(self, xml, value_beg):
-        """Use the namespace value starting with 'value_beg'."""
+    def __init__(self, xml, prefix):
+        """The first namespace in 'xml' starting with 'prefix'."""
 
-        self.value = None
         ns = namespace_as_dict(xml)
-
-        # No namespaces.
-        if not ns:
-            self.value = ''
-
-        for k, v in ns.items():
-            if v.startswith(value_beg):
-                self.key = k
-                self.value = v
-                break
-
-        if self.value is None:
-            raise UPnPXMLError(f'No namespace starting with {value_beg}')
+        for uri in ns.values():
+            if uri.startswith(prefix):
+                self.uri = uri
+                return
+        raise UPnPXMLError(f'No namespace starting with {prefix}')
 
     def __str__(self):
-        return self.value
+        return self.uri
 
     def __repr__(self):
-        return f'{{{self.value}}}' if self.value else ''
+        return f'{{{self.uri}}}' if self.uri else ''
