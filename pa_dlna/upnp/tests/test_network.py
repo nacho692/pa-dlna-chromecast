@@ -10,30 +10,12 @@ from unittest import mock
 from . import load_ordered_tests as load_tests
 
 from . import (requires_resources, BaseTestCase, find_in_logs, search_in_logs,
-               loopback_datagrams, MSEARCH_PORT)
+               loopback_datagrams, URL, MSEARCH_PORT, HOST, HTTP_PORT,
+               SSDP_PARAMS, SSDP_NOTIFY, SSDP_ALIVE)
 from .. import TEST_LOGLEVEL
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
                        http_soap, Notify)
 from ..util import HTTPRequestHandler
-
-HOST = '127.0.0.1'
-PORT = MSEARCH_PORT
-URL = f'http://{HOST}:{PORT}/MediaRenderer/desc.xml'
-NTS_ALIVE = 'NTS: ssdp:alive'
-SSDP_NOTIFY = '\r\n'.join([
-    'NOTIFY * HTTP/1.1',
-    'Host: 239.255.255.250:1900',
-    'Content-Length: 0',
-    ('Location: ' + URL),
-    'Cache-Control: max-age=1800',
-    'Server: Linux',
-    'NT: upnp:rootdevice',
-    '{nts}',
-    'USN: uuid:ffffffff-ffff-ffff-ffff-ffffffffffff::upnp:rootdevice',
-    '',
-    '',
-])
-SSDP_ALIVE = SSDP_NOTIFY.format(nts=NTS_ALIVE)
 
 ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
 SSDP_MSEARCH = '\r\n'.join([
@@ -92,7 +74,7 @@ class HTTPServer:
 
     async def run(self):
         aio_server = await asyncio.start_server(self.client_connected,
-                                                HOST, PORT)
+                                                HOST, HTTP_PORT)
         async with aio_server:
             self.startup.set_result(None)
             await aio_server.serve_forever()
@@ -154,9 +136,9 @@ class SSDP_notify(BaseTestCase):
     def test_invalid_field(self):
         field = 'invalid NTS field'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback_datagrams([SSDP_NOTIFY.format(nts=field),
-                                  SSDP_ALIVE],
-                                 patch_method='_create_root_device'))
+            asyncio.run(loopback_datagrams(
+                            [SSDP_NOTIFY.format(nts=field, **SSDP_PARAMS),
+                            SSDP_ALIVE], patch_method='_create_root_device'))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                         re.compile(f'malformed HTTP header:\n.*{field}',
@@ -165,9 +147,9 @@ class SSDP_notify(BaseTestCase):
     def test_no_NTS_field(self):
         not_nts = 'FOO: dummy field name'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback_datagrams([SSDP_NOTIFY.format(nts=not_nts),
-                                  SSDP_ALIVE],
-                                 patch_method='_create_root_device'))
+            asyncio.run(loopback_datagrams(
+                            [SSDP_NOTIFY.format(nts=not_nts, **SSDP_PARAMS),
+                             SSDP_ALIVE], patch_method='_create_root_device'))
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                         re.compile(f'missing "NTS" field')))

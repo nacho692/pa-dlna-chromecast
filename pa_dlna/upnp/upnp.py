@@ -541,6 +541,8 @@ class UPnPControlPoint:
         # Get the caller's task.
         # open() being a coroutine ensures that it is run by a task or a
         # coroutine with a task.
+        # This is needed as UPnPControlPoint.close() may be called from
+        # another task.
         self._curtask = asyncio.current_task()
 
         # Start the msearch task.

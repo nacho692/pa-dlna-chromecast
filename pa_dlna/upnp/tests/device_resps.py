@@ -36,8 +36,8 @@ def device_description(friendly_name='Friendly Name'):
     </device>
   </root>"""
 
-def scpd():
-  return '''<?xml version="1.0" encoding="utf-8"?>
+def scpd(state_variable=''):
+  return f'''<?xml version="1.0" encoding="utf-8"?>
   <root xmlns="urn:schemas-upnp-org:device-1-0">
       <actionList>
         <action>
@@ -81,10 +81,7 @@ def scpd():
             <maximum>1</maximum>
           </allowedValueRange>
         </stateVariable>
-        <stateVariable sendEvents="yes">
-          <name>FOO</name>
-          <dataType type="xsd:byte">string</dataType>
-        </stateVariable>
+        {state_variable}
       </serviceStateTable>
   </root>'''
 

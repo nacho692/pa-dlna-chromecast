@@ -56,6 +56,11 @@ class XML(BaseTestCase):
         self.assertEqual(actions, expect)
 
     def test_service_state(self):
+        state_variable = """<stateVariable sendEvents="yes">
+                              <name>FOO</name>
+                              <dataType type="xsd:byte">string</dataType>
+                            </stateVariable>
+        """
         expect = {'SourceProtocolInfo': {'sendEvents': 'yes',
                                          'dataType': 'string'},
                   'SinkProtocolInfo': {'sendEvents': 'yes',
@@ -73,7 +78,8 @@ class XML(BaseTestCase):
                   }
 
         with self.assertLogs(level=logging.WARNING) as m_logs:
-            etree, namespace = upnp_org_etree(scpd())
+            etree, namespace = upnp_org_etree(
+                                        scpd(state_variable=state_variable))
             service_states = scpd_servicestatetable(etree, namespace)
 
         self.assertTrue(search_in_logs(m_logs.output, 'xml',

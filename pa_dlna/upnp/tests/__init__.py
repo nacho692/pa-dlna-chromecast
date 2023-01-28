@@ -16,6 +16,29 @@ else:
     functools_cache = functools.lru_cache
 
 MSEARCH_PORT = 9999
+SSDP_NOTIFY = '\r\n'.join([
+    'NOTIFY * HTTP/1.1',
+    'Host: 239.255.255.250:1900',
+    'Content-Length: 0',
+    'Location: {url}',
+    'Cache-Control: max-age={max_age}',
+    'Server: Linux',
+    'NT: upnp:rootdevice',
+    '{nts}',
+    'USN: {udn}::upnp:rootdevice',
+    '',
+    '',
+])
+
+HOST = '127.0.0.1'
+HTTP_PORT = 9999
+URL = f'http://{HOST}:{HTTP_PORT}/MediaRenderer/desc.xml'
+UDN = 'uuid:ffffffff-ffff-ffff-ffff-ffffffffffff'
+SSDP_PARAMS = { 'url': URL,
+                'max_age': '1800',
+                'udn': UDN
+               }
+SSDP_ALIVE = SSDP_NOTIFY.format(nts='NTS: ssdp:alive', **SSDP_PARAMS)
 
 def _id(obj):
     return obj
@@ -45,6 +68,10 @@ def requires_resources(resources):
             return unittest.skip(f"'{res}' is not available")
     else:
         return _id
+
+def min_python_version(sys_version):
+    return unittest.skipIf(sys.version_info < sys_version,
+                        f'Python version {sys_version} or higher required')
 
 def load_ordered_tests(loader, standard_tests, pattern):
     """Keep the tests in the order they were declared in the class.
