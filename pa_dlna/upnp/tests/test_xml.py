@@ -2,11 +2,12 @@
 
 import re
 import logging
+from unittest import TestCase
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, BaseTestCase, search_in_logs
+from . import search_in_logs
 from .device_resps import (device_description, scpd, soap_response,
                            soap_fault)
 from ..xml import (xml_of_subelement, dict_to_xml, pformat_xml,
@@ -14,8 +15,7 @@ from ..xml import (xml_of_subelement, dict_to_xml, pformat_xml,
                    parse_soap_response, UPnPXMLError, parse_soap_fault,
                    UPnPNamespace)
 
-@requires_resources('os.devnull')
-class XML(BaseTestCase):
+class XML(TestCase):
     """XML test cases."""
 
     def test_subelement(self):

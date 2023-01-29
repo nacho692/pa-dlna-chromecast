@@ -3,12 +3,13 @@
 import asyncio
 import logging
 import re
+from unittest import TestCase
 from http import HTTPStatus
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, BaseTestCase, search_in_logs
+from . import search_in_logs
 from ..network import http_get, UPnPInvalidHttpError
 from ..util import shorten, log_exception, AsyncioTasks, HTTPRequestHandler
 
@@ -51,8 +52,7 @@ class HTTPServer:
             if self.exception:
                 raise self.exception
 
-@requires_resources('os.devnull')
-class Util(BaseTestCase):
+class Util(TestCase):
     """Util test cases."""
 
     @staticmethod

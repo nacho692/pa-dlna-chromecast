@@ -4,14 +4,14 @@ import re
 import asyncio
 import logging
 import socket
-from unittest import mock
+from unittest import IsolatedAsyncioTestCase, mock
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import (requires_resources, BaseTestCase, find_in_logs, search_in_logs,
-               loopback_datagrams, URL, MSEARCH_PORT, HOST, HTTP_PORT,
-               SSDP_PARAMS, SSDP_NOTIFY, SSDP_ALIVE)
+from . import (find_in_logs, search_in_logs, loopback_datagrams, URL,
+               MSEARCH_PORT, HOST, HTTP_PORT, SSDP_PARAMS, SSDP_NOTIFY,
+               SSDP_ALIVE)
 from .. import TEST_LOGLEVEL
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
                        http_soap, Notify)
@@ -79,23 +79,22 @@ class HTTPServer:
             self.startup.set_result(None)
             await aio_server.serve_forever()
 
-@requires_resources('os.devnull')
-class SSDP_notify(BaseTestCase):
+class SSDP_notify(IsolatedAsyncioTestCase):
     """SSDP notify test cases.
 
     These tests use the fact that multicast datagrams sent to the loopback
     interface are looped back to the notify task.
     """
 
-    def test_ssdp_notify(self):
+    async def test_ssdp_notify(self):
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback_datagrams([SSDP_ALIVE],
-                                        patch_method='_create_root_device'))
+            await loopback_datagrams([SSDP_ALIVE],
+                                     patch_method='_create_root_device')
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp', SSDP_ALIVE))
 
-    def test_membership_OSError(self):
-        async def coro():
+    async def test_membership_OSError(self):
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
             try:
                 notify = Notify(None, set())
                 notify.manage_membership(set(['256.0.0.0']))
@@ -103,19 +102,17 @@ class SSDP_notify(BaseTestCase):
                 if notify is not None:
                     notify.sock.close()
 
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(coro())
-
         self.assertTrue(search_in_logs(m_logs.output, 'network',
             re.compile('256\.0\.0\.0 cannot be member of 239.255.255.250')))
 
-    def test_notify_OSError(self):
+    async def test_notify_OSError(self):
         async def setup(control_point):
             patcher = mock.patch.object(control_point, '_process_ssdp')
             proc_ssdp = patcher.start()
             proc_ssdp.side_effect = OSError(err_msg)
 
-        async def run_notify():
+        err_msg = 'Exception raised by _process_ssdp'
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
             control_point = await loopback_datagrams([SSDP_ALIVE],
                                                      setup=setup)
             # Wait until completion of the notify task.
@@ -124,38 +121,33 @@ class SSDP_notify(BaseTestCase):
             except asyncio.TimeoutError:
                 self.fail('Notify task did not terminate as expected')
 
-        err_msg = 'Exception raised by _process_ssdp'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(run_notify())
-
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                                        re.compile('on_con_lost.*done')))
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                                        re.compile(f'OSError\({err_msg!r}\)')))
 
-    def test_invalid_field(self):
+    async def test_invalid_field(self):
         field = 'invalid NTS field'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback_datagrams(
+            await loopback_datagrams(
                             [SSDP_NOTIFY.format(nts=field, **SSDP_PARAMS),
-                            SSDP_ALIVE], patch_method='_create_root_device'))
+                            SSDP_ALIVE], patch_method='_create_root_device')
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                         re.compile(f'malformed HTTP header:\n.*{field}',
                                            re.MULTILINE)))
 
-    def test_no_NTS_field(self):
+    async def test_no_NTS_field(self):
         not_nts = 'FOO: dummy field name'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback_datagrams(
+            await loopback_datagrams(
                             [SSDP_NOTIFY.format(nts=not_nts, **SSDP_PARAMS),
-                             SSDP_ALIVE], patch_method='_create_root_device'))
+                             SSDP_ALIVE], patch_method='_create_root_device')
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                         re.compile(f'missing "NTS" field')))
 
-@requires_resources('os.devnull')
-class SSDP_msearch(BaseTestCase):
+class SSDP_msearch(IsolatedAsyncioTestCase):
     """SSDP msearch test cases."""
 
     @staticmethod
@@ -180,52 +172,51 @@ class SSDP_msearch(BaseTestCase):
                                           ' received')
         return send_datagram
 
-    def test_ssdp_msearch(self):
+    async def test_ssdp_msearch(self):
         async def _msearch(ip, protocol):
             await msearch(ip, protocol, msearch_count=1, msearch_interval=0,
                           mx=0)
 
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(loopback_datagrams(_msearch))
+            await loopback_datagrams(_msearch)
 
         self.assertTrue(search_in_logs(m_logs.output, 'network', re.compile(
             "Sent 1 M-SEARCH datagrams to \('239\.255\.255\.250', 1900\)")))
 
-    def test_ssdp_socket_msearch(self):
+    async def test_ssdp_socket_msearch(self):
         coro = self._sendto_coro(MSEARCH_RESPONSE)
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback_datagrams(coro,
-                                        patch_method='_create_root_device'))
+            await loopback_datagrams(coro,
+                                     patch_method='_create_root_device')
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp', MSEARCH_RESPONSE))
 
-    def test_bad_start_line(self):
+    async def test_bad_start_line(self):
         coro = self._sendto_coro(NOT_FOUND)
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback_datagrams(coro))
+            await loopback_datagrams(coro)
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                 re.compile(f"Ignore '{NOT_FOUND.splitlines()[0]}' request")))
 
-    def test_not_root_device(self):
+    async def test_not_root_device(self):
         device = 'urn:schemas-upnp-org:device:MediaServer:1'
         st = f'ST: {device}'
         coro = self._sendto_coro(SSDP_MSEARCH.format(st=st))
         with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            asyncio.run(loopback_datagrams(coro))
+            await loopback_datagrams(coro)
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                 re.compile(f"Ignore '{device}': non root device")))
 
-    def test_invalid_ip(self):
+    async def test_invalid_ip(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(send_mcast('256.0.0.0', None))
+            await send_mcast('256.0.0.0', None)
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                                 re.compile('Cannot bind.*256\.0\.0\.0')))
 
-@requires_resources('os.devnull')
-class SSDP_http(BaseTestCase):
+class SSDP_http(IsolatedAsyncioTestCase):
     """Http test cases."""
 
     @staticmethod
@@ -249,57 +240,55 @@ class SSDP_http(BaseTestCase):
         return await asyncio.wait_for(http_soap(URL, soap_header, soap_body),
                                       1)
 
-    def test_http_get(self):
+    async def test_http_get(self):
         body = 'Some content.'
-        received_body = asyncio.run(self._loopback_get(body))
+        received_body = await self._loopback_get(body)
 
         self.assertEqual(body, received_body.decode())
 
-    def test_zero_length(self):
+    async def test_zero_length(self):
         body = 'Some content.'
-        received_body = asyncio.run(self._loopback_get(body,
-                                                       content_length=0))
+        received_body = await self._loopback_get(body, content_length=0)
 
         self.assertEqual(received_body, b'')
 
-    def test_length_mismatch(self):
+    async def test_length_mismatch(self):
         body = 'Some content.'
         with self.assertRaises(UPnPInvalidHttpError) as cm:
-            received_body = asyncio.run(self._loopback_get(body,
-                                                           content_length=1))
+            received_body = await self._loopback_get(body, content_length=1)
 
         self.assertIn(f'mismatch (1 != {len(body)})', cm.exception.args[0])
 
-    def test_bad_http_version(self):
+    async def test_bad_http_version(self):
         body = 'Some content.'
         start_line = 'HTTP/2.0 200 OK'
         with self.assertRaises(UPnPInvalidHttpError) as cm:
-            received_body = asyncio.run(self._loopback_get(body,
-                                                    start_line=start_line))
+            received_body = await self._loopback_get(body,
+                                                     start_line=start_line)
 
         self.assertIn(start_line, cm.exception.args[0])
 
-    def test_http_soap(self):
+    async def test_http_soap(self):
         body = 'soap response'
-        is_fault, received_body = asyncio.run(self._loopback_soap(body))
+        is_fault, received_body = await self._loopback_soap(body)
 
         self.assertEqual(body, received_body.decode())
         self.assertFalse(is_fault)
 
-    def test_soap_fault(self):
+    async def test_soap_fault(self):
         body = 'soap response'
-        is_fault, received_body = asyncio.run(self._loopback_soap(body,
-                            start_line='HTTP/1.0 500 Internal Server Error'))
+        is_fault, received_body = await self._loopback_soap(body,
+                            start_line='HTTP/1.0 500 Internal Server Error')
 
         self.assertEqual(body, received_body.decode())
         self.assertTrue(is_fault)
 
-    def test_bad_soap(self):
+    async def test_bad_soap(self):
         body = 'soap response'
         start_line = 'HTTP/2.0 200 OK'
         with self.assertRaises(UPnPInvalidHttpError) as cm:
-            is_fault, received_body = asyncio.run(self._loopback_soap(body,
-                                                    start_line=start_line))
+            is_fault, received_body = await self._loopback_soap(body,
+                                                    start_line=start_line)
 
         self.assertIn(start_line, cm.exception.args[0])
 

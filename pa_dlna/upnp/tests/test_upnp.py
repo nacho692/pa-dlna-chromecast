@@ -4,14 +4,14 @@ import re
 import asyncio
 import logging
 import urllib
-from unittest import mock
+from unittest import mock, IsolatedAsyncioTestCase
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import (requires_resources, BaseTestCase, loopback_datagrams,
-               find_in_logs, search_in_logs, UDN, HOST, HTTP_PORT,
-               SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL, min_python_version)
+from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
+               HTTP_PORT, SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL,
+               min_python_version)
 from .device_resps import device_description, scpd
 from ..util import HTTPRequestHandler, shorten
 from ..upnp import UPnPControlPoint
@@ -69,9 +69,8 @@ class HTTPServer:
             self.startup.set_result(None)
             await aio_server.serve_forever()
 
-@requires_resources('os.devnull')
-class ControlPoint(BaseTestCase):
-    """UPnP test cases."""
+class ControlPoint(IsolatedAsyncioTestCase):
+    """Control Point test cases."""
 
     @staticmethod
     async def _run_until_patch(datagrams, setup=None,
@@ -82,9 +81,9 @@ class ControlPoint(BaseTestCase):
         return await loopback_datagrams(datagrams, setup=setup,
                                         patch_method=patch_method)
 
-    def test_alive(self):
+    async def test_alive(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(self._run_until_patch([SSDP_ALIVE]))
+            await self._run_until_patch([SSDP_ALIVE])
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                         'New UPnP services: AVTransport, RenderingControl,'
@@ -92,24 +91,24 @@ class ControlPoint(BaseTestCase):
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
                 re.compile('UPnPRootDevice uuid:fffff.* has been created')))
 
-    def test_update(self):
+    async def test_update(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(self._run_until_patch([SSDP_UPDATE, SSDP_ALIVE]))
+            await self._run_until_patch([SSDP_UPDATE, SSDP_ALIVE])
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                 f'Ignore not supported ssdp:update notification from {HOST}'))
 
-    def test_bad_nts(self):
+    async def test_bad_nts(self):
         nts_field = 'ssdp:FOO'
         nts = f'NTS: {nts_field}'
         ssdp_bad_nts = SSDP_NOTIFY.format(nts=nts, **SSDP_PARAMS)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(self._run_until_patch([ssdp_bad_nts, SSDP_ALIVE]))
+            await self._run_until_patch([ssdp_bad_nts, SSDP_ALIVE])
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
                                 re.compile(f"Unknown NTS field '{nts_field}'")))
 
-    def test_byebye(self):
+    async def test_byebye(self):
         async def setup(control_point):
             root_device = mock.MagicMock()
             root_device.__str__.side_effect = [device_name]
@@ -117,12 +116,12 @@ class ControlPoint(BaseTestCase):
 
         device_name = '_Some root device name_'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(self._run_until_patch([SSDP_BYEBYE], setup=setup))
+            await self._run_until_patch([SSDP_BYEBYE], setup=setup)
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                                      f'{device_name} has been deleted'))
 
-    def test_faulty_device(self):
+    async def test_faulty_device(self):
         async def setup(control_point):
             control_point._faulty_devices.add(udn)
 
@@ -134,13 +133,12 @@ class ControlPoint(BaseTestCase):
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(self._run_until_patch([ssdp_alive, SSDP_ALIVE],
-                                               setup=setup))
+            await self._run_until_patch([ssdp_alive, SSDP_ALIVE], setup=setup)
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                                 f'Ignore faulty root device {shorten(udn)}'))
 
-    def test_remove_device(self):
+    async def test_remove_device(self):
         class RootDevice:
             def __init__(self, udn): self.udn = udn
             def close(self): pass
@@ -159,15 +157,15 @@ class ControlPoint(BaseTestCase):
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            control_point = asyncio.run(self._run_until_patch(
+            control_point = await self._run_until_patch(
                             [ssdp_alive, SSDP_ALIVE], setup=setup,
-                            patch_method='_create_root_device'))
+                            patch_method='_create_root_device')
 
         self.assertTrue(control_point.is_disabled(root_device))
         self.assertTrue(find_in_logs(m_logs.output,
             'upnp', f'Add {shorten(udn)} to the list of faulty root devices'))
 
-    def test_bad_max_age(self):
+    async def test_bad_max_age(self):
         max_age = 'FOO'
         ssdp_params = { 'url': URL,
                         'max_age': f'{max_age}',
@@ -176,13 +174,13 @@ class ControlPoint(BaseTestCase):
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(self._run_until_patch([ssdp_alive, SSDP_ALIVE]))
+            await self._run_until_patch([ssdp_alive, SSDP_ALIVE])
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
             re.compile(f'Invalid CACHE-CONTROL field.*\n.*max-age={max_age}',
                        re.MULTILINE)))
 
-    def test_refresh(self):
+    async def test_refresh(self):
         ssdp_params = { 'url': URL,
                         'nts': 'NTS: ssdp:alive',
                         'udn': UDN
@@ -190,28 +188,25 @@ class ControlPoint(BaseTestCase):
         ssdp_alive_first = SSDP_NOTIFY.format(max_age=10, **ssdp_params)
         ssdp_alive_second = SSDP_NOTIFY.format(max_age=20, **ssdp_params)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            asyncio.run(self._run_until_patch([ssdp_alive_first,
-                                                ssdp_alive_second]))
+            await self._run_until_patch([ssdp_alive_first, ssdp_alive_second])
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
                             re.compile('Refresh with max-age=20')))
 
-    @min_python_version((3, 10))
-    def test_close(self):
+    @min_python_version((3, 9))
+    async def test_close(self):
         async def close_with_exc(obj, exc):
             obj.close(exc=exc)
 
-        async def coro(exc):
-            try:
-                await control_point.open()
-                await asyncio.create_task(close_with_exc(control_point, exc))
-            except asyncio.CancelledError as e:
-                return e
-
         exc = OSError('FOO')
         control_point = UPnPControlPoint(['lo'], 3600)
-        result = asyncio.run(coro(exc))
-        self.assertEqual(result.args[0], exc)
+        try:
+            await control_point.open()
+            await asyncio.create_task(close_with_exc(control_point, exc))
+        except asyncio.CancelledError as e:
+            self.assertEqual(e.args[0], exc)
+        else:
+            raise AssertionError('Current task not cancelled')
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
