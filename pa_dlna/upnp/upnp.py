@@ -57,7 +57,8 @@ from .network import (ipv4_addresses, parse_ssdp, msearch, send_mcast, Notify,
                       http_get, http_soap)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
-                  dict_to_xml, parse_soap_response, parse_soap_fault)
+                  dict_to_xml, parse_soap_response, parse_soap_fault,
+                  UPnPXMLError)
 
 logger = logging.getLogger('upnp')
 
@@ -267,12 +268,12 @@ class UPnPDevice(UPnPElement):
 
         for element in icons:
             if element.tag != f'{namespace!r}icon':
-                raise UPnPXMLFatalError(f"Found '{element.tag}' instead"
-                                        f" of '{namespace!r}icon'")
+                raise UPnPXMLError(f"Found '{element.tag}' instead"
+                                   f" of '{namespace!r}icon'")
 
             d = findall_childless(element, namespace)
             if not d:
-                raise UPnPXMLFatalError("Empty 'icon' element")
+                raise UPnPXMLError("Empty 'icon' element")
             if all(d.get(tag) for tag in ICON_ELEMENTS):
                 self.iconList.append(Icon(**d))
             else:
@@ -292,14 +293,14 @@ class UPnPDevice(UPnPElement):
         service_ids = []
         for element in services:
             if element.tag != f'{namespace!r}service':
-                raise UPnPXMLFatalError(f"Found '{element.tag}' instead"
-                                        f" of '{namespace!r}service'")
+                raise UPnPXMLError(f"Found '{element.tag}' instead"
+                                   f" of '{namespace!r}service'")
 
             d = findall_childless(element, namespace)
             if not d:
-                raise UPnPXMLFatalError("Empty 'service' element")
+                raise UPnPXMLError("Empty 'service' element")
             if 'serviceId' not in d:
-                raise UPnPXMLFatalError("Missing 'serviceId' element")
+                raise UPnPXMLError("Missing 'serviceId' element")
 
             serviceId = d['serviceId']
             self.serviceList[serviceId] = await (
@@ -320,14 +321,14 @@ class UPnPDevice(UPnPElement):
 
         for element in devices:
             if element.tag != f'{namespace!r}device':
-                raise UPnPXMLFatalError(f"Found '{element.tag}' instead"
-                                        f" of '{namespace!r}device'")
+                raise UPnPXMLError(f"Found '{element.tag}' instead"
+                                   f" of '{namespace!r}device'")
 
             d = findall_childless(element, namespace)
             if not d:
-                raise UPnPXMLFatalError("Empty 'device' element")
+                raise UPnPXMLError("Empty 'device' element")
             if 'deviceType' not in d:
-                raise UPnPXMLFatalError("Missing 'deviceType' element")
+                raise UPnPXMLError("Missing 'deviceType' element")
 
             description = build_etree(element)
             self.deviceList[d['deviceType']] = await (
@@ -351,7 +352,7 @@ class UPnPDevice(UPnPElement):
             setattr(self, k, v)
 
         if not hasattr(self, 'deviceType'):
-            raise UPnPXMLFatalError("Missing 'deviceType' element")
+            raise UPnPXMLError("Missing 'deviceType' element")
         if not isinstance(self, UPnPRootDevice):
             # The specification of the deviceType format is
             # 'urn:schemas-upnp-org:device:deviceType:ver'.
@@ -467,8 +468,8 @@ class UPnPRootDevice(UPnPDevice):
 
             device_description = xml_of_subelement(description, 'device')
             if device_description is None:
-                raise UPnPXMLFatalError("Missing 'device' subelement in root"
-                                        ' device description')
+                raise UPnPXMLError("Missing 'device' subelement in root"
+                                   ' device description')
             await self._parse_description(device_description)
 
             # The specification of the deviceType format is
@@ -485,7 +486,7 @@ class UPnPRootDevice(UPnPDevice):
         except asyncio.CancelledError:
             self.close()
         except OSError as e:
-            logger.error(f'{e!r}')
+            logger.error(f'UPnPRootDevice._run(): {e!r}')
             self.close(exc=e)
         except Exception as e:
             logger.exception(f'{e!r}')

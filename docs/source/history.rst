@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.2
+  - Fix unknown UPnPXMLFatalError exception.
   - The ``description`` commands of ``upnp-cmd`` don't prefix tags with a
     namespace.
   - Fix the ``description`` commands of ``upnp-cmd`` when run with Python 3.8.
