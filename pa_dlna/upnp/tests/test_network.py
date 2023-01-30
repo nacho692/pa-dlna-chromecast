@@ -233,7 +233,7 @@ class SSDP_http(IsolatedAsyncioTestCase):
         """Start the http server and send the query."""
 
         soap_body = 'The soap action'
-        soap_header = f'Content-length: {len(body.encode())}\r\n'
+        soap_header = f'Content-length: {len(soap_body.encode())}\r\n'
         http_server = HTTPServer(body, start_line=start_line)
         asyncio.create_task(http_server.run())
         await http_server.startup

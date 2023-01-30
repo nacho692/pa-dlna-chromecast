@@ -1,6 +1,6 @@
 """This module collects UPnP device responses."""
 
-def device_description(friendly_name='Friendly Name'):
+def device_description(friendly_name='Friendly Name', icons='', devices=''):
   return f"""<?xml version="1.0" encoding="utf-8"?>
   <root xmlns="urn:schemas-upnp-org:device-1-0" xmlns:yamaha="urn:schemas-yamaha-com:device-1-0">
     <specVersion><major>1</major><minor>0</minor></specVersion>
@@ -10,6 +10,7 @@ def device_description(friendly_name='Friendly Name'):
       <friendlyName>{friendly_name}</friendlyName>
       <modelName>Some model name</modelName>
       <UDN>uuid:ffffffff-ffff-ffff-ffff-ffffffffffff</UDN>
+      {icons}
       <serviceList>
         <service>
           <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
@@ -33,6 +34,7 @@ def device_description(friendly_name='Friendly Name'):
           <eventSubURL>/ConnectionManager/event</eventSubURL>
         </service>
       </serviceList>
+      {devices}
     </device>
   </root>"""
 

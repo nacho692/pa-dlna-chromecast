@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.2
+  - Test coverage of the UPnP library is 94%.
   - Fix unknown UPnPXMLFatalError exception.
   - The ``description`` commands of ``upnp-cmd`` don't prefix tags with a
     namespace.

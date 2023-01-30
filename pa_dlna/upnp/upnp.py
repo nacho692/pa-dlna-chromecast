@@ -272,8 +272,6 @@ class UPnPDevice(UPnPElement):
                                    f" of '{namespace!r}icon'")
 
             d = findall_childless(element, namespace)
-            if not d:
-                raise UPnPXMLError("Empty 'icon' element")
             if all(d.get(tag) for tag in ICON_ELEMENTS):
                 self.iconList.append(Icon(**d))
             else:
