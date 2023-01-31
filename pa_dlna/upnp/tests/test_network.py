@@ -99,11 +99,25 @@ class SSDP_notify(IsolatedAsyncioTestCase):
                 notify = Notify(None, set())
                 notify.manage_membership(set(['256.0.0.0']))
             finally:
-                if notify is not None:
-                    notify.sock.close()
+                notify.sock.close()
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
             re.compile('256\.0\.0\.0 cannot be member of 239.255.255.250')))
+
+    async def test_failed_memberships(self):
+        try:
+            ip = '127.0.0.1'
+            notify = Notify(None, set())
+            with self.assertLogs(level=logging.DEBUG) as m_logs:
+                with mock.patch.object(notify, 'sock') as sock:
+                    sock.setsockopt.side_effect = OSError()
+                    notify.manage_membership(set([ip]))
+                    self.assertEqual(notify.failed_memberships, {ip})
+
+                notify.manage_membership(set([ip]))
+                self.assertEqual(notify.failed_memberships, set())
+        finally:
+            notify.sock.close()
 
     async def test_notify_OSError(self):
         async def setup(control_point):

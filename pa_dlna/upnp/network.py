@@ -292,6 +292,7 @@ class Notify:
 
     def __init__(self, process_datagram, ip_addresses):
         self.process_datagram = process_datagram
+        self.failed_memberships = set()
 
         # Create the socket.
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -305,18 +306,25 @@ class Notify:
         self.startup = loop.create_future()
 
     def manage_membership(self, ip_addresses):
-        def member(ip, optname):
-            msg = ('member of' if optname == socket.IP_ADD_MEMBERSHIP else
+        def member(ip, option):
+            msg = ('member of' if option == socket.IP_ADD_MEMBERSHIP else
                    'dropped from')
             try:
                 mreq = struct.pack('4s4s', socket.inet_aton(MCAST_GROUP),
                                    socket.inet_aton(ip))
-                self.sock.setsockopt(socket.IPPROTO_IP, optname, mreq)
+                self.sock.setsockopt(socket.IPPROTO_IP, option, mreq)
                 logger.debug(f'SSDP notify: {ip} {msg} multicast group'
                              f' {MCAST_GROUP}')
+                if (option == socket.IP_ADD_MEMBERSHIP and
+                        ip in self.failed_memberships):
+                    self.failed_memberships.remove(ip)
             except OSError as e:
-                logger.warning(f'SSDP notify: {ip} cannot be {msg}'
-                               f' {MCAST_GROUP}: {e.args[0]}')
+                # Log the warning only once.
+                if (option == socket.IP_ADD_MEMBERSHIP and
+                        ip not in self.failed_memberships):
+                    logger.warning(f'SSDP notify: {ip} cannot be {msg}'
+                                   f' {MCAST_GROUP}: {e!r}')
+                    self.failed_memberships.add(ip)
                 return False
             return True
 

@@ -1,6 +1,9 @@
 Release history
 ===============
 
+Version 0.3
+  - Failure to set SSDP multicast membership is reported only once.
+
 Version 0.2
   - Test coverage of the UPnP library is 94%.
   - Fix unknown UPnPXMLFatalError exception.
