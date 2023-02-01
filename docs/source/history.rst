@@ -2,6 +2,9 @@ Release history
 ===============
 
 Version 0.3
+  - Fix a race condition upon the reception of an SSDP msearch response that
+    occurs just after the reception of an SSDP notification and while the
+    instantiation of the root device is not yet complete.
   - Failure to set SSDP multicast membership is reported only once.
 
 Version 0.2

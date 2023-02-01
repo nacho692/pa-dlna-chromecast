@@ -131,7 +131,12 @@ class SSDP_notify(IsolatedAsyncioTestCase):
                                                      setup=setup)
             # Wait until completion of the notify task.
             try:
-                await asyncio.wait_for(control_point._notify_task, 1)
+                for task in control_point._upnp_tasks:
+                    if task.get_name() == 'ssdp notify':
+                        break
+                else:
+                    raise AssertionError(f'SSDP notify task not found')
+                await asyncio.wait_for(task, 1)
             except asyncio.TimeoutError:
                 self.fail('Notify task did not terminate as expected')
 

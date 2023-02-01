@@ -222,6 +222,48 @@ class ControlPoint(IsolatedAsyncioTestCase):
         finally:
             control_point.close()
 
+    async def test_ssdp_race(self):
+        header = { 'LOCATION': URL }
+        control_point = UPnPControlPoint(['lo'], 3600)
+        with mock.patch.object(control_point, '_put_notification') as notify,\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            await start_http_server()
+            # The SSDP notification.
+            control_point._create_root_device(header, UDN, HOST, False, None)
+            # The SSDP msearch.
+            control_point._create_root_device(header, UDN, HOST, True, HOST)
+            notify.assert_not_called()
+
+        root_device = control_point._devices[UDN]
+        self.assertEqual(root_device.local_ipaddress, None)
+
+    async def test_ssdp_no_race(self):
+        header = { 'LOCATION': URL }
+        control_point = UPnPControlPoint(['lo'], 3600)
+        with mock.patch.object(control_point, '_put_notification') as notify,\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            await start_http_server()
+            # The SSDP notification.
+            control_point._create_root_device(header, UDN, HOST, False, None)
+
+            root_device = control_point._devices[UDN]
+            with mock.patch.object(root_device, '_age_root_device') as age:
+                 # Make the UPnPRootDevice._run() coroutine terminate.
+                age.side_effect = [None]
+                for task in control_point._upnp_tasks:
+                    if task.get_name() == str(root_device):
+                        break
+                else:
+                    raise AssertionError(f'Root device task {root_device}'
+                                         ' not found')
+                await task
+
+            # The SSDP msearch.
+            control_point._create_root_device(header, UDN, HOST, True, HOST)
+            notify.assert_called()
+
+        self.assertEqual(root_device.local_ipaddress, HOST)
+
 class RootDevice(IsolatedAsyncioTestCase):
     """Root device test cases."""
 

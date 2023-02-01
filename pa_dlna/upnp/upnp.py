@@ -550,8 +550,7 @@ class UPnPControlPoint:
         # Start the notify task.
         self._notify = Notify(self._process_ssdp,
                               set(ipv4_addresses(self.nics)))
-        self._notify_task = self._upnp_tasks.create_task(self._ssdp_notify(),
-                                                         name='ssdp notify')
+        self._upnp_tasks.create_task(self._ssdp_notify(), name='ssdp notify')
 
     def close(self, exc=None):
         """Close the UPnP Control Point."""
@@ -632,7 +631,8 @@ class UPnPControlPoint:
             # The root device had been created from reception of a notify
             # SSDP, this handles the reception of an msearch SSDP so update
             # 'local_ipaddress' if not already done.
-            if (local_ipaddress is not None and
+            if (not root_device._closed and
+                    local_ipaddress is not None and
                     root_device.local_ipaddress is None):
                 root_device.local_ipaddress = local_ipaddress
                 self._put_notification('alive', root_device)
