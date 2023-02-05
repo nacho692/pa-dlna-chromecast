@@ -145,10 +145,11 @@ class ControlPoint(IsolatedAsyncioTestCase):
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([ssdp_alive, SSDP_ALIVE], setup=setup)
+            control_point = await self._run_until_patch(
+                            [ssdp_alive, SSDP_ALIVE],
+                            setup=setup, patch_method='_create_root_device')
 
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
-                                f'Ignore faulty root device {shorten(udn)}'))
+        control_point._create_root_device.assert_called_once()
 
     async def test_remove_device(self):
         class RootDevice:
@@ -175,7 +176,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
 
         self.assertTrue(control_point.is_disabled(root_device))
         self.assertTrue(find_in_logs(m_logs.output,
-            'upnp', f'Add {shorten(udn)} to the list of faulty root devices'))
+            'upnp', f'Disable the {shorten(udn)} UPnP device permanently'))
 
     async def test_bad_max_age(self):
         max_age = 'FOO'

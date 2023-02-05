@@ -579,11 +579,8 @@ class UPnPControlPoint:
             return
 
         self._faulty_devices.add(udn)
-        if name is not None:
-            logger.info(f'Disable the {name} device permanently')
-        else:
-            logger.info(f'Add {root_device} to the list of faulty root'
-                        f' devices')
+        devname = f'{root_device} UPnP' if name is None else f'{name} DLNA'
+        logger.warning(f'Disable the {devname} device permanently')
 
     def is_disabled(self, root_device):
         return root_device.udn in self._faulty_devices
@@ -684,9 +681,7 @@ class UPnPControlPoint:
 
         if is_msearch or (header['NTS'] == 'ssdp:alive'):
             udn = header['USN'].split('::')[0]
-            if udn in self._faulty_devices:
-                logger.debug(f'Ignore faulty root device {shorten(udn)}')
-            else:
+            if udn not in self._faulty_devices:
                 self._create_root_device(header, udn, peer_ipaddress,
                                          is_msearch, local_ipaddress)
         else:
