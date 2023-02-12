@@ -190,8 +190,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
             await self._run_until_patch([ssdp_alive, SSDP_ALIVE])
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
-            re.compile(f'Invalid CACHE-CONTROL field.*\n.*max-age={max_age}',
-                       re.MULTILINE)))
+            re.compile(f'Invalid CACHE-CONTROL field.*\n.*max-age={max_age}')))
 
     async def test_refresh(self):
         ssdp_params = { 'url': URL,

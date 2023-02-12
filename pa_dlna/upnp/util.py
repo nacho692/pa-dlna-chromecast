@@ -31,7 +31,7 @@ def log_exception(logger):
             try:
                 return await coro(*args, **kwargs)
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f'Exception at end of {coro.__qualname__}(): {e!r}')
         return wrapper
     return decorator

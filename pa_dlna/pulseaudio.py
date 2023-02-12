@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import pulsectl
-from pulsectl_asyncio import PulseAsync
+import pulsectl_asyncio
 
 from .upnp.util import NL_INDENT, log_exception
 
@@ -116,7 +116,14 @@ class Pulse:
         return notfound
 
     async def dispatch_event(self, event):
-        """Dispatch the event to a renderer."""
+        """Dispatch the event to a renderer.
+
+        IMPORTANT:
+        'nullsink.sink' and 'nullsink.sink_input' are the renderer's instances
+        built from one of the previous events. They are stale instances.
+        'sink' and 'sink_input' returned by find_renderer() and
+        get_sink_by_name() are the current instances as set by pulseaudio.
+        """
 
         evt = event.t._value
         if event.t == pulsectl.PulseEventTypeEnum.remove:
@@ -127,6 +134,8 @@ class Pulse:
 
         renderer, sink_input = await self.find_renderer(event)
         if renderer is not None:
+            # 'renderer.nullsink.sink' is the stale sink from the previous
+            # event, we need to fetch the 'sink' correponding to this event.
             sink = await self.pulse_ctl.get_sink_by_name(
                                             renderer.nullsink.sink.name)
             if sink is not None:
@@ -142,13 +151,16 @@ class Pulse:
             prev_renderer.pulse_queue.put_nowait((evt, None, None))
 
     @log_exception(logger)
-    async def run(self):
+    async def run(self, sleep=1):
         pulse_connected = False
         first_attempt = True
         try:
             while True:
                 try:
-                    async with PulseAsync('pa-dlna') as self.pulse_ctl:
+                    # Python 3.8 does not allow splitting the following
+                    # statement using parentheses:
+                    async with pulsectl_asyncio.PulseAsync(
+                            'pa-dlna') as self.pulse_ctl:
                         logger.info('Connected to pulseaudio server')
                         pulse_connected = True
                         self.av_control_point.start_event.set()
@@ -168,7 +180,7 @@ class Pulse:
                             first_attempt = False
                             logger.info(
                                 'Waiting to connect to pulseaudio server')
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(sleep)
                     else:
                         raise
 

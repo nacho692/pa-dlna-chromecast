@@ -153,8 +153,7 @@ class SSDP_notify(IsolatedAsyncioTestCase):
                             SSDP_ALIVE], patch_method='_create_root_device')
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
-                        re.compile(f'malformed HTTP header:\n.*{field}',
-                                           re.MULTILINE)))
+                            re.compile(f'malformed HTTP header:\n.*{field}')))
 
     async def test_no_NTS_field(self):
         not_nts = 'FOO: dummy field name'
