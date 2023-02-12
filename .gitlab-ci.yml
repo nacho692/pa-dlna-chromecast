@@ -7,7 +7,6 @@ default:
             - .cache/pip
 
     before_script:
-        - apt-get update -yq && apt-get install -yq pulseaudio
         - python --version    # For debugging.
 
 .unittest:
@@ -17,7 +16,7 @@ default:
         PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
     script:
-        - python -m pip install psutil pulsectl-asyncio
+        - python -m pip install psutil
         - python -m unittest --verbose
 
 py38:
