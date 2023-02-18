@@ -115,7 +115,7 @@ class Track:
                 data = e.partial
                 partial_data = True
             if data:
-                self.writer.write(f'{HTTP_CHUNK_SIZE:x}\r\n'.encode())
+                self.writer.write(f'{len(data):x}\r\n'.encode())
                 self.writer.write(data)
                 self.writer.write('\r\n'.encode())
                 await self.writer.drain()
@@ -137,6 +137,7 @@ class Track:
             await self.writer.drain()
             logger.debug(f'{self.task_name}: track is started')
             await self.write_track(reader)
+            await self.shutdown()
         except asyncio.CancelledError:
             self.session.stream_tasks.create_task(self.shutdown(),
                                                   name='shutdown')

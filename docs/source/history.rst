@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.3
+  - Fix curl: (18) transfer closed with outstanding read data remaining.
   - Fix a race condition upon the reception of an SSDP msearch response that
     occurs just after the reception of an SSDP notification and while the
     instantiation of the root device is not yet complete.
@@ -20,4 +21,4 @@ Version 0.2
   - Abort on error setting the file logging handler with ``--logfile PATH``.
 
 Version 0.1
-  - Publish the project on Pypi.
+  - Publish the project on PyPi.
