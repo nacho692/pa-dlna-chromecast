@@ -5,6 +5,7 @@ import logging
 import subprocess
 import unittest
 import functools
+import asyncio
 
 from ..upnp.tests import load_ordered_tests
 
@@ -30,6 +31,11 @@ def requires_resources(resources):
                 # Check that os.devnull is writable.
                 with open(os.devnull, 'w'):
                     pass
+            elif res == 'curl':
+                # Check that curl is installed.
+                subprocess.run(['curl', '--version'],
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, check=True)
             elif res == 'pulseaudio':
                 # Check that pulseaudio is running.
                 subprocess.run(['pactl', 'info'], stdout=subprocess.DEVNULL,
@@ -41,6 +47,12 @@ def requires_resources(resources):
             return unittest.skip(f"'{res}' is not available")
     else:
         return _id
+
+async def skip_loop_iterations(count):
+    """Skip 'count' loop iterations (cost: few msecs)."""
+
+    for i in range(count):
+        await asyncio.sleep(0)
 
 class BaseTestCase(unittest.TestCase):
     def setUp(self):

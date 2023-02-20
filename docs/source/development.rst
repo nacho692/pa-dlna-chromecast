@@ -128,6 +128,9 @@ Requirements
 """"""""""""
 
 Development:
+    * `curl`_ is needed to run the full test suite. If missing then the tests
+      using curl are skipped.
+    * `coverage`_ may be used to get the test suite coverage.
     * `flit`_ to publish pa-dlna to PyPi. Use the following command to install
       pa-dlna locally and have the changes in the source code reflected by the
       ``pa-dlna`` command::
@@ -154,6 +157,11 @@ Releasing
 
     $ python -m unittest --verbose --catch --failfast
 
+* Get the test suite coverage::
+
+    $ coverage run -m unittest
+    $ coverage report -m
+
 * Update ``__version__`` in pa_dlna/__init__.py.
 * Update docs/source/history.rst
 * Build locally the documentation.
@@ -178,6 +186,8 @@ Releasing
 .. _Read the Docs theme:
     https://docs.readthedocs.io/en/stable/faq.html#i-want-to-use-the-read-the-docs-theme-locally
 .. _Sphinx: https://www.sphinx-doc.org/
+.. _curl: https://curl.se/
+.. _`coverage`: https://pypi.org/project/coverage/
 .. _flit: https://pypi.org/project/flit/
 .. _unittest command line options:
     https://docs.python.org/3/library/unittest.html#command-line-options

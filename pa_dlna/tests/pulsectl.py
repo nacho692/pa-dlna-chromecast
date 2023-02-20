@@ -7,6 +7,8 @@ import collections.abc
 from unittest import mock
 from enum import Enum
 
+from . import skip_loop_iterations
+
 SKIP_LOOP_ITERATIONS = 30
 
 @contextlib.contextmanager
@@ -171,10 +173,8 @@ class PulseAsync():
                 if event is not None:
                     has_event = True
                     yield event
-                    for i in range(SKIP_LOOP_ITERATIONS):
-                        # Skip some loop iterations to allow the processing of
-                        # the event (cost: few msecs).
-                        await asyncio.sleep(0)
+                    # Allow the processing of the event.
+                    await skip_loop_iterations(SKIP_LOOP_ITERATIONS)
             if not has_event:
                 # The sink_inputs don't have any more events.
                 break

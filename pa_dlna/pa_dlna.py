@@ -401,18 +401,20 @@ class Renderer:
         args['Speed'] = speed
         await self.soap_action(AVTRANSPORT, 'Play', args)
 
+    def set_current_uri(self):
+        self.current_uri = (f'http://{self.local_ipaddress}'
+                            f':{self.control_point.port}'
+                            f'{AUDIO_URI_PREFIX}/{self.root_device.udn}')
+
     @log_exception(logger)
     async def run(self):
         """Run the Renderer task."""
 
         self.curtask = asyncio.current_task()
         try:
-            udn = self.root_device.udn
-            if not await self.select_encoder(udn):
+            if not await self.select_encoder(self.root_device.udn):
                 return
-            self.current_uri = (f'http://{self.local_ipaddress}'
-                                f':{self.control_point.port}'
-                                f'{AUDIO_URI_PREFIX}/{udn}')
+            self.set_current_uri()
             logger.info(f'New {self.name} renderer with {self.encoder}'
                         f" handling '{self.mime_type}'"
                         f'{NL_INDENT}URL: {self.current_uri}')
@@ -443,7 +445,8 @@ class DLNATestDevice(Renderer):
             self.renderer = renderer
             self.peer_ipaddress = self.LOOPBACK
 
-            name = mime_type.split('/')[1]
+            match = re.match(r'audio/([^;]+)', mime_type)
+            name = match.group(1)
             self.modelName = f'DLNATest_{name}'
             self.friendlyName = self.modelName
             self.udn = get_udn(name.encode())

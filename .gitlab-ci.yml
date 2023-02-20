@@ -7,6 +7,7 @@ default:
             - .cache/pip
 
     before_script:
+        - apt-get update -yq && apt-get install -yq curl
         - python --version    # For debugging.
 
 .unittest:
@@ -17,7 +18,7 @@ default:
 
     script:
         - python -m pip install psutil
-        - python -m unittest --verbose
+        - python -m unittest --verbose --failfast
 
 py38:
     image: python:3.8
@@ -25,4 +26,8 @@ py38:
 
 py39:
     image: python:3.9
+    extends: .unittest
+
+py310:
+    image: python:3.10
     extends: .unittest

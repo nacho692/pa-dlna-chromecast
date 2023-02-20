@@ -175,7 +175,9 @@ class StreamProcesses:
     def __init__(self, session):
         self.session = session
         self.parec_proc = None
+        self.parec_task = None
         self.encoder_proc = None
+        self.encoder_task = None
         self.pipe_reader = -1
         self.stream_reader = None
         self.closing = False
@@ -250,7 +252,10 @@ class StreamProcesses:
         except Exception as e:
             logger.exception(f'{e!r}')
         finally:
-            if remove_env:
+            # Checking for the environment variable still in the environ
+            # because the test suite also patches os.environ in
+            # test_http_sever.py.
+            if remove_env and 'AV_LOG_FORCE_NOCOLOR' in os.environ:
                 del os.environ['AV_LOG_FORCE_NOCOLOR']
 
     @log_exception(logger)
@@ -347,14 +352,14 @@ class StreamProcesses:
                 else:
                     self.pipe_reader, stdout = os.pipe()
                     coro = self.run_parec(encoder, parec_pgm, stdout)
-                self.session.stream_tasks.create_task(coro, name='parec')
+                self.parec_task = self.session.stream_tasks.create_task(coro,
+                                                                name='parec')
 
             # Start the encoder task.
             if not self.no_encoder and self.encoder_proc is None:
                 encoder_cmd = encoder.command
-                self.session.stream_tasks.create_task(
-                                self.run_encoder(encoder_cmd),
-                                name='encoder')
+                self.encoder_task = self.session.stream_tasks.create_task(
+                                self.run_encoder(encoder_cmd), name='encoder')
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.close(disable=True)
