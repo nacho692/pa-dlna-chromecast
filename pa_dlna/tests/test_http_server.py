@@ -1,5 +1,6 @@
 """Http server test cases."""
 
+import sys
 import re
 import asyncio
 import logging
@@ -8,7 +9,7 @@ from unittest import IsolatedAsyncioTestCase, mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, skip_loop_iterations
+from . import requires_resources
 from .track_processes import (unix_socket_path, PAREC_PATH_ENV,
                               ENCODER_PATH_ENV, BLKSIZE)
 from .pulsectl import use_pulsectl_stubs
@@ -36,7 +37,12 @@ async def new_renderer(mime_type):
     await renderer.setup()
     return renderer
 
-async def play_track(mime_type, transactions, completed=None):
+async def play_track(mime_type, transactions, wait_for_completion=True):
+    if wait_for_completion:
+        loop = asyncio.get_running_loop()
+        completed = loop.create_future()
+    else:
+        completed = None
     env_path = PAREC_PATH_ENV if 'l16' in mime_type else ENCODER_PATH_ENV
 
     with unix_socket_path(env_path) as sock_path:
@@ -44,8 +50,8 @@ async def play_track(mime_type, transactions, completed=None):
 
         # Start the http server.
         control_point = renderer.control_point
-        http_server = HTTPServer(control_point, renderer.local_ipaddress,
-                                 control_point.port)
+        http_server = _HTTPServer(control_point, renderer.local_ipaddress,
+                                  control_point.port)
         http_server.allow_from(renderer.root_device.peer_ipaddress)
         asyncio.create_task(http_server.run(), name='http_server')
 
@@ -56,14 +62,23 @@ async def play_track(mime_type, transactions, completed=None):
         # Start curl.
         # Skip some asyncio loop iterations to have the http server ready
         # before starting curl.
-        await skip_loop_iterations(10)
+        await http_server.ready_fut
+        await server.ready_fut
+
         curl_task = asyncio.create_task(run_curl(renderer.current_uri),
                                         name='curl')
 
         # Wait for the last chunk of data to be written to the pipe read by
         # Track.write_track().
         if completed is not None:
-            await asyncio.wait_for(completed, timeout=1)
+            try:
+                await asyncio.wait_for(completed, timeout=1)
+            except asyncio.TimeoutError:
+                print(f'***** server.stage: {server.stage}', file=sys.stderr)
+                print(f'***** http_server.stage: {server.stage}',
+                      file=sys.stderr)
+                raise
+
         return curl_task, renderer
 
 class Sink:
@@ -116,6 +131,9 @@ class UnixSocketServer:
         self.path = path
         self.transactions = transactions
         self.completed = completed
+        self.stage = 'init'
+        loop = asyncio.get_running_loop()
+        self.ready_fut = loop.create_future()
 
     async def client_connected(self, reader, writer):
         """Handle request/expect transactions.
@@ -128,41 +146,83 @@ class UnixSocketServer:
         The following elements are the number of bytes to write to stdout.
         """
 
+        self.stage = 'connected'
         first = self.transactions[0]
+        self.stage = 'before first command'
         assert (first in ('ignore', 'dont_sleep', 'FFMpegEncoder') or
                 isinstance(eval(first + '()'), Exception))
         writer.write(first.encode())
         resp = await reader.read(1024)
         assert resp == b'Ok'
 
+        self.stage = 'before count loop'
         for count in self.transactions[1:]:
             assert isinstance(count, int)
+            self.stage = 'before count write'
             writer.write(str(count).encode())
             await writer.drain()
 
+            self.stage = 'before count read'
             await reader.read(1024)
 
+        self.stage = 'after count loop'
         writer.close()
         await writer.wait_closed()
-        self.completed.set_result(True)
+        self.stage = 'end connection'
+        if self.completed is not None:
+            self.completed.set_result(True)
 
     async def run(self):
-        aio_server = await asyncio.start_unix_server(self.client_connected,
-                                                     self.path)
-        async with aio_server:
-            await aio_server.serve_forever()
+        try:
+            aio_server = await asyncio.start_unix_server(
+                                        self.client_connected, self.path)
+            async with aio_server:
+                self.ready_fut.set_result(True)
+                await aio_server.serve_forever()
+        except Exception as e:
+            try:
+                self.ready_fut.set_result(True)
+            except asyncio.InvalidStateError:
+                pass
+            raise
+
+class _HTTPServer(HTTPServer):
+    def __init__(self, control_point, ip_address, port):
+        super().__init__(control_point, ip_address, port)
+        loop = asyncio.get_running_loop()
+        self.ready_fut = loop.create_future()
+        self.stage = 'init'
+
+    async def client_connected(self, reader, writer):
+        self.stage = 'connected'
+        try:
+            return await super().client_connected(reader, writer)
+        finally:
+            self.stage = 'end connection'
+
+    async def run(self):
+        try:
+            aio_server = await asyncio.start_server(self.client_connected,
+                                                self.ip_address, self.port)
+            async with aio_server:
+                self.ready_fut.set_result(True)
+                await aio_server.serve_forever()
+        except Exception as e:
+            try:
+                self.ready_fut.set_result(True)
+            except asyncio.InvalidStateError:
+                pass
+            await self.control_point.close(f'{e!r}')
+            raise
 
 @requires_resources('curl')
-class HttpServer(IsolatedAsyncioTestCase):
+class Http_Server(IsolatedAsyncioTestCase):
     """Http server test cases."""
 
     async def test_play_mp3(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['ignore', 16 * BLKSIZE]
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track('audio/mp3', transactions,
-                                                   completed)
+            curl_task, renderer = await play_track('audio/mp3', transactions)
 
             assert not isinstance(renderer.encoder, FFMpegEncoder)
             await renderer.stream_sessions.stop_track()
@@ -175,10 +235,7 @@ class HttpServer(IsolatedAsyncioTestCase):
     async def test_play_aiff(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['ignore', 16 * BLKSIZE]
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track('audio/aiff', transactions,
-                                                   completed)
+            curl_task, renderer = await play_track('audio/aiff', transactions)
 
             assert isinstance(renderer.encoder, FFMpegEncoder)
             await renderer.stream_sessions.stop_track()
@@ -193,10 +250,7 @@ class HttpServer(IsolatedAsyncioTestCase):
         # 255 is reported as 'Terminated'.
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['FFMpegEncoder', 16 * BLKSIZE]
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track('audio/aiff', transactions,
-                                                   completed)
+            curl_task, renderer = await play_track('audio/aiff', transactions)
 
             assert isinstance(renderer.encoder, FFMpegEncoder)
             await renderer.stream_sessions.processes.encoder_task
@@ -215,13 +269,10 @@ class HttpServer(IsolatedAsyncioTestCase):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             mime_type = 'audio/l16;rate=44100;channels=2'
             transactions = ['ignore', 16 * BLKSIZE]
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track(mime_type, transactions,
-                                                   completed)
-            assert isinstance(renderer.encoder, L16Encoder)
+            curl_task, renderer = await play_track(mime_type, transactions)
 
-            await skip_loop_iterations(10)
+            assert isinstance(renderer.encoder, L16Encoder)
+            await renderer.stream_sessions.processes.parec_task
             await renderer.stream_sessions.processes.close()
             returncode, length = await curl_task
 
@@ -231,10 +282,7 @@ class HttpServer(IsolatedAsyncioTestCase):
     async def test_close_session(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['ignore', 16 * BLKSIZE]
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track('audio/mp3', transactions,
-                                                   completed)
+            curl_task, renderer = await play_track('audio/mp3', transactions)
 
             await renderer.stream_sessions.close_session()
             returncode, length = await curl_task
@@ -247,24 +295,21 @@ class HttpServer(IsolatedAsyncioTestCase):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             data_size = 16 * BLKSIZE + 1
             transactions = ['dont_sleep', data_size]
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track('audio/mp3', transactions,
-                                                   completed)
+            curl_task, renderer = await play_track('audio/mp3', transactions)
 
-            await skip_loop_iterations(10)
+            await renderer.stream_sessions.processes.encoder_task
             await renderer.stream_sessions.processes.close()
             returncode, length = await curl_task
 
         self.assertEqual(returncode, 0)
-        self.assertEqual(length, data_size)
+        self.assertEqual(length, sum(transactions[1:]))
 
     async def test_ConnectionError(self):
         with mock.patch.object(Track, 'write_track') as wtrack,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             wtrack.side_effect = ConnectionError()
             curl_task, renderer = await play_track('audio/mp3',
-                                                   ['ignore', BLKSIZE])
+                            ['ignore', BLKSIZE], wait_for_completion=False)
             returncode, length = await curl_task
 
         self.assertEqual(returncode, 0)
@@ -277,7 +322,7 @@ class HttpServer(IsolatedAsyncioTestCase):
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             wtrack.side_effect = RuntimeError()
             curl_task, renderer = await play_track('audio/mp3',
-                                                   ['ignore', BLKSIZE])
+                            ['ignore', BLKSIZE], wait_for_completion=False)
             returncode, length = await curl_task
 
         self.assertEqual(returncode, 0)
@@ -288,11 +333,9 @@ class HttpServer(IsolatedAsyncioTestCase):
     async def test_disable_with_encoder(self):
         with mock.patch.object(Renderer, 'disable_root_device') as disable,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track('audio/mp3', ['OSError'],
-                                                   completed)
+            curl_task, renderer = await play_track('audio/mp3', ['OSError'])
             returncode, length = await curl_task
+
             await renderer.stream_sessions.processes.encoder_task
             disable.assert_called_once()
 
@@ -305,11 +348,8 @@ class HttpServer(IsolatedAsyncioTestCase):
         with mock.patch.object(Renderer, 'disable_root_device') as disable,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             mime_type = 'audio/l16;rate=44100;channels=2'
-            loop = asyncio.get_running_loop()
-            completed = loop.create_future()
-            curl_task, renderer = await play_track(mime_type, ['OSError'],
-                                                   completed)
-            await skip_loop_iterations(10)
+            curl_task, renderer = await play_track(mime_type, ['OSError'])
+
             await renderer.stream_sessions.processes.parec_task
             await renderer.stream_sessions.processes.close()
             returncode, length = await curl_task
