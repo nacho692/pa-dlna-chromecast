@@ -53,11 +53,12 @@ async def play_track(mime_type, transactions, wait_for_completion=True):
         http_server = _HTTPServer(control_point, renderer.local_ipaddress,
                                   control_point.port)
         http_server.allow_from(renderer.root_device.peer_ipaddress)
-        asyncio.create_task(http_server.run(), name='http_server')
+        http_server_t = asyncio.create_task(http_server.run(),
+                                            name='http_server')
 
         # Start the AF_UNIX socket server.
         server = UnixSocketServer(sock_path, transactions, completed)
-        asyncio.create_task(server.run(), name='socket server')
+        server_t = asyncio.create_task(server.run(), name='socket server')
 
         # Start curl.
         # Skip some asyncio loop iterations to have the http server ready
@@ -75,8 +76,12 @@ async def play_track(mime_type, transactions, wait_for_completion=True):
                 await asyncio.wait_for(completed, timeout=1)
             except asyncio.TimeoutError:
                 print(f'***** server.stage: {server.stage}', file=sys.stderr)
-                print(f'***** http_server.stage: {server.stage}',
+                print(f'***** http_server.stage: {http_server.stage}',
                       file=sys.stderr)
+
+                # Collecting exceptions occuring in those tasks if any.
+                await asyncio.wait_for(http_server_t, timeout=0)
+                await asyncio.wait_for(server_t, timeout=0)
                 raise
 
         return curl_task, renderer
@@ -212,7 +217,6 @@ class _HTTPServer(HTTPServer):
                 self.ready_fut.set_result(True)
             except asyncio.InvalidStateError:
                 pass
-            await self.control_point.close(f'{e!r}')
             raise
 
 @requires_resources('curl')
