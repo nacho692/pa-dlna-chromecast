@@ -37,7 +37,8 @@ async def new_renderer(mime_type):
     await renderer.setup()
     return renderer
 
-async def play_track(mime_type, transactions, wait_for_completion=True):
+async def play_track(mime_type, transactions, wait_for_completion=True,
+                     logs=None):
     if wait_for_completion:
         loop = asyncio.get_running_loop()
         completed = loop.create_future()
@@ -78,10 +79,9 @@ async def play_track(mime_type, transactions, wait_for_completion=True):
                 print(f'***** server.stage: {server.stage}', file=sys.stderr)
                 print(f'***** http_server.stage: {http_server.stage}',
                       file=sys.stderr)
-
-                # Collecting exceptions occuring in those tasks if any.
-                await asyncio.wait_for(http_server_t, timeout=0)
-                await asyncio.wait_for(server_t, timeout=0)
+                if logs is not None:
+                    print('\n'.join(l for l in logs.output if
+                                    ':asyncio:' not in l), file=sys.stderr)
                 raise
 
         return curl_task, renderer
@@ -226,7 +226,8 @@ class Http_Server(IsolatedAsyncioTestCase):
     async def test_play_mp3(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['ignore', 16 * BLKSIZE]
-            curl_task, renderer = await play_track('audio/mp3', transactions)
+            curl_task, renderer = await play_track('audio/mp3', transactions,
+                                                   logs=m_logs)
 
             assert not isinstance(renderer.encoder, FFMpegEncoder)
             await renderer.stream_sessions.stop_track()
@@ -239,7 +240,8 @@ class Http_Server(IsolatedAsyncioTestCase):
     async def test_play_aiff(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['ignore', 16 * BLKSIZE]
-            curl_task, renderer = await play_track('audio/aiff', transactions)
+            curl_task, renderer = await play_track('audio/aiff', transactions,
+                                                   logs=m_logs)
 
             assert isinstance(renderer.encoder, FFMpegEncoder)
             await renderer.stream_sessions.stop_track()
@@ -254,7 +256,8 @@ class Http_Server(IsolatedAsyncioTestCase):
         # 255 is reported as 'Terminated'.
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['FFMpegEncoder', 16 * BLKSIZE]
-            curl_task, renderer = await play_track('audio/aiff', transactions)
+            curl_task, renderer = await play_track('audio/aiff', transactions,
+                                                   logs=m_logs)
 
             assert isinstance(renderer.encoder, FFMpegEncoder)
             await renderer.stream_sessions.processes.encoder_task
@@ -273,7 +276,8 @@ class Http_Server(IsolatedAsyncioTestCase):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             mime_type = 'audio/l16;rate=44100;channels=2'
             transactions = ['ignore', 16 * BLKSIZE]
-            curl_task, renderer = await play_track(mime_type, transactions)
+            curl_task, renderer = await play_track(mime_type, transactions,
+                                                   logs=m_logs)
 
             assert isinstance(renderer.encoder, L16Encoder)
             await renderer.stream_sessions.processes.parec_task
@@ -286,7 +290,8 @@ class Http_Server(IsolatedAsyncioTestCase):
     async def test_close_session(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['ignore', 16 * BLKSIZE]
-            curl_task, renderer = await play_track('audio/mp3', transactions)
+            curl_task, renderer = await play_track('audio/mp3', transactions,
+                                                   logs=m_logs)
 
             await renderer.stream_sessions.close_session()
             returncode, length = await curl_task
@@ -299,7 +304,8 @@ class Http_Server(IsolatedAsyncioTestCase):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             data_size = 16 * BLKSIZE + 1
             transactions = ['dont_sleep', data_size]
-            curl_task, renderer = await play_track('audio/mp3', transactions)
+            curl_task, renderer = await play_track('audio/mp3', transactions,
+                                                   logs=m_logs)
 
             await renderer.stream_sessions.processes.encoder_task
             await renderer.stream_sessions.processes.close()
@@ -313,7 +319,7 @@ class Http_Server(IsolatedAsyncioTestCase):
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             wtrack.side_effect = ConnectionError()
             curl_task, renderer = await play_track('audio/mp3',
-                            ['ignore', BLKSIZE], wait_for_completion=False)
+                ['ignore', BLKSIZE], wait_for_completion=False, logs=m_logs)
             returncode, length = await curl_task
 
         self.assertEqual(returncode, 0)
@@ -326,7 +332,7 @@ class Http_Server(IsolatedAsyncioTestCase):
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             wtrack.side_effect = RuntimeError()
             curl_task, renderer = await play_track('audio/mp3',
-                            ['ignore', BLKSIZE], wait_for_completion=False)
+                ['ignore', BLKSIZE], wait_for_completion=False, logs=m_logs)
             returncode, length = await curl_task
 
         self.assertEqual(returncode, 0)
@@ -337,7 +343,8 @@ class Http_Server(IsolatedAsyncioTestCase):
     async def test_disable_with_encoder(self):
         with mock.patch.object(Renderer, 'disable_root_device') as disable,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
-            curl_task, renderer = await play_track('audio/mp3', ['OSError'])
+            curl_task, renderer = await play_track('audio/mp3', ['OSError'],
+                                                   logs=m_logs)
             returncode, length = await curl_task
 
             await renderer.stream_sessions.processes.encoder_task
@@ -352,7 +359,8 @@ class Http_Server(IsolatedAsyncioTestCase):
         with mock.patch.object(Renderer, 'disable_root_device') as disable,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             mime_type = 'audio/l16;rate=44100;channels=2'
-            curl_task, renderer = await play_track(mime_type, ['OSError'])
+            curl_task, renderer = await play_track(mime_type, ['OSError'],
+                                                   logs=m_logs)
 
             await renderer.stream_sessions.processes.parec_task
             await renderer.stream_sessions.processes.close()
