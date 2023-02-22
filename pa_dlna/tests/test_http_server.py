@@ -15,7 +15,7 @@ from .track_processes import (unix_socket_path, PAREC_PATH_ENV,
 from .pulsectl import use_pulsectl_stubs
 from ..upnp.tests import find_in_logs, search_in_logs
 from ..config import UserConfig
-from ..encoders import select_encoder, FFMpegEncoder, L16Encoder
+from ..encoders import select_encoder, Encoder, FFMpegEncoder, L16Encoder
 from ..http_server import HTTPServer, Track
 
 with use_pulsectl_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
@@ -118,8 +118,12 @@ class ControlPoint:
         self.renderers = set()
         self.parec_pgm = 'pa_dlna/tests/parec'
 
-        # Do not read a local pa_dlna.conf.
-        with mock.patch('builtins.open', mock.mock_open()) as m_open:
+        # The following patches do:
+        #  - Make encoders available whether they are installed or not.
+        #  - Ignore the local pa_dlna.conf when it exists.
+        with mock.patch.object(Encoder, 'available') as available,\
+                mock.patch('builtins.open', mock.mock_open()) as m_open:
+            available.return_value = True
             m_open.side_effect = FileNotFoundError()
             self.config = UserConfig()
 
