@@ -636,9 +636,11 @@ class AVControlPoint(UPnPApplication):
             if not self.config.any_available():
                 sys.exit('Error: No encoder is available')
 
-            self.parec_pgm = shutil.which('parec')
-            if self.parec_pgm is None:
-                sys.exit("Error: The pulseaudio 'parec' program cannot be found")
+            parec_pgm = shutil.which('parec')
+            if parec_pgm is None:
+                sys.exit("Error: The pulseaudio 'parec' program"
+                         ' cannot be found')
+            self.parec_cmd = [parec_pgm]
 
             # Add the signal handlers.
             end_event = asyncio.Event()

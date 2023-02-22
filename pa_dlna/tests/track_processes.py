@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
+"""The parec (or encoder) script used for testing."""
 
 import sys
 import os

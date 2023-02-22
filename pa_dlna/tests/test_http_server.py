@@ -103,7 +103,7 @@ class Renderer(pa_dlna.DLNATestDevice):
     async def setup(self):
         await self.select_encoder(self.root_device.udn)
         if self.encoder is not None:
-            self.encoder._pgm = 'pa_dlna/tests/encoder'
+            self.encoder.command = [sys.executable, 'pa_dlna/tests/encoder']
             self.encoder.args = ''
 
     async def disable_for(self, *, period):
@@ -116,7 +116,7 @@ class ControlPoint:
     def __init__(self):
         self.port = 8080
         self.renderers = set()
-        self.parec_pgm = 'pa_dlna/tests/parec'
+        self.parec_cmd = [sys.executable, 'pa_dlna/tests/parec']
 
         # The following patches do:
         #  - Make encoders available whether they are installed or not.

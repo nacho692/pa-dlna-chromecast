@@ -259,7 +259,7 @@ class StreamProcesses:
                 del os.environ['AV_LOG_FORCE_NOCOLOR']
 
     @log_exception(logger)
-    async def run_parec(self, encoder, parec_pgm, stdout=None):
+    async def run_parec(self, encoder, parec_cmd, stdout=None):
         renderer = self.session.renderer
         try:
             if self.no_encoder:
@@ -268,10 +268,10 @@ class StreamProcesses:
             else:
                 format = encoder._pulse_format
             monitor = renderer.nullsink.sink.monitor_source_name
-            parec_cmd = [parec_pgm, f'--device={monitor}',
-                         f'--format={format}',
-                         f'--rate={encoder.rate}',
-                         f'--channels={encoder.channels}']
+            parec_cmd.extend([f'--device={monitor}',
+                              f'--format={format}',
+                              f'--rate={encoder.rate}',
+                              f'--channels={encoder.channels}'])
             logger.info(f"{renderer.name}: {' '.join(parec_cmd)}")
 
             exit_status = 0
@@ -346,12 +346,12 @@ class StreamProcesses:
             if self.parec_proc is None:
                 # Start the parec task.
                 # An L16Encoder stream only runs the parec program.
-                parec_pgm = renderer.control_point.parec_pgm
+                parec_cmd = renderer.control_point.parec_cmd
                 if self.no_encoder:
-                    coro = self.run_parec(encoder, parec_pgm)
+                    coro = self.run_parec(encoder, parec_cmd)
                 else:
                     self.pipe_reader, stdout = os.pipe()
-                    coro = self.run_parec(encoder, parec_pgm, stdout)
+                    coro = self.run_parec(encoder, parec_cmd, stdout)
                 self.parec_task = self.session.stream_tasks.create_task(coro,
                                                                 name='parec')
 

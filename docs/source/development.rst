@@ -153,11 +153,11 @@ build the html documentation and the man pages::
 Releasing
 """""""""
 
-* Run the test suite [#]_::
+* Run the test suite from the root of the project [#]_::
 
     $ python -m unittest --verbose --catch --failfast
 
-* Get the test suite coverage::
+* Optionally get the test suite coverage::
 
     $ coverage run -m unittest
     $ coverage report -m

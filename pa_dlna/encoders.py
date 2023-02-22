@@ -115,10 +115,17 @@ class Encoder:
 
     @property
     def command(self):
-        if hasattr(self, '_pgm'):
+        if hasattr(self, '_command'):
+            return self._command
+        elif hasattr(self, '_pgm'):
             cmd = [self._pgm]
             cmd.extend(self.args.split())
             return cmd
+
+    @command.setter
+    def command(self, value):
+        """The command setter used by the test suite."""
+        self._command = value
 
     def __str__(self):
         return self.__class__.__name__
