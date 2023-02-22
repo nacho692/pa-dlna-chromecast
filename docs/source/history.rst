@@ -2,6 +2,12 @@ Release history
 ===============
 
 Version 0.3
+  - Fix some fatal errors on startup that were silent.
+    Here are the  missing error messages that are now printed when one of those
+    fatal errors occurs:
+
+    + Error: No encoder is available
+    + Error: The pulseaudio 'parec' program cannot be found
   - Fix curl: (18) transfer closed with outstanding read data remaining.
   - Fix a race condition upon the reception of an SSDP msearch response that
     occurs just after the reception of an SSDP notification and while the
