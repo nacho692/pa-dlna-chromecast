@@ -9,10 +9,10 @@ from unittest import IsolatedAsyncioTestCase, mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
+from . import find_in_logs, search_in_logs
 from .pulsectl import (use_pulsectl_stubs, SinkInput, Event,
                        PulseEventTypeEnum, PulseEventMaskEnum,
                        PulseDisconnected)
-from ..upnp.tests import find_in_logs, search_in_logs
 
 with use_pulsectl_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
     pulseaudio, pa_dlna = modules

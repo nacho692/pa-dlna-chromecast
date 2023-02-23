@@ -7,7 +7,7 @@ import unittest
 import functools
 import asyncio
 
-from ..upnp.tests import load_ordered_tests
+from ..upnp.tests import load_ordered_tests, find_in_logs, search_in_logs
 
 if sys.version_info >= (3, 9):
     functools_cache = functools.cache
