@@ -10,8 +10,8 @@ from unittest import IsolatedAsyncioTestCase, mock
 from . import load_ordered_tests as load_tests
 
 from . import requires_resources
-from .track_processes import (unix_socket_path, PAREC_PATH_ENV,
-                              ENCODER_PATH_ENV, BLKSIZE)
+from .streams import (unix_socket_path, PAREC_PATH_ENV, ENCODER_PATH_ENV,
+                      BLKSIZE)
 from .pulsectl import use_pulsectl_stubs
 from ..upnp.tests import find_in_logs, search_in_logs
 from ..config import UserConfig
@@ -62,11 +62,8 @@ async def play_track(mime_type, transactions, wait_for_completion=True,
         server_t = asyncio.create_task(server.run(), name='socket server')
 
         # Start curl.
-        # Skip some asyncio loop iterations to have the http server ready
-        # before starting curl.
         await http_server.ready_fut
         await server.ready_fut
-
         curl_task = asyncio.create_task(run_curl(renderer.current_uri),
                                         name='curl')
 
@@ -104,7 +101,6 @@ class Renderer(pa_dlna.DLNATestDevice):
         await self.select_encoder(self.root_device.udn)
         if self.encoder is not None:
             self.encoder.command = [sys.executable, 'pa_dlna/tests/encoder']
-            self.encoder.args = ''
 
     async def disable_for(self, *, period):
         pass
