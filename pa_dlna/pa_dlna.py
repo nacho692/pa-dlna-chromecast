@@ -419,8 +419,13 @@ class Renderer:
                         f" handling '{self.mime_type}'"
                         f'{NL_INDENT}URL: {self.current_uri}')
 
-            while True:
+            # If running as a test of test_pa_dlna.py, break from the loop
+            # when the 'test_end' asyncio future is done. Otherwise run for
+            # ever.
+            test_end = self.control_point.test_end
+            while test_end is None or not test_end.done():
                 await self.handle_pulse_event()
+            await self.close()
 
         except asyncio.CancelledError:
             await self.close()
@@ -452,7 +457,9 @@ class DLNATestDevice(Renderer):
             self.udn = get_udn(name.encode())
 
         def close(self):
-            self.control_point.renderers.remove(self.renderer)
+            renderers = self.control_point.renderers
+            if self.renderer in renderers:
+                renderers.remove(self.renderer)
 
     def __init__(self, control_point, mime_type):
         root_device = self.RootDevice(self, mime_type, control_point)
@@ -492,11 +499,15 @@ class AVControlPoint(UPnPApplication):
         self.register_sem = asyncio.Semaphore()
         self.cp_tasks = AsyncioTasks()
 
+        # 'test_end' is meant to be used as an asyncio future by tests in
+        # test_pa_dlna.py.
+        self.test_end = None
+
     @log_exception(logger)
     async def shutdown(self, end_event):
         try:
             await end_event.wait()
-            await self.close()
+            await self.close('Got SIGINT or SIGTERM')
         except Exception as e:
             logger.exception(f'{e!r}')
         finally:
@@ -522,10 +533,11 @@ class AVControlPoint(UPnPApplication):
                 if self.pulse is not None:
                     await self.pulse.close()
 
-                if sys.version_info[:2] >= (3, 9):
-                    self.curtask.cancel(msg)
-                else:
-                    self.curtask.cancel()
+                if self.curtask != asyncio.current_task():
+                    if sys.version_info[:2] >= (3, 9):
+                        self.curtask.cancel(msg)
+                    else:
+                        self.curtask.cancel()
 
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
@@ -669,9 +681,9 @@ class AVControlPoint(UPnPApplication):
                 await self.handle_upnp_notifications()
 
         except asyncio.CancelledError as e:
+            logger.info(f'Main task got: {e!r}')
             if e.args:
-                logger.info(f'Main task got: {e!r}')
-                return e.args[0]
+                return e
         except Exception as e:
             logger.exception(f'Got exception {e!r}')
             return e

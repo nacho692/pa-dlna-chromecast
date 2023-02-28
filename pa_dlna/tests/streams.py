@@ -23,6 +23,8 @@ ENCODER_PATH_ENV = 'PA_DLNA_ENCODER_PATH'
 STDIN_FILENO = 0
 STDOUT_FILENO = 1
 
+# Use the patched pa_dlna module to avoid importing pulsectl that is not
+# required for running the test.
 with use_pulsectl_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
     pulseaudio, pa_dlna = modules
 
@@ -53,6 +55,18 @@ async def new_renderer(mime_type):
     renderer = Renderer(ControlPoint(), mime_type)
     await renderer.setup()
     return renderer
+
+def set_control_point(control_point):
+    control_point.parec_cmd = [sys.executable, '-m', 'pa_dlna.tests.parec']
+
+    # The following patches do:
+    #  - Make encoders available whether they are installed or not.
+    #  - Ignore the local pa_dlna.conf when it exists.
+    with mock.patch.object(Encoder, 'available') as available,\
+            mock.patch('builtins.open', mock.mock_open()) as m_open:
+        available.return_value = True
+        m_open.side_effect = FileNotFoundError()
+        control_point.config = UserConfig()
 
 async def play_track(mime_type, transactions, wait_for_completion=True,
                      logs=None):
@@ -220,16 +234,7 @@ class ControlPoint:
     def __init__(self):
         self.port = 8080
         self.renderers = set()
-        self.parec_cmd = [sys.executable, '-m', 'pa_dlna.tests.parec']
-
-        # The following patches do:
-        #  - Make encoders available whether they are installed or not.
-        #  - Ignore the local pa_dlna.conf when it exists.
-        with mock.patch.object(Encoder, 'available') as available,\
-                mock.patch('builtins.open', mock.mock_open()) as m_open:
-            available.return_value = True
-            m_open.side_effect = FileNotFoundError()
-            self.config = UserConfig()
+        set_control_point(self)
 
     def abort(self, msg):
         pass
@@ -322,7 +327,7 @@ def parec_py():
         return return_code
 
 def encoder_py():
-    """Write forever 'count' bytes read from stdin to stdout."""
+    """Write for ever 'count' bytes read from stdin to stdout."""
 
     print('encoder stub starting', file=sys.stderr)
     stdin = io.BufferedReader(io.FileIO(STDIN_FILENO, mode='r'))

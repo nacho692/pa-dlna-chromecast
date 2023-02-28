@@ -31,8 +31,8 @@ class Pulse:
     async def close(self):
         if not self.closing:
             self.closing = True
-            await self.av_control_point.close()
             logger.info('Close pulse')
+            await self.av_control_point.close()
 
     async def register(self, renderer):
         """Load a null-sink module."""
@@ -169,7 +169,12 @@ class Pulse:
                                     pulsectl.PulseEventMaskEnum.sink_input):
                             await self.dispatch_event(event)
 
-                        logger.warning('Unexpected exit from pulse event loop')
+                        # Wait until end of test.
+                        test_end = self.av_control_point.test_end
+                        if test_end is not None:
+                            await test_end
+
+                        logger.error('Unexpected exit from pulse event loop')
                         break
 
                 except Exception as e:
