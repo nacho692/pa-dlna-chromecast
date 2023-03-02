@@ -36,14 +36,23 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
 
     async def run_control_point(self, handle_pulse_event,
                                 set_control_point=set_control_point,
-                                test_devices=['audio/mp3']):
+                                test_devices=['audio/mp3'],
+                                has_parec=True):
         async def handle_upnp_notifications(control_point):
             await control_point.test_end
+
+        _which = shutil.which
+        def which(arg):
+            if arg == 'parec':
+                return True if has_parec else None
+            else:
+                return _which(arg)
 
         with mock.patch.object(AVControlPoint, 'handle_upnp_notifications',
                                handle_upnp_notifications),\
                 mock.patch.object(Renderer,
                                   'handle_pulse_event', handle_pulse_event),\
+                mock.patch.object(shutil, 'which', which),\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
 
             control_point = AVControlPoint(nics='lo', port=8080, ttl=2,
@@ -80,8 +89,12 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
             raise OSError('foo')
 
         return_code, logs = await self.run_control_point(handle_pulse_event)
-        self.assertTrue(return_code is None)
-        self.assertTrue(find_in_logs(logs.output, 'pa-dlna', "OSError('foo')"))
+
+        self.assertTrue(return_code is None,
+                        msg=f'return_code: {return_code}')
+        _logs = '\n'.join(l for l in logs.output if ':ASYNCIO:' not in l)
+        self.assertTrue(find_in_logs(logs.output, 'pa-dlna', "OSError('foo')"),
+                        msg=_logs)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                     re.compile('New DLNATest_.* renderer with Mp3Encoder')))
 
@@ -99,12 +112,8 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
         async def handle_pulse_event(renderer):
             await asyncio.sleep(0)
 
-        def which(arg):
-            return None
-
-        with mock.patch.object(shutil, 'which', which):
-            return_code, logs = await self.run_control_point(handle_pulse_event)
-
+        return_code, logs = await self.run_control_point(handle_pulse_event,
+                                                         has_parec=False)
         self.assertTrue(isinstance(return_code, RuntimeError))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                         re.compile("'parec' program cannot be found")))
