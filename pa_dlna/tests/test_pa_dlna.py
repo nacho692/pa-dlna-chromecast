@@ -128,7 +128,7 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
 
-    async def test_disable_root_device(self):
+    async def test_unknown_encoder(self):
         async def handle_pulse_event(renderer):
             await asyncio.sleep(0)  # Never reached
 
@@ -145,6 +145,26 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
         self.assertEqual(return_code, None)
         self.assertTrue(search_in_logs(logs.output, 'foo',
                     re.compile('Disable the DLNATest_.* device permanently')))
+
+    async def test_bad_encoder_unload_module(self):
+        async def handle_pulse_event(renderer):
+            await asyncio.sleep(0)  # Never reached
+
+        def disable(control_point, root_device, name=None):
+            # Do not close renderers in AVControlPoint.close().
+            control_point.renderers = set()
+            control_point.test_end.set_result(True)
+
+        # Check that the 'module-null-sink' module of a renderer whose encoder
+        # is not found, is unloaded.
+        with mock.patch.object(AVControlPoint, 'disable_root_device',
+                               disable):
+            return_code, logs = await self.run_control_point(
+                            handle_pulse_event, test_devices=['audio/foo'])
+
+        self.assertEqual(return_code, None)
+        self.assertTrue(search_in_logs(logs.output, 'pulse',
+                        re.compile('Unload null-sink module DLNATest_foo')))
 
     async def test_abort(self):
         async def handle_pulse_event(renderer):

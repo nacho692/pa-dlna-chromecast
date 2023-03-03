@@ -428,15 +428,15 @@ class Renderer:
             await self.close()
 
         except asyncio.CancelledError:
-            await self.close()
-        except (OSError, UPnPSoapFaultError, UPnPClosedDeviceError) as e:
-            logger.error(f'{e!r}')
-            await self.close()
-        except ControlPointAbortError as e:
+            pass
+        except (OSError, UPnPSoapFaultError, UPnPClosedDeviceError,
+                ControlPointAbortError) as e:
             logger.error(f'{e!r}')
         except Exception as e:
             logger.exception(f'{e!r}')
             await self.disable_root_device()
+        finally:
+            await self.close()
 
 class DLNATestDevice(Renderer):
     """Non UPnP Renderer to be used for testing."""
