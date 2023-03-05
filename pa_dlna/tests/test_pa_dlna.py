@@ -12,8 +12,8 @@ from unittest import IsolatedAsyncioTestCase, mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, find_in_logs, search_in_logs
-from .streams import pulseaudio, pa_dlna
+from . import find_in_logs, search_in_logs
+from .streams import pa_dlna
 from .streams import set_control_point as _set_control_point
 from .pulsectl import PulseAsync
 from ..init import ControlPointAbortError
@@ -31,15 +31,11 @@ def set_no_encoder(control_point):
     set_control_point(control_point)
     control_point.config.encoders = {}
 
-class DlnaControlPoint(IsolatedAsyncioTestCase):
-    """The control point test cases."""
-
+class PaDlnaTestCase(IsolatedAsyncioTestCase):
     async def run_control_point(self, handle_pulse_event,
                                 set_control_point=set_control_point,
-                                test_devices=['audio/mp3'],
+                                test_devices=[],
                                 has_parec=True):
-        async def handle_upnp_notifications(control_point):
-            await control_point.test_end
 
         _which = shutil.which
         def which(arg):
@@ -48,10 +44,11 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
             else:
                 return _which(arg)
 
-        with mock.patch.object(AVControlPoint, 'handle_upnp_notifications',
-                               handle_upnp_notifications),\
-                mock.patch.object(Renderer,
-                                  'handle_pulse_event', handle_pulse_event),\
+        # When 'test_end' is done, the task running
+        # control_point.run_control_point() is cancelled by the Pulse task
+        # closing the AVControlPoint instance 'control_point'.
+        with mock.patch.object(Renderer,
+                               'handle_pulse_event', handle_pulse_event),\
                 mock.patch.object(shutil, 'which', which),\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
 
@@ -83,26 +80,15 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
 
         return return_code, m_logs
 
-    async def test_register_renderer(self):
-        async def handle_pulse_event(renderer):
-            renderer.control_point.test_end.set_result(True)
-            raise OSError('foo')
-
-        return_code, logs = await self.run_control_point(handle_pulse_event)
-
-        self.assertTrue(return_code is None,
-                        msg=f'return_code: {return_code}')
-        _logs = '\n'.join(l for l in logs.output if ':ASYNCIO:' not in l)
-        self.assertTrue(find_in_logs(logs.output, 'pa-dlna', "OSError('foo')"),
-                        msg=_logs)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                    re.compile('New DLNATest_.* renderer with Mp3Encoder')))
+class DLNAControlPoint(PaDlnaTestCase):
+    """The control point test cases."""
 
     async def test_no_encoder(self):
         async def handle_pulse_event(renderer):
             await asyncio.sleep(0)
 
         return_code, logs = await self.run_control_point(handle_pulse_event,
+                                            test_devices=['audio/mp3'],
                                             set_control_point=set_no_encoder)
         self.assertTrue(isinstance(return_code, RuntimeError))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
@@ -113,7 +99,8 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
 
         return_code, logs = await self.run_control_point(handle_pulse_event,
-                                                         has_parec=False)
+                                                test_devices=['audio/mp3'],
+                                                has_parec=False)
         self.assertTrue(isinstance(return_code, RuntimeError))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                         re.compile("'parec' program cannot be found")))
@@ -122,11 +109,56 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
     async def test_cancelled(self):
         async def handle_pulse_event(renderer):
             renderer.control_point.curtask.cancel('foo')
+            await asyncio.sleep(0)
 
-        return_code, logs = await self.run_control_point(handle_pulse_event)
+        return_code, logs = await self.run_control_point(handle_pulse_event,
+                                                test_devices=['audio/mp3'])
         self.assertTrue(isinstance(return_code, asyncio.CancelledError))
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
+
+    async def test_abort(self):
+        async def handle_pulse_event(renderer):
+            await asyncio.sleep(0)  # Avoid infinite loop.
+
+        return_code, logs = await self.run_control_point(handle_pulse_event,
+                                test_devices=['audio/mp3', 'audio/mp3'])
+
+        self.assertTrue(type(return_code), ControlPointAbortError)
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                re.compile('Two DLNA devices registered with the same name')))
+
+    @min_python_version((3, 9))
+    async def test_SIGINT(self):
+        async def handle_pulse_event(renderer):
+            signal.raise_signal(signal.SIGINT)
+            await asyncio.sleep(0)  # Avoid infinite loop.
+
+        return_code, logs = await self.run_control_point(handle_pulse_event,
+                                                test_devices=['audio/mp3'])
+
+        self.assertTrue(isinstance(return_code, asyncio.CancelledError))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                                       re.compile('Got SIGINT or SIGTERM')))
+
+class DLNARenderer(PaDlnaTestCase):
+    """The renderer test cases."""
+
+    async def test_register_renderer(self):
+        async def handle_pulse_event(renderer):
+            renderer.control_point.test_end.set_result(True)
+            raise OSError('foo')
+
+        return_code, logs = await self.run_control_point(handle_pulse_event,
+                                                test_devices=['audio/mp3'])
+
+        self.assertTrue(return_code is None,
+                        msg=f'return_code: {return_code}')
+        _logs = '\n'.join(l for l in logs.output if ':ASYNCIO:' not in l)
+        self.assertTrue(find_in_logs(logs.output, 'pa-dlna', "OSError('foo')"),
+                        msg=_logs)
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                    re.compile('New DLNATest_.* renderer with Mp3Encoder')))
 
     async def test_unknown_encoder(self):
         async def handle_pulse_event(renderer):
@@ -165,30 +197,3 @@ class DlnaControlPoint(IsolatedAsyncioTestCase):
         self.assertEqual(return_code, None)
         self.assertTrue(search_in_logs(logs.output, 'pulse',
                         re.compile('Unload null-sink module DLNATest_foo')))
-
-    async def test_abort(self):
-        async def handle_pulse_event(renderer):
-            await asyncio.sleep(0)  # Avoid infinite loop.
-
-        return_code, logs = await self.run_control_point(handle_pulse_event,
-                                test_devices=['audio/mp3', 'audio/mp3'])
-
-        self.assertTrue(type(return_code), ControlPointAbortError)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('Two DLNA devices registered with the same name')))
-
-    @min_python_version((3, 9))
-    async def test_SIGINT(self):
-        async def handle_pulse_event(renderer):
-            signal.raise_signal(signal.SIGINT)
-            await asyncio.sleep(0)  # Avoid infinite loop.
-
-        return_code, logs = await self.run_control_point(handle_pulse_event)
-
-        self.assertTrue(isinstance(return_code, asyncio.CancelledError))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                                       re.compile('Got SIGINT or SIGTERM')))
-
-@requires_resources('curl')
-class DlnaRenderer(IsolatedAsyncioTestCase):
-    """The renderer test cases."""
