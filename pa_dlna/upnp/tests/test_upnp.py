@@ -216,7 +216,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
         with mock.patch.object(UPnPControlPoint, 'msearch_once') as msearch,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             msearch.side_effect = OSError('FOO')
-            await control_point.open()
+            control_point.open()
             await asyncio.wait_for(is_called(msearch), 1)
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',

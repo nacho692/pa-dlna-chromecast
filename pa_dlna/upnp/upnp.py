@@ -2,13 +2,13 @@
 
 The library does not have any external dependency.
 Here is an example of using the Control Point. Allow it a few seconds to
-discover the UPnP device at 192.168.0.254.
+discover an UPnP device on the 'enp0s31f6' ethernet interface.
 
 >>> import asyncio
 >>> import upnp
 >>>
 >>> async def main(nics, interval):
-...   async with upnp.UPnPControlPoint(nics, interval) as control_point:
+...   with upnp.UPnPControlPoint(nics, interval) as control_point:
 ...     notification, root_device = await control_point.get_notification()
 ...     print(f"  Got '{notification}' from {root_device.peer_ipaddress}")
 ...     print(f'  deviceType: {root_device.deviceType}')
@@ -517,8 +517,8 @@ class UPnPControlPoint:
       get_notification
                     Coroutine - return a notification and the corresponding
                     UPnPRootDevice instance.
-      __aenter__    UPnPControlPoint is also an asynchronous context manager.
-      __aclose__
+      __enter__     UPnPControlPoint supports the context manager protocol.
+      __close__
     """
 
     def __init__(self, nics, msearch_interval, ttl=2):
@@ -536,7 +536,7 @@ class UPnPControlPoint:
         self.notify_task = None
         self._upnp_tasks = AsyncioTasks()
 
-    async def open(self):
+    def open(self):
         """Start the UPnP Control Point."""
 
         # Start the msearch task.
@@ -744,9 +744,9 @@ class UPnPControlPoint:
         finally:
             self.close()
 
-    async def __aenter__(self):
-        await self.open()
+    def __enter__(self):
+        self.open()
         return self
 
-    async def __aexit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback):
         self.close()

@@ -666,8 +666,8 @@ class AVControlPoint(UPnPApplication):
                 loop.add_signal_handler(sig, end_event.set)
 
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.nics, self.msearch_interval,
-                                        self.ttl) as self.upnp_control_point:
+            with UPnPControlPoint(self.nics, self.msearch_interval,
+                                  self.ttl) as self.upnp_control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
                 self.cp_tasks.create_task(self.pulse.run(), name='pulse')

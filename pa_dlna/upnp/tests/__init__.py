@@ -110,7 +110,7 @@ async def loopback_datagrams(datagrams, patch_method=None, setup=None):
         if setup is not None:
             await setup(control_point)
 
-        await control_point.open()
+        control_point.open()
         await control_point._notify.startup
         # 'coro' is a coroutine *function*.
         await control_point.msearch_once(coro, port=MSEARCH_PORT)

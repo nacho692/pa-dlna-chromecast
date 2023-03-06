@@ -591,8 +591,8 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.loop = asyncio.get_running_loop()
         try:
             # Run the UPnP control point.
-            async with UPnPControlPoint(self.nics, self.msearch_interval,
-                                        self.ttl) as self.control_point:
+            with UPnPControlPoint(self.nics, self.msearch_interval,
+                                  self.ttl) as self.control_point:
                 event.set()
                 while True:
                     notif, root_device = (await
