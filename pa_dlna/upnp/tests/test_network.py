@@ -137,6 +137,8 @@ class SSDP_notify(IsolatedAsyncioTestCase):
                 else:
                     raise AssertionError(f'SSDP notify task not found')
                 await asyncio.wait_for(task, 1)
+            except asyncio.CancelledError:
+                pass
             except asyncio.TimeoutError:
                 self.fail('Notify task did not terminate as expected')
 

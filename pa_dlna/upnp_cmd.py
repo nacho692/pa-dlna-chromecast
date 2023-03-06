@@ -12,7 +12,8 @@ import traceback
 
 from .init import padlna_main, UPnPApplication
 from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
-                   UPnPClosedDeviceError, pformat_xml, log_exception)
+                   UPnPClosedDeviceError, pformat_xml, log_exception,
+                   QUEUE_CLOSED)
 
 logger = logging.getLogger('upnpcmd')
 pprint_pprint = functools.partial(pprint.pprint, sort_dicts=False)
@@ -596,6 +597,9 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                 while True:
                     notif, root_device = (await
                                           self.control_point.get_notification())
+                    if (notif, root_device) == QUEUE_CLOSED:
+                        logger.debug('UPnP queue is closed')
+                        break
                     logger.info(f"Got '{notif}' notification for "
                                 f' {root_device}')
                     if notif == 'alive':

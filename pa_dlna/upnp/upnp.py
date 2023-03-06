@@ -62,6 +62,7 @@ from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
 
 logger = logging.getLogger('upnp')
 
+QUEUE_CLOSED = ('closed', None)
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
 
@@ -531,43 +532,38 @@ class UPnPControlPoint:
         self._devices = {}              # {udn: UPnPRootDevice}
         self._faulty_devices = set()    # set of the udn of root devices
                                         # permanently disabled
-        self._curtask = None            # task running UPnPControlPoint.open()
+        self.msearch_task = None
+        self.notify_task = None
         self._upnp_tasks = AsyncioTasks()
 
     async def open(self):
         """Start the UPnP Control Point."""
 
-        # Get the caller's task.
-        # open() being a coroutine ensures that it is run by a task or a
-        # coroutine with a task.
-        # This is needed as UPnPControlPoint.close() may be called from
-        # another task.
-        self._curtask = asyncio.current_task()
-
         # Start the msearch task.
-        self._upnp_tasks.create_task(self._ssdp_msearch(), name='ssdp msearch')
+        self.msearch_task = self._upnp_tasks.create_task(self._ssdp_msearch(),
+                                                         name='ssdp msearch')
 
         # Start the notify task.
         self._notify = Notify(self._process_ssdp,
                               set(ipv4_addresses(self.nics)))
-        self._upnp_tasks.create_task(self._ssdp_notify(), name='ssdp notify')
+        self.notify_task = self._upnp_tasks.create_task(self._ssdp_notify(),
+                                                        name='ssdp notify')
 
-    def close(self, exc=None):
+    def close(self):
         """Close the UPnP Control Point."""
 
         if not self._closed:
             self._closed = True
 
+            self._put_notification(*QUEUE_CLOSED)
+            if self.msearch_task is not None:
+                self.msearch_task.cancel()
+            if self.notify_task is not None:
+                self.notify_task.cancel()
+                self._notify.close()
+
             for root_device in list(self._devices.values()):
                 root_device.close()
-
-            if (self._curtask is not None and
-                    asyncio.current_task() != self._curtask):
-                if sys.version_info[:2] >= (3, 9):
-                    self._curtask.cancel(exc)
-                else:
-                    self._curtask.cancel()
-                self._curtask = None
 
             logger.info('Close UPnPControlPoint')
 
@@ -588,7 +584,10 @@ class UPnPControlPoint:
     async def get_notification(self):
         """Return the tuple ('alive' or 'byebye', UPnPRootDevice instance).
 
-        Raise UPnPClosedControlPointError when the control point is closed.
+        A coroutine waiting on the queue gets the QUEUE_CLOSED tuple when the
+        control point is closing.
+        When the control point is closed, the method raises
+        UPnPClosedControlPointError.
         """
 
         if self._closed:
@@ -726,10 +725,11 @@ class UPnPControlPoint:
                 await self.msearch_once(coro)
                 await asyncio.sleep(self.msearch_interval)
         except asyncio.CancelledError:
-            self.close()
+            pass
         except Exception as e:
             logger.exception(f'{e!r}')
-            self.close(exc=e)
+        finally:
+            self.close()
 
     @log_exception(logger)
     async def _ssdp_notify(self):
@@ -738,10 +738,11 @@ class UPnPControlPoint:
         try:
             await self._notify.run()
         except asyncio.CancelledError:
-            self.close()
+            pass
         except Exception as e:
             logger.exception(f'{e!r}')
-            self.close(exc=e)
+        finally:
+            self.close()
 
     async def __aenter__(self):
         await self.open()

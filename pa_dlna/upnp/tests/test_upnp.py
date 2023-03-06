@@ -205,22 +205,24 @@ class ControlPoint(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
                             re.compile('Refresh with max-age=20')))
 
-    @min_python_version((3, 9))
     async def test_close(self):
-        async def close_with_exc(obj, exc):
-            obj.close(exc=exc)
+        async def is_called(mock):
+            while True:
+                await asyncio.sleep(0)
+                if mock.called:
+                    return True
 
-        exc = OSError('FOO')
         control_point = UPnPControlPoint(['lo'], 3600)
-        try:
+        with mock.patch.object(UPnPControlPoint, 'msearch_once') as msearch,\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            msearch.side_effect = OSError('FOO')
             await control_point.open()
-            await asyncio.create_task(close_with_exc(control_point, exc))
-        except asyncio.CancelledError as e:
-            self.assertEqual(e.args[0], exc)
-        else:
-            raise AssertionError('Current task not cancelled')
-        finally:
-            control_point.close()
+            await asyncio.wait_for(is_called(msearch), 1)
+
+        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+                                       re.compile("OSError\('FOO'\)")))
+        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+                                     'Close UPnPControlPoint'))
 
     async def test_ssdp_race(self):
         header = { 'LOCATION': URL }

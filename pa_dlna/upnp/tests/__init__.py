@@ -99,30 +99,27 @@ async def loopback_datagrams(datagrams, patch_method=None, setup=None):
     else:
         coro = send_datagrams
     control_point = UPnPControlPoint(['lo'], 3600)
-    try:
-        with mock.patch.object(control_point,
-                               '_ssdp_msearch') as ssdp_msearch:
-            if patch_method is not None:
-                patcher = mock.patch.object(control_point, patch_method)
-                method = patcher.start()
+    with mock.patch.object(control_point,
+                           '_ssdp_msearch') as ssdp_msearch:
+        if patch_method is not None:
+            patcher = mock.patch.object(control_point, patch_method)
+            method = patcher.start()
 
-            # Prevent the msearch task to run UPnPControlPoint._ssdp_msearch.
-            ssdp_msearch.side_effect = [None]
-            if setup is not None:
-                await setup(control_point)
+        # Prevent the msearch task to run UPnPControlPoint._ssdp_msearch.
+        ssdp_msearch.side_effect = [None]
+        if setup is not None:
+            await setup(control_point)
 
-            await control_point.open()
-            await control_point._notify.startup
-            # 'coro' is a coroutine *function*.
-            await control_point.msearch_once(coro, port=MSEARCH_PORT)
+        await control_point.open()
+        await control_point._notify.startup
+        # 'coro' is a coroutine *function*.
+        await control_point.msearch_once(coro, port=MSEARCH_PORT)
 
-            if patch_method is not None:
-                try:
-                    await asyncio.wait_for(is_called(method), 1)
-                except asyncio.TimeoutError:
-                    raise AssertionError(
-                        f'{patch_method}() not called') from None
-    finally:
-        control_point.close()
+        if patch_method is not None:
+            try:
+                await asyncio.wait_for(is_called(method), 1)
+            except asyncio.TimeoutError:
+                raise AssertionError(
+                    f'{patch_method}() not called') from None
 
     return control_point

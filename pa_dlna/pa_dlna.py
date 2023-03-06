@@ -16,7 +16,7 @@ from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError,
                    UPnPSoapFaultError, ipv4_addresses, NL_INDENT, shorten,
-                   log_exception, AsyncioTasks)
+                   log_exception, AsyncioTasks, QUEUE_CLOSED)
 
 logger = logging.getLogger('pa-dlna')
 
@@ -585,6 +585,9 @@ class AVControlPoint(UPnPApplication):
         while True:
             notif, root_device = await (
                                 self.upnp_control_point.get_notification())
+            if (notif, root_device) == QUEUE_CLOSED:
+                logger.debug('UPnP queue is closed')
+                return
             logger.info(f"Got '{notif}' notification for {root_device}")
 
             # Ignore non Renderer devices.

@@ -7,7 +7,8 @@ TEST_LOGLEVEL = 5
 # All exported objects.
 from .upnp import (UPnPClosedDeviceError, UPnPInvalidSoapError,
                    UPnPSoapFaultError,
-                   UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService)
+                   UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
+                   QUEUE_CLOSED)
 from .network import ipv4_addresses
 from .util import (NL_INDENT, shorten, log_exception, AsyncioTasks,
                    log_exception)

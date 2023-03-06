@@ -305,6 +305,9 @@ class Notify:
         loop = asyncio.get_running_loop()
         self.startup = loop.create_future()
 
+    def close(self):
+        self.sock.close()
+
     def manage_membership(self, ip_addresses):
         def member(ip, option):
             msg = ('member of' if option == socket.IP_ADD_MEMBERSHIP else
