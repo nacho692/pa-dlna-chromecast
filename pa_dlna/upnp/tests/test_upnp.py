@@ -124,6 +124,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
     async def test_byebye(self):
         async def setup(control_point):
             root_device = mock.MagicMock()
+            root_device.udn = UDN
             root_device.__str__.side_effect = [device_name]
             control_point._devices[UDN] = root_device
 
@@ -160,7 +161,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
 
         async def setup(control_point):
             control_point._devices[udn] = root_device
-            control_point._remove_root_device(udn, exc=OSError())
+            control_point._remove_root_device(root_device, exc=OSError())
 
         udn = 'uuid:ffffffff-ffff-ffff-ffff-000000000000'
         root_device = RootDevice(udn)
@@ -236,10 +237,10 @@ class ControlPoint(IsolatedAsyncioTestCase):
             control_point._create_root_device(header, UDN, HOST, False, None)
             # The SSDP msearch.
             control_point._create_root_device(header, UDN, HOST, True, HOST)
-            notify.assert_not_called()
 
         root_device = control_point._devices[UDN]
-        self.assertEqual(root_device.local_ipaddress, None)
+        notify.assert_called_with('alive', root_device)
+        self.assertEqual(root_device.local_ipaddress, HOST)
 
     @bind_mcast_address()
     async def test_ssdp_no_race(self):
@@ -289,6 +290,8 @@ class RootDevice(IsolatedAsyncioTestCase):
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                                      f'UPnPRootDevice._run(): {exc!r}'))
+        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+            re.compile('Disable the UPnPRootDevice .* device permanently')))
 
     async def test_missing_device(self):
         with mock.patch('pa_dlna.upnp.upnp.xml_of_subelement') as subelement,\

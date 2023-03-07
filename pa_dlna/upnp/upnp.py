@@ -406,22 +406,16 @@ class UPnPRootDevice(UPnPDevice):
         self.location = location
         self._curtask = None                    # UPnPRootDevice._run() task
         self._set_valid_until(max_age)
-        self._closed = True
+        self._closed = False
 
     def close(self, exc=None):
-        """Close the root device.
-
-        Close the root device its services and recursively all its embedded
-        devices and their services.
-        """
-
         if not self._closed:
             self._closed = True
             logger.info(f'Close {self}')
             if (self._curtask is not None and
                     asyncio.current_task() != self._curtask):
                 self._curtask.cancel()
-            self._control_point._remove_root_device(self.udn, exc=exc)
+            self._control_point._remove_root_device(self, exc=exc)
 
     def _set_valid_until(self, max_age):
         # The '_valid_until' attribute is the monotonic date when the root
@@ -477,10 +471,9 @@ class UPnPRootDevice(UPnPDevice):
             logger.info(
                 f'New {deviceType} root device at {self.peer_ipaddress}'
                 f' with UDN:' + NL_INDENT + f'{self.udn}')
-
-            self._closed = False
             self._control_point._put_notification('alive', self)
             logger.debug(f'{self} has been created')
+
             await self._age_root_device()
         except asyncio.CancelledError:
             self.close()
@@ -627,7 +620,7 @@ class UPnPControlPoint:
             # The root device had been created from reception of a notify
             # SSDP, this handles the reception of an msearch SSDP so update
             # 'local_ipaddress' if not already done.
-            if (not root_device._closed and
+            if (not root_device.closed and
                     local_ipaddress is not None and
                     root_device.local_ipaddress is None):
                 root_device.local_ipaddress = local_ipaddress
@@ -648,16 +641,16 @@ class UPnPControlPoint:
             # Refresh the aging time.
             root_device._set_valid_until(max_age)
 
-    def _remove_root_device(self, udn, exc=None):
-        root_device = self._devices.get(udn)
-        if root_device is not None:
+    def _remove_root_device(self, root_device, exc=None):
+        udn = root_device.udn
+        if udn in self._devices:
             del self._devices[udn]
             root_device.close()
             logger.debug(f'{root_device} has been deleted')
             self._put_notification('byebye', root_device)
 
-            if exc is not None:
-                self.disable_root_device(root_device)
+        if exc is not None:
+            self.disable_root_device(root_device)
 
     def _process_ssdp(self, datagram, peer_ipaddress, local_ipaddress):
         """Process the received datagrams."""
@@ -687,7 +680,9 @@ class UPnPControlPoint:
             nts = header['NTS']
             if nts == 'ssdp:byebye':
                 udn = header['USN'].split('::')[0]
-                self._remove_root_device(udn)
+                root_device = self._devices.get(udn)
+                if root_device is not None:
+                    self._remove_root_device(root_device)
 
             elif nts == 'ssdp:update':
                 logger.warning(f'Ignore not supported {nts} notification'
