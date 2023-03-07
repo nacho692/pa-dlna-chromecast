@@ -11,7 +11,7 @@ from . import load_ordered_tests as load_tests
 
 from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
                HTTP_PORT, SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL,
-               min_python_version)
+               bind_mcast_address)
 from .device_resps import device_description, scpd, soap_response, soap_fault
 from ..util import HTTPRequestHandler, shorten
 from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPService,
@@ -87,6 +87,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
     """Control Point test cases."""
 
     @staticmethod
+    @bind_mcast_address()
     async def _run_until_patch(datagrams, setup=None,
                                patch_method='_put_notification'):
         await start_http_server()
@@ -224,6 +225,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                                      'Close UPnPControlPoint'))
 
+    @bind_mcast_address()
     async def test_ssdp_race(self):
         header = { 'LOCATION': URL }
         control_point = UPnPControlPoint(['lo'], 3600)
@@ -239,6 +241,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
         root_device = control_point._devices[UDN]
         self.assertEqual(root_device.local_ipaddress, None)
 
+    @bind_mcast_address()
     async def test_ssdp_no_race(self):
         header = { 'LOCATION': URL }
         control_point = UPnPControlPoint(['lo'], 3600)
@@ -266,6 +269,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
 
         self.assertEqual(root_device.local_ipaddress, HOST)
 
+@bind_mcast_address()
 class RootDevice(IsolatedAsyncioTestCase):
     """Root device test cases."""
 

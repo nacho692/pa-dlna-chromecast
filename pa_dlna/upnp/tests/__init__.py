@@ -1,9 +1,11 @@
 import sys
+import socket
 import asyncio
 import unittest
 from unittest import mock
 
 from ..upnp import UPnPControlPoint
+from ..network import MCAST_ADDR
 
 MSEARCH_PORT = 9999
 SSDP_NOTIFY = '\r\n'.join([
@@ -33,6 +35,20 @@ SSDP_ALIVE = SSDP_NOTIFY.format(nts='NTS: ssdp:alive', **SSDP_PARAMS)
 def min_python_version(sys_version):
     return unittest.skipIf(sys.version_info < sys_version,
                         f'Python version {sys_version} or higher required')
+
+def bind_mcast_address():
+    """Decorator raising SkipTest if MCAST_ADDR is already in use."""
+
+    skip = False
+    reason = None
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        try:
+            sock.bind(MCAST_ADDR)
+        except OSError as e:
+            if e.args[0] == 98:
+                skip = True
+                reason = e.args[1]
+    return unittest.skipIf(skip, f'{MCAST_ADDR}: {reason}')
 
 def load_ordered_tests(loader, standard_tests, pattern):
     """Keep the tests in the order they were declared in the class.
