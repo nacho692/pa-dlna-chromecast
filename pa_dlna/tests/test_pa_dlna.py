@@ -17,7 +17,6 @@ from .streams import pulseaudio, pa_dlna
 from .streams import set_control_point as _set_control_point
 from .pulsectl import PulseAsync
 from ..init import ControlPointAbortError
-from ..pa_dlna import get_udn, MEDIARENDERER, DLNATestDevice
 from ..upnp.upnp import UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint
 from ..upnp.tests import min_python_version
 
@@ -59,11 +58,11 @@ class RootDevice(UPnPRootDevice):
         name = match.group(1)
         self.modelName = f'RootDevice_{name}'
         self.friendlyName = self.modelName
-        self.udn = get_udn(name.encode())
+        self.udn = pa_dlna.get_udn(name.encode())
 
         assert device_type in (None, True, False)
         if device_type:
-            self.deviceType = f'{MEDIARENDERER}1'
+            self.deviceType = f'{pa_dlna.MEDIARENDERER}1'
         elif device_type is False:
             self.deviceType = 'some device type'
 
@@ -259,7 +258,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         with mock.patch.object(self.upnp_control_point,
                                'get_notification') as get_notif,\
                 mock.patch.object(Renderer, 'soap_action',
-                                  DLNATestDevice.soap_action),\
+                                  pa_dlna.DLNATestDevice.soap_action),\
                 mock.patch.object(Renderer, 'handle_pulse_event',
                                   handle_pulse_event),\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
