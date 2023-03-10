@@ -86,18 +86,25 @@ class Renderer:
         self.pulse_queue = asyncio.Queue()
 
     async def close(self):
+        if self.root_device.closed:
+            renderers = self.control_point.renderers
+            if self in renderers:
+                renderers.remove(self)
+        else:
+            # Closing the root device will trigger a 'byebye' notification
+            # and the renderer will be removed from
+            # self.control_point.renderers.
+            self.root_device.close()
+
         if not self.closing:
             self.closing = True
             logger.info(f'Close {self.name} renderer')
+
             if (self.curtask is not None and
                     asyncio.current_task() != self.curtask):
                 self.curtask.cancel()
             await self.pulse_unregister()
             await self.stream_sessions.close_session()
-
-            # Closing the root device will trigger a 'byebye' notification and
-            # the renderer will be removed from self.control_point.renderers.
-            self.root_device.close()
 
     async def disable_for(self, *, period):
         """Disable the renderer for 'period' seconds."""
@@ -448,6 +455,8 @@ class DLNATestDevice(Renderer):
         def __init__(self, renderer, mime_type, control_point):
             self.control_point = control_point
             self.renderer = renderer
+            self.mime_type = mime_type
+            self.closed = True
             self.peer_ipaddress = self.LOOPBACK
 
             match = re.match(r'audio/([^;]+)', mime_type)
@@ -455,11 +464,6 @@ class DLNATestDevice(Renderer):
             self.modelName = f'DLNATest_{name}'
             self.friendlyName = self.modelName
             self.udn = get_udn(name.encode())
-
-        def close(self):
-            renderers = self.control_point.renderers
-            if self.renderer in renderers:
-                renderers.remove(self.renderer)
 
     def __init__(self, control_point, mime_type):
         root_device = self.RootDevice(self, mime_type, control_point)
@@ -472,8 +476,11 @@ class DLNATestDevice(Renderer):
 
     async def soap_action(self, serviceId, action, args='unused'):
         if action == 'GetProtocolInfo':
+            # Use the 'mime_type' attribute of the root device instead of the
+            # renderer as expected since this method  is also used by tests at
+            # pa_dlna.tests.test_pa_dlna.DLNARenderer_2
             return {'Source': None,
-                    'Sink': f'http-get:*:{self.mime_type}:*'
+                    'Sink': f'http-get:*:{self.root_device.mime_type}:*'
                     }
         elif action == 'GetTransportInfo':
             state = ('PLAYING' if self.stream_sessions.is_playing else
@@ -568,6 +575,8 @@ class AVControlPoint(UPnPApplication):
         if registered:
             http_server = self.create_httpserver(renderer.local_ipaddress)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
+
+            # Create the renderer task.
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
 
@@ -642,10 +651,7 @@ class AVControlPoint(UPnPApplication):
                     await self.register(renderer)
             else:
                 if renderer is not None:
-                    if not renderer.closing:
-                        await renderer.close()
-                    else:
-                        self.renderers.remove(renderer)
+                    await renderer.close()
                 else:
                     logger.warning("Got a 'byebye' notification for no"
                                    ' existing Renderer')
