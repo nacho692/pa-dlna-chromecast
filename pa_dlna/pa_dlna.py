@@ -192,9 +192,10 @@ class Renderer:
         return MetaData(publisher, artist, title)
 
     async def handle_action(self, action):
-        """ An action is either 'Stop', 'Pause' or an instance of MetaData.
+        """An action is either 'Stop', 'Pause' or an instance of MetaData.
 
-        This method is run by the 'pulse' task.
+        DLNA TransportStates are 'NO_MEDIA_PRESENT', 'STOPPED' or
+        'PLAYING', the other states are silently ignored.
         """
 
         # Get the stream state.
@@ -246,13 +247,27 @@ class Renderer:
                 raise
 
         if isinstance(action, MetaData):
+            # The following statement is run when these conditions are
+            # met:
+            #   - isinstance(action, MetaData) is true.
+            #   - self.encoder.track_metadata is False.
+            #   - self.nullsink.sink_input is None (a new pulse session).
+            #   - The new sink state is 'running'.
+            #   - The device state is 'PLAYING'.
+            # Is this a race condition where the device is still playing while
+            # pulseaudio starts a new session that does not track meta data ?
             log_action(self.name, 'SetAVTransportURI', state,
                        ignored=True, msg=str(action))
         else:
             log_action(self.name, action, state, ignored=True)
 
     async def handle_pulse_event(self):
-        """Handle a PulseAudio event."""
+        """Handle a PulseAudio event.
+
+        Known pulseaudio states are 'idle', 'running'.
+        An event is either 'new', 'change', 'remove' or 'exit'.
+        An action is either 'Stop', 'Pause' or an instance of MetaData.
+        """
 
         # The 'sink' and 'sink_input' variables define the new state.
         # 'self.nullsink' holds the state prior to this event.
@@ -260,6 +275,8 @@ class Renderer:
         if self.nullsink is None:
             # The Renderer instance is now temporarily disabled.
             return
+        assert (self.nullsink.sink_input is not None or
+                sink_input is not None)
 
         prev_state, new_state = self.pulse_states(sink)
         self.log_pulse_event(event, prev_state, new_state, sink_input)
@@ -272,7 +289,7 @@ class Renderer:
         # track.
         if sink_input is not None:
             if sink_input.index == self.previous_idx:
-                logger.debug(f"'{event}' ignored pulseaudio event related to"
+                logger.debug(f"'{event}' event ignored: related to"
                              f' previous sink-input of {self.name}')
                 return
 
@@ -478,7 +495,7 @@ class DLNATestDevice(Renderer):
         if action == 'GetProtocolInfo':
             # Use the 'mime_type' attribute of the root device instead of the
             # renderer as expected since this method  is also used by tests at
-            # pa_dlna.tests.test_pa_dlna.DLNARenderer_2
+            # pa_dlna.tests.test_pa_dlna.PatchGetNotificationTests.
             return {'Source': None,
                     'Sink': f'http-get:*:{self.root_device.mime_type}:*'
                     }
