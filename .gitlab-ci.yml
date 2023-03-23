@@ -1,6 +1,10 @@
 # Built from template located at:
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Python.gitlab-ci.yml
 
+variables:
+    # Change pip's cache directory to be inside the project directory.
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
 default:
     cache:
         paths:
@@ -9,25 +13,32 @@ default:
     before_script:
         - apt-get update -yq && apt-get install -yq curl
         - python --version    # For debugging.
-
-.unittest:
-    stage: test
-    variables:
-        # Change pip's cache directory to be inside the project directory.
-        PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-
-    script:
         - python -m pip install psutil
-        - python -m unittest --verbose --failfast
+
+.unittest-scripts: &unittest-scripts
+    - python -m unittest --verbose --failfast
+
+.coverage-scripts: &coverage-scripts
+    - python -m pip install coverage
+    - python -m coverage run -m unittest
+    - python -m coverage report --show-missing
 
 py38:
     image: python:3.8
-    extends: .unittest
+    stage: test
+    script:
+        - *unittest-scripts
 
 py39:
     image: python:3.9
-    extends: .unittest
+    stage: test
+    script:
+        - *unittest-scripts
 
 py310:
     image: python:3.10
-    extends: .unittest
+    stage: test
+    script:
+        - *unittest-scripts
+        - *coverage-scripts
+    coverage: '/TOTAL.* (100\%|\d?\d\%)$/'
