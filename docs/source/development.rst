@@ -145,9 +145,12 @@ Documentation
 """""""""""""
 
 To build locally the documentation, generate the ``default-config.rst`` file,
-build the html documentation and the man pages::
+fetch the test coverage badge and build the html documentation and the man
+pages::
 
   $ python -m tools.gendoc_default_config
+  $ curl -o docs/source/_static/coverage.svg\
+    "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=95"
   $ make -C docs clean html man
 
 Releasing
@@ -164,7 +167,7 @@ Releasing
 
 * Update ``__version__`` in pa_dlna/__init__.py.
 * Update docs/source/history.rst
-* Build locally the documentation.
+* Build locally the documentation (fetch the latest test coverage badge).
 * Commit the changes::
 
     $ git commit -m 'Version 0.n'

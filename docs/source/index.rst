@@ -6,6 +6,9 @@
 pa-dlna |version|
 =================
 
+.. image:: _static/coverage.svg
+   :alt: pa-dlna test coverage
+
 .. include:: ../../README.rst
 
 .. toctree::
