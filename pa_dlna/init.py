@@ -7,11 +7,31 @@ import logging
 import asyncio
 import threading
 import struct
+import atexit
+try:
+    import termios
+except ImportError:
+    termios = None
 
 from . import __version__
 from .config import DefaultConfig, UserConfig
 
 logger = logging.getLogger('init')
+
+def disable_xon_xoff():
+    """Disable XON/XOFF flow control on output."""
+
+    def restore_termios():
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+
+    fd = sys.stdin.fileno()
+    if termios is not None and os.isatty(fd):
+        old_attr = termios.tcgetattr(fd)
+        new_attr = termios.tcgetattr(fd)
+        new_attr[0] = new_attr[0] & ~termios.IXON
+        termios.tcsetattr(fd, termios.TCSADRAIN, new_attr)
+        atexit.register(restore_termios)
+        logger.debug('Disabling XON/XOFF flow control on output')
 
 # Parsing arguments utilities.
 class FilterDebug:
@@ -207,6 +227,7 @@ def padlna_main(clazz, doc, argv=sys.argv):
     exit_code = 1
     try:
         if pa_dlna:
+            disable_xon_xoff()
             exit_code = asyncio.run(app.run_control_point())
         else:
             # Run the control point of upnp-cmd in a thread.
