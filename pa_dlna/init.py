@@ -18,20 +18,25 @@ from .config import DefaultConfig, UserConfig
 
 logger = logging.getLogger('init')
 
-def disable_xon_xoff():
+def disable_xonxoff(fd):
     """Disable XON/XOFF flow control on output."""
 
     def restore_termios():
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+        try:
+            termios.tcsetattr(fd, termios.TCSANOW, old_attr)
+        except termios.error as e:
+            print(f'Error failing to restore termios: {e!r}', file=sys.stderr)
 
-    fd = sys.stdin.fileno()
     if termios is not None and os.isatty(fd):
-        old_attr = termios.tcgetattr(fd)
-        new_attr = termios.tcgetattr(fd)
-        new_attr[0] = new_attr[0] & ~termios.IXON
-        termios.tcsetattr(fd, termios.TCSADRAIN, new_attr)
-        atexit.register(restore_termios)
-        logger.debug('Disabling XON/XOFF flow control on output')
+        try:
+            old_attr = termios.tcgetattr(fd)
+            new_attr = termios.tcgetattr(fd)
+            new_attr[0] = new_attr[0] & ~termios.IXON
+            termios.tcsetattr(fd, termios.TCSANOW, new_attr)
+            logger.debug('Disabling XON/XOFF flow control on output')
+            return restore_termios
+        except termios.error:
+            pass
 
 # Parsing arguments utilities.
 class FilterDebug:
@@ -227,7 +232,10 @@ def padlna_main(clazz, doc, argv=sys.argv):
     exit_code = 1
     try:
         if pa_dlna:
-            disable_xon_xoff()
+            fd = sys.stdin.fileno()
+            restore_termios = disable_xonxoff(fd)
+            if restore_termios is not None:
+                atexit.register(restore_termios)
             exit_code = asyncio.run(app.run_control_point())
         else:
             # Run the control point of upnp-cmd in a thread.

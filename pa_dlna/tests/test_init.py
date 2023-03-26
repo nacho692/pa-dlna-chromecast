@@ -1,9 +1,16 @@
 """Command line test cases."""
 
+import sys
+import os
 import io
 import struct
 import logging
 import unittest
+try:
+    import termios
+    import pty
+except ImportError:
+    pass
 from contextlib import redirect_stdout, redirect_stderr
 from unittest import mock
 
@@ -11,9 +18,22 @@ from unittest import mock
 from . import load_ordered_tests as load_tests
 
 from . import requires_resources, BaseTestCase
-from ..init import parse_args, padlna_main, UPnPApplication
+from ..init import parse_args, padlna_main, UPnPApplication, disable_xonxoff
 from ..encoders import Encoder
 from ..config import user_config_pathname
+
+# b'\x13' is the Stop character <Ctrl-S>.
+# b'\x11' is the Start character <Ctrl-Q>.
+XON_XOFF_BYTES_ARRAY = b'A \x13 \x11 B\n'
+
+def echo_xonxoff_array():
+    txt = sys.stdin.readline()
+    print(txt, end='')
+
+    # When XON/XOFF is enabled, the Stop and Start characters are not passed
+    # as input and the following condition evaluates to True.
+    if txt.encode() != XON_XOFF_BYTES_ARRAY:
+        sys.exit(1)
 
 @requires_resources('os.devnull')
 class Init(BaseTestCase):
@@ -36,6 +56,42 @@ class Init(BaseTestCase):
                              f'^error.*{MIN_PYTHON_VERSION}')
         finally:
             pa_dlna = importlib.reload(pa_dlna)
+
+    @requires_resources('pty')
+    def test_disable_xonxoff(self):
+        """Spawn a process to test disable_xonxoff()."""
+
+        pid, master_fd = pty.fork()
+        if pid == 0:
+            module = 'pa_dlna.tests.test_init'
+            argv = [sys.executable, '-c',
+                    f'import {module}; {module}.echo_xonxoff_array()']
+            os.execl(argv[0], *argv)
+
+        # Note that the pty module imports the tty module that imports the
+        # termios module. So it is safe to assume that if pty is available,
+        # then termios is also available and 'restore_termios' is not None.
+        restore_termios = disable_xonxoff(master_fd)
+        old_attr = None
+        try:
+            # No ECHO and do not map NL to CR NL on output.
+            old_attr = termios.tcgetattr(master_fd)
+            new_attr = termios.tcgetattr(master_fd)
+            new_attr[1] = new_attr[1] & ~termios.ONLCR
+            new_attr[3] = new_attr[3] & ~termios.ECHO
+            termios.tcsetattr(master_fd, termios.TCSANOW, new_attr)
+
+            os.write(master_fd, XON_XOFF_BYTES_ARRAY)
+            data = os.read(master_fd, 1024)
+            status = os.waitpid(pid, 0)[1]
+            self.assertEqual(data, XON_XOFF_BYTES_ARRAY)
+            self.assertEqual(status, 0)
+        finally:
+            if old_attr is not None:
+                termios.tcsetattr(master_fd, termios.TCSANOW, old_attr)
+            if restore_termios:
+                restore_termios()
+            os.close(master_fd)
 
 @requires_resources('os.devnull')
 class Argv(BaseTestCase):

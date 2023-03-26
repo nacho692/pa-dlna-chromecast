@@ -11,7 +11,7 @@ default:
             - .cache/pip
 
     before_script:
-        - apt-get update -yq && apt-get install -yq curl
+        - apt-get update -yq && apt-get install -yq curl ffmpeg
         - python --version    # For debugging.
         - python -m pip install psutil
 

@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 0.4
+  - Fix ``pa-dlna`` hangs when one types <Control-S> in the terminal where the
+    program has been started.
+
 Version 0.3
   - The test coverage of ``pa-dlna`` is 95%.
   - UPnPControlPoint supports now the context manager protocol, not the
