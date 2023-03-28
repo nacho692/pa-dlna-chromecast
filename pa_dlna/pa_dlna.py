@@ -191,6 +191,11 @@ class Renderer:
 
         return MetaData(publisher, artist, title)
 
+    async def new_session(self, metadata, state):
+        await self.set_avtransporturi(metadata, state)
+        log_action(self.name, 'Play', state)
+        await self.play()
+
     async def handle_action(self, action):
         """An action is either 'Stop', 'Pause' or an instance of MetaData.
 
@@ -213,16 +218,19 @@ class Renderer:
         # Run an AVTransport action if needed.
         try:
             if state not in ('STOPPED', 'NO_MEDIA_PRESENT'):
-                if (self.encoder.track_metadata and
-                        isinstance(action, MetaData)):
-                    await self.set_nextavtransporturi(self.name,
-                                                      action, state)
+                if isinstance(action, MetaData):
+                    if self.encoder.track_metadata:
+                        await self.set_nextavtransporturi(action, state)
+                    else:
+                        await self.stop()
+                        log_action(self.name, 'Stop', state)
+                        await self.new_session(action, state)
                     return
                 elif action == 'Stop':
                     # Do not use the corresponding soap action. Let the
                     # HTTP 1.1 chunked transfer encoding handles the closing
                     # of the stream.
-                    log_action(self.name, action, state)
+                    log_action(self.name, 'Closing-Stop', state)
                     await self.stream_sessions.close_session()
                     return
                 # Ignore 'Pause' events as it does not work well with
@@ -233,10 +241,7 @@ class Renderer:
                     pass
             else:
                 if isinstance(action, MetaData):
-                    await self.set_avtransporturi(self.name, action,
-                                                  state)
-                    log_action(self.name, 'Play', state)
-                    await self.play()
+                    await self.new_session(action, state)
                     return
         except UPnPSoapFaultError as e:
             error_code = e.args[0].errorCode
@@ -246,20 +251,7 @@ class Renderer:
             else:
                 raise
 
-        if isinstance(action, MetaData):
-            # The following statement is run when these conditions are
-            # met:
-            #   - isinstance(action, MetaData) is true.
-            #   - self.encoder.track_metadata is False.
-            #   - self.nullsink.sink_input is None (a new pulse session).
-            #   - The new sink state is 'running'.
-            #   - The device state is 'PLAYING'.
-            # Is this a race condition where the device is still playing while
-            # pulseaudio starts a new session that does not track meta data ?
-            log_action(self.name, 'SetAVTransportURI', state,
-                       ignored=True, msg=str(action))
-        else:
-            log_action(self.name, action, state, ignored=True)
+        log_action(self.name, action, state, ignored=True)
 
     async def handle_pulse_event(self):
         """Handle a PulseAudio event.
@@ -388,19 +380,19 @@ class Renderer:
         )
         return metadata.strip()
 
-    async def set_avtransporturi(self, name, metadata, state):
+    async def set_avtransporturi(self, metadata, state):
         action = 'SetAVTransportURI'
         didl_lite_metadata = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
                 'CurrentURI': self.current_uri,
                 'CurrentURIMetaData': didl_lite_metadata
                 }
-        log_action(name, action, state, msg=didl_lite_metadata)
+        log_action(self.name, action, state, msg=didl_lite_metadata)
         logger.info(f'{metadata}'
                     f'{NL_INDENT}URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 
-    async def set_nextavtransporturi(self, name, metadata, state):
+    async def set_nextavtransporturi(self, metadata, state):
         action = 'SetNextAVTransportURI'
         didl_lite_metadata = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
@@ -409,7 +401,7 @@ class Renderer:
                 }
 
         await self.stream_sessions.stop_track()
-        log_action(name, action, state, msg=didl_lite_metadata)
+        log_action(self.name, action, state, msg=didl_lite_metadata)
         logger.info(f'{metadata}')
         logger.debug(f'URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
@@ -424,6 +416,10 @@ class Renderer:
         args = {'InstanceID': 0}
         args['Speed'] = speed
         await self.soap_action(AVTRANSPORT, 'Play', args)
+
+    async def stop(self):
+        args = {'InstanceID': 0}
+        await self.soap_action(AVTRANSPORT, 'Stop', args)
 
     def set_current_uri(self):
         self.current_uri = (f'http://{self.local_ipaddress}'

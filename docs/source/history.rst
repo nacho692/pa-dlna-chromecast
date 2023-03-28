@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.4
+  - Fix failing to start a new stream session while the device is still playing
+    when using an encoder set as no ``track_metadata``.
   - Fix ``pa-dlna`` hangs when one types <Control-S> in the terminal where the
     program has been started.
 
