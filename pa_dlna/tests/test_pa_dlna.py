@@ -530,6 +530,30 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile("MetaData\(.* artist='Ziggy Stardust'")))
 
+    async def test_no_track_metadata(self):
+        proplist = PROPLIST.copy()
+        proplist['media.title'] = 'Sticky Fingers'
+        ctx = PulseEventContext(prev_sink_state='running',
+                                sink_state='running',
+                                sink_input_index=1,
+                                sink_input_proplist=proplist)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is None)
+
+        result, logs = await self.patch_soap_action('change', ctx,
+                                                    track_metadata=False)
+
+        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
+        self.assertEqual(len(result), 3)
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+            re.compile('change.* event .* prev/new state: running/running')))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+            re.compile("'Stop' UPnP action .* PLAYING")))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+            re.compile("'SetAVTransportURI' UPnP action .* PLAYING")))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+            re.compile("'Play' UPnP action .* PLAYING")))
+
     async def test_soap_fault(self):
         ctx = PulseEventContext(sink_state='running', sink_input_index=0)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
