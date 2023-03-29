@@ -204,16 +204,7 @@ class Renderer:
         """
 
         # Get the stream state.
-        timeout = 1.0
-        try:
-            state = await asyncio.wait_for(self.get_transport_state(),
-                                           timeout=timeout)
-        except asyncio.TimeoutError:
-            state = ('PLAYING' if self.stream_sessions.is_playing else
-                     'STOPPED')
-            logger.debug(f'{self.name} stream state: {state} '
-                         f'(GetTransportInfo timed out after {timeout}'
-                         f' second)')
+        state = await self.get_transport_state()
 
         # Run an AVTransport action if needed.
         try:
