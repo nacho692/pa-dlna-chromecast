@@ -2,8 +2,10 @@ Release history
 ===============
 
 Version 0.4
+  - Fix the parec command line length keeps increasing at each new track when
+    the encoder is set to track metadata.
   - Fix failing to start a new stream session while the device is still playing
-    when using an encoder set as no ``track_metadata``.
+    when the encoder is set to not track metadata.
   - Fix ``pa-dlna`` hangs when one types <Control-S> in the terminal where the
     program has been started.
 

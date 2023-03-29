@@ -346,7 +346,8 @@ class StreamProcesses:
             if self.parec_proc is None:
                 # Start the parec task.
                 # An L16Encoder stream only runs the parec program.
-                parec_cmd = renderer.control_point.parec_cmd
+                # Use a copy of parec_cmd.
+                parec_cmd = renderer.control_point.parec_cmd[:]
                 if self.no_encoder:
                     coro = self.run_parec(encoder, parec_cmd)
                 else:

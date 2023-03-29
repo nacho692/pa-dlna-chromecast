@@ -9,7 +9,8 @@ from unittest import IsolatedAsyncioTestCase, mock
 from . import load_ordered_tests as load_tests
 
 from . import requires_resources, find_in_logs, search_in_logs
-from .streams import BLKSIZE, run_curl, new_renderer, play_track, Renderer
+from .streams import (BLKSIZE, run_curl, new_renderer, play_track, Renderer,
+                      ControlPoint)
 from ..encoders import FFMpegEncoder, L16Encoder
 from ..http_server import HTTPServer, Track
 
@@ -30,6 +31,11 @@ class Http_Server(IsolatedAsyncioTestCase):
 
         self.assertEqual(returncode, 0)
         self.assertEqual(length, sum(transactions[1:]))
+
+        # Issue #5:
+        # 'The parec command line length keeps increasing at each new track'.
+        self.assertEqual(renderer.control_point.parec_cmd,
+                         ControlPoint().parec_cmd)
 
     async def test_play_aiff(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
