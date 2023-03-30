@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.4
+  - The encoder command line is now updated with ``pa-dlna.conf`` user
+    configuration.
   - Fix the parec command line length keeps increasing at each new track when
     the encoder is set to track metadata.
   - Fix failing to start a new stream session while the device is still playing

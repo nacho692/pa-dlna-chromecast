@@ -9,6 +9,8 @@ from configparser import ParsingError
 from . import load_ordered_tests as load_tests
 
 from . import BaseTestCase, requires_resources
+from ..config import UserConfig
+from ..encoders import select_encoder
 
 UDN = 'uuid:ffffffff-ffff-ffff-ffff-ffffffffffff'
 
@@ -25,7 +27,7 @@ class Encoder:
         return True
 
     def set_args(self):
-        return str(self.args) == 'None'
+        pass
 
 class StandAloneEncoder(Encoder):
     def __init__(self):
@@ -34,6 +36,9 @@ class StandAloneEncoder(Encoder):
 class TestEncoder(StandAloneEncoder):
     def __init__(self):
         StandAloneEncoder.__init__(self)
+
+    def set_args(self):
+        self.args = f'command line: {self.option}'
 
 class encoders_module:
     def __init__(self, root=Encoder, encoder=TestEncoder):
@@ -61,7 +66,7 @@ class DefaultConfig(BaseTestCase):
                          f"'{name}' is not a valid class name")
 
 @requires_resources('os.devnull')
-class UserConfig(BaseTestCase):
+class UserConfigTests(BaseTestCase):
     """User configuration tests."""
 
     def test_invalid_value(self):
@@ -76,7 +81,6 @@ class UserConfig(BaseTestCase):
                 mock.patch('builtins.open', mock.mock_open(
                     read_data=pa_dlna_conf)),\
                 self.assertRaises(ParsingError) as cm:
-            from ..config import UserConfig
             UserConfig()
 
         self.assertRegex(cm.exception.args[0],
@@ -93,22 +97,52 @@ class UserConfig(BaseTestCase):
                 mock.patch('builtins.open', mock.mock_open(
                     read_data=pa_dlna_conf)),\
                 self.assertRaises(ParsingError) as cm:
-            from ..config import UserConfig
             UserConfig()
 
         self.assertEqual(cm.exception.args[0],
                          "Unknown option 'TestEncoder.invalid'")
 
-    def test_no_userfile(self):
+    def test_default_conf(self):
         with mock.patch('pa_dlna.config.encoders_module',
                         new=encoders_module()),\
                 mock.patch('builtins.open', mock.mock_open()) as m_open:
             m_open.side_effect = FileNotFoundError()
-            from ..config import UserConfig
             cfg = UserConfig()
 
         self.assertEqual(cfg.encoders['TestEncoder'].__dict__,
-                         {'args': 'None', 'option': 1})
+                         {'args': 'command line: 1', 'option': 1})
+
+    def test_user_conf(self):
+        pa_dlna_conf = """
+        [TestEncoder]
+          option = 2
+        """
+
+        with mock.patch('pa_dlna.config.encoders_module',
+                        new=encoders_module()),\
+                mock.patch('builtins.open', mock.mock_open(
+                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        self.assertEqual(cfg.encoders['TestEncoder'].__dict__,
+                         {'args': 'command line: 2', 'option': 2})
+
+    def test_command_qscale(self):
+        pa_dlna_conf = """
+        [FFMpegMp3Encoder]
+          bitrate = 0
+          qscale = 2
+        """
+
+        with mock.patch('builtins.open', mock.mock_open(
+                                                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        arg = '-qscale:a'
+        command  = cfg.encoders['FFMpegMp3Encoder'].command
+        self.assertTrue(arg in command)
+        index = command.index(arg)
+        self.assertEqual(command[index+1], '2')
 
     def test_not_available(self):
         class UnAvailableEncoder(StandAloneEncoder):
@@ -121,7 +155,6 @@ class UserConfig(BaseTestCase):
                 mock.patch('builtins.open', mock.mock_open()) as m_open,\
                 redirect_stdout(io.StringIO()) as output:
             m_open.side_effect = FileNotFoundError()
-            from ..config import UserConfig
             cfg = UserConfig()
             cfg.print_internal_config()
 
@@ -138,7 +171,6 @@ class UserConfig(BaseTestCase):
                 mock.patch('builtins.open', mock.mock_open(
                     read_data=pa_dlna_conf)),\
                 self.assertRaises(ParsingError) as cm:
-            from ..config import UserConfig
             UserConfig()
 
         self.assertEqual(cm.exception.args[0],
@@ -156,13 +188,12 @@ class UserConfig(BaseTestCase):
                 mock.patch('builtins.open', mock.mock_open(
                     read_data=pa_dlna_conf)),\
                 self.assertRaises(ParsingError) as cm:
-            from ..config import UserConfig
             UserConfig()
 
         self.assertEqual(cm.exception.args[0]
                          , "'UnknownEncoder' encoder does not exist")
 
-    def test_unvalid_encoder(self):
+    def test_invalid_encoder(self):
         pa_dlna_conf = """
         [DEFAULT]
           selection = UnknownEncoder
@@ -173,7 +204,6 @@ class UserConfig(BaseTestCase):
                 mock.patch('builtins.open', mock.mock_open(
                     read_data=pa_dlna_conf)),\
                 self.assertRaises(ParsingError) as cm:
-            from ..config import UserConfig
             UserConfig()
 
         self.assertEqual(cm.exception.args[0], "'UnknownEncoder' in the"
@@ -189,7 +219,6 @@ class UserConfig(BaseTestCase):
                 mock.patch('builtins.open', mock.mock_open(
                     read_data=pa_dlna_conf)),\
                 redirect_stdout(io.StringIO()) as output:
-            from ..config import UserConfig
             UserConfig().print_internal_config()
 
         self.assertIn(f"{{'{UDN}': {{'_encoder': 'TestEncoder'",
@@ -202,8 +231,6 @@ class Encoders(BaseTestCase):
     def l16_mime_type(self, mime_type, rate=0, channels=0, udn=None):
 
         pinfo = {'Sink': f'http-get:*:{mime_type}:DLNA.ORG_PN=LPCM'}
-        from ..encoders import select_encoder
-        from ..config import UserConfig
         config = UserConfig()
 
         if udn is not None:
