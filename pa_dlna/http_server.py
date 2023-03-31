@@ -263,13 +263,10 @@ class StreamProcesses:
         renderer = self.session.renderer
         try:
             if self.no_encoder:
-                format = encoder._network_format
                 stdout = asyncio.subprocess.PIPE
-            else:
-                format = encoder._pulse_format
             monitor = renderer.nullsink.sink.monitor_source_name
             parec_cmd.extend([f'--device={monitor}',
-                              f'--format={format}',
+                              f'--format={encoder._pulse_format}',
                               f'--rate={encoder.rate}',
                               f'--channels={encoder.channels}'])
             logger.info(f"{renderer.name}: {' '.join(parec_cmd)}")

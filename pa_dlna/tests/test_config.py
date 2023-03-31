@@ -144,6 +144,21 @@ class UserConfigTests(BaseTestCase):
         index = command.index(arg)
         self.assertEqual(command[index+1], '2')
 
+    def test_pulse_format(self):
+        configs = (
+            ('FFMpegMp3Encoder', 's16le'),
+            ('FFMpegL16WavEncoder', 's16be'),
+            ('L16Encoder', 's16be'),
+            )
+
+        for encoder, format in configs:
+            pa_dlna_conf = f'[{encoder}]'
+            with self.subTest(pa_dlna_conf=pa_dlna_conf, format=format),\
+                    mock.patch('builtins.open', mock.mock_open(
+                                                    read_data=pa_dlna_conf)):
+                cfg = UserConfig()
+                self.assertEqual(cfg.encoders[encoder]._pulse_format, format)
+
     def test_not_available(self):
         class UnAvailableEncoder(StandAloneEncoder):
             def __init__(self):

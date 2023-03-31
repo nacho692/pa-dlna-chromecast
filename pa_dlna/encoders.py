@@ -4,7 +4,6 @@ Attributes starting with '_' are seen by the user as read only options.
 
 """
 
-import sys
 import subprocess
 import shutil
 import logging
@@ -85,8 +84,7 @@ class Encoder:
     """
 
     def __init__(self):
-        endianess = sys.byteorder
-        self._pulse_format = 's16le' if endianess == 'little' else 's16be'
+        self._pulse_format = 's16le'
         self.selection = DEFAULT_SELECTION
         self.rate = 44100
         self.channels = 2
@@ -215,8 +213,8 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
 
     def __init__(self):
         self._mime_types = ['audio/l16']
-        self._network_format = 's16be'
         StandAloneEncoder.__init__(self)
+        self._pulse_format = 's16be'
 
     def set_args(self):
         pass

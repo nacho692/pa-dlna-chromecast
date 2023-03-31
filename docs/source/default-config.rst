@@ -177,8 +177,7 @@ As printed by the command ``pa-dlna --dump-default``.
  # See also https://datatracker.ietf.org/doc/html/rfc2586.
  #
  # mime_types: ['audio/l16']
- # network_format: s16be
- # pulse_format: s16le
+ # pulse_format: s16be
 
  [Mp3Encoder]
  # Mp3 encoder from the Lame Project.
