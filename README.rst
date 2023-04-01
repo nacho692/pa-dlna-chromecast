@@ -1,7 +1,7 @@
 The **pa-dlna** Python project forwards pulseaudio streams to DLNA devices. It
 is based on asyncio and is composed of the following components:
 
- * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices.
+ * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices [#]_.
  * The ``upnp-cmd`` is an interactive command line tool for introspection and
    control of UPnP devices.
  * A standalone UPnP library used by both commands.
@@ -58,3 +58,5 @@ A ``pa-dlna.conf`` user configuration file may be used to:
 .. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html
 .. _flac: https://xiph.org/flac/
 .. _lame: https://lame.sourceforge.io/
+
+.. [#] The ``pa-dlna`` and ``upnp-cmd`` programs can be run simultaneously.
