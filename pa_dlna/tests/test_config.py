@@ -144,7 +144,7 @@ class UserConfigTests(BaseTestCase):
         index = command.index(arg)
         self.assertEqual(command[index+1], '2')
 
-    def test_pulse_format(self):
+    def test_default_sample_formats(self):
         configs = (
             ('FFMpegMp3Encoder', 's16le'),
             ('FFMpegL16WavEncoder', 's16be'),
@@ -157,7 +157,42 @@ class UserConfigTests(BaseTestCase):
                     mock.patch('builtins.open', mock.mock_open(
                                                     read_data=pa_dlna_conf)):
                 cfg = UserConfig()
-                self.assertEqual(cfg.encoders[encoder]._pulse_format, format)
+                self.assertEqual(cfg.encoders[encoder].sample_format, format)
+
+    def test_mp3_sample_format(self):
+        pa_dlna_conf = """
+        [FFMpegMp3Encoder]
+          sample_format = s32le
+        """
+
+        with mock.patch('builtins.open', mock.mock_open(
+                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        self.assertEqual(cfg.encoders['FFMpegMp3Encoder'].sample_format,
+                         's32le')
+
+    def test_l16_sample_format(self):
+        pa_dlna_conf = """
+        [L16Encoder]
+        """
+
+        with mock.patch('builtins.open', mock.mock_open(
+                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        self.assertEqual(cfg.encoders['L16Encoder'].sample_format, 's16be')
+
+    def test_l16_udn_sample_format(self):
+        pa_dlna_conf = """
+        [L16Encoder.uuid:9ab0c000]
+        """
+
+        with mock.patch('builtins.open', mock.mock_open(
+                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        self.assertEqual(cfg.udns['uuid:9ab0c000'].sample_format, 's16be')
 
     def test_not_available(self):
         class UnAvailableEncoder(StandAloneEncoder):

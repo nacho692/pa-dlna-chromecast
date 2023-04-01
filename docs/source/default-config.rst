@@ -38,6 +38,7 @@ As printed by the command ``pa-dlna --dump-default``.
      FFMpegOpusEncoder,
      FFMpegVorbisEncoder,
      FFMpegAacEncoder,
+ sample_format = s16le
  rate = 44100
  channels = 2
  track_metadata = yes
@@ -52,7 +53,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # available: yes
  # pgm: /usr/bin/ffmpeg
  # mime_types: ['audio/aac', 'audio/x-aac', 'audio/vnd.dlna.adts']
- # pulse_format: s16le
  #
  bitrate = 192
  args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f adts
@@ -64,7 +64,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # available: yes
  # pgm: /usr/bin/ffmpeg
  # mime_types: ['audio/aiff']
- # pulse_format: s16le
  args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f aiff
  pipe:1
 
@@ -76,7 +75,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # available: yes
  # pgm: /usr/bin/ffmpeg
  # mime_types: ['audio/flac', 'audio/x-flac']
- # pulse_format: s16le
  args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f flac
  pipe:1
 
@@ -86,7 +84,8 @@ As printed by the command ``pa-dlna --dump-default``.
  # available: yes
  # pgm: /usr/bin/ffmpeg
  # mime_types: ['audio/l16']
- # pulse_format: s16be
+ #
+ sample_format = s16be
  args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16be -i - -f wav
  pipe:1
 
@@ -100,7 +99,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # available: yes
  # pgm: /usr/bin/ffmpeg
  # mime_types: ['audio/mp3', 'audio/mpeg']
- # pulse_format: s16le
  #
  bitrate = 256
  qscale = 2
@@ -115,7 +113,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # available: yes
  # pgm: /usr/bin/ffmpeg
  # mime_types: ['audio/opus', 'audio/x-opus']
- # pulse_format: s16le
  #
  bitrate = 128
  args = -loglevel error -hide_banner -nostats -ac 2 -ar 44100 -f s16le -i - -f opus
@@ -131,7 +128,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # available: yes
  # pgm: /usr/bin/ffmpeg
  # mime_types: ['audio/vorbis', 'audio/x-vorbis']
- # pulse_format: s16le
  #
  bitrate = 256
  qscale = 3.0
@@ -147,7 +143,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # pgm: /usr/bin/flac
  # available: yes
  # mime_types: ['audio/flac', 'audio/x-flac']
- # pulse_format: s16le
  args = - --silent --channels 2 --sample-rate 44100 --sign signed --bps 16 --endian
  little
 
@@ -177,7 +172,8 @@ As printed by the command ``pa-dlna --dump-default``.
  # See also https://datatracker.ietf.org/doc/html/rfc2586.
  #
  # mime_types: ['audio/l16']
- # pulse_format: s16be
+ #
+ sample_format = s16be
 
  [Mp3Encoder]
  # Mp3 encoder from the Lame Project.
@@ -189,7 +185,6 @@ As printed by the command ``pa-dlna --dump-default``.
  # pgm: /usr/bin/lame
  # available: yes
  # mime_types: ['audio/mp3', 'audio/mpeg']
- # pulse_format: s16le
  #
  bitrate = 256
  quality = 0

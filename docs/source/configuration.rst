@@ -42,10 +42,9 @@ The full path name of the  user's ``pa-dlna.conf`` file is determined by
       ``$XDG_CONFIG_HOME/pa-dlna/pa-dlna.conf``.
     * Otherwise the path name is ``$HOME/.config/pa-dlna/pa-dlna.conf``.
 
-When ``pa-dlna.conf`` is not found, the program uses the default configuration,
-otherwise as stated in the previous section, it uses the default configuration
-with its options overriden by the user's configuration and with the added
-[EncoderName.UDN] sections.
+When ``pa-dlna.conf`` is not found, the program uses the default configuration.
+Otherwise it uses the default configuration with its options overriden by the
+user's configuration and with the added [EncoderName.UDN] sections.
 
 Here is an example of a ``pa-dlna.conf`` file::
 
@@ -84,21 +83,38 @@ dictionary is printed with keys being ``EncoderName`` or ``UDN`` and the values
 a dictionary of their options. The ``EncoderName`` keys are ordered according to
 the ``selection`` option.
 
-Options
--------
+PulseAudio options
+------------------
 
-The options common to all sections are:
+These options are used by the pulseaudio ``parec`` program and the encoder
+programs:
 
-  *args*
-    The arguments of the encoder program's command line. The encoder's specific
-    options, such as bitrate for example, are ignored when this option is
-    overriden in the ``pa-dlna.conf`` file.
+  *sample_format*
+    The default value is ``s16le``.
 
-  *channels*
-    The number of audio channels.
+    The encoders supporting the ``audio/L16`` mime types (i.e. uncompressed
+    audio data as defined by `RFC 2586`_) have this option set to ``s16be`` as
+    specified by the RFC and it cannot be modified by the user.
+
+    See the pulseaudio supported `sample formats`_.
 
   *rate*
-    The pulseaudio sample rate.
+    The pulseaudio sample rate (default: 44100).
+
+  *channels*
+    The number of audio channels (default: 2).
+
+Other common options
+--------------------
+
+The other common options to all encoders are:
+
+  *args*
+    The ``args`` option is the encoder program's command line. It is built from
+    the pulseaudio options and the encoder's specific options.
+
+    As all the other options (except ``sample_rate`` in some cases, see above)
+    it may be customized by the user.
 
   *track_metadata*
     * When ``yes``, each track is streamed in its own HTTP session allowing the
@@ -106,6 +122,16 @@ The options common to all sections are:
       data` section. This is the default.
     * When ``no``, there is only one HTTP session for all the tracks. Set this
       option to ``no`` when the logs show ERROR entries upon tracks changes.
+
+Encoder specific options:
+-------------------------
+
+Encoder specific options (for example ``bitrate``) are listed in
+:ref:`default_config` with their default value. They are used to build the
+``args`` command line.
+
+There is usually a web link in the comments following the encoder's section name that
+provides information upon these options and their allowed values.
 
 .. _INI file: https://en.wikipedia.org/wiki/INI_file
 .. _configparser:
@@ -115,3 +141,8 @@ The options common to all sections are:
 
 .. [#] This text is generated from Python classes in the ``pa-dlna`` source
        code.
+
+.. _sample formats:
+    https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/SupportedAudioFormats/
+.. _RFC 2586:
+    https://datatracker.ietf.org/doc/html/rfc2586

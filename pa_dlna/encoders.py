@@ -84,8 +84,8 @@ class Encoder:
     """
 
     def __init__(self):
-        self._pulse_format = 's16le'
         self.selection = DEFAULT_SELECTION
+        self.sample_format = 's16le'
         self.rate = 44100
         self.channels = 2
         self.track_metadata = True
@@ -180,7 +180,7 @@ class FlacEncoder(StandAloneEncoder):
         super().__init__()
 
     def set_args(self):
-        endian = 'little' if self._pulse_format == 's16le' else 'big'
+        endian = 'little' if self.sample_format == 's16le' else 'big'
         self.args = (f'- --silent --channels {self.channels} '
                      f'--sample-rate {self.rate} '
                      f'--sign signed --bps 16 --endian {endian}')
@@ -214,7 +214,7 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
     def __init__(self):
         self._mime_types = ['audio/l16']
         StandAloneEncoder.__init__(self)
-        self._pulse_format = 's16be'
+        self.sample_format = 's16be'
 
     def set_args(self):
         pass
@@ -237,7 +237,7 @@ class Mp3Encoder(StandAloneEncoder):
 
     def set_args(self):
         sampling = self.rate / 1000
-        endian = 'little' if self._pulse_format == 's16le' else 'big'
+        endian = 'little' if self.sample_format == 's16le' else 'big'
         self.args = (f'-r -s {sampling} --signed --bitwidth 16 '
                      f'--{endian}-endian '
                      f'-q {self.quality} -b {self.bitrate} -')
@@ -255,7 +255,7 @@ class FFMpegEncoder(Encoder):
     container = None
     encoder = None
 
-    def __init__(self, mime_types, *, pulse_format=None):
+    def __init__(self, mime_types, *, sample_format=None):
         assert self.container is not None
 
         if self.FORMATS is None:
@@ -273,9 +273,9 @@ class FFMpegEncoder(Encoder):
 
         super().__init__()
 
-        # Override the default _pulse_format.
-        if pulse_format is not None:
-            self._pulse_format = pulse_format
+        # Override the default sample_format.
+        if sample_format is not None:
+            self.sample_format = sample_format
 
         if self.encoder is not None:
             if self.ENCODERS is None:
@@ -294,7 +294,7 @@ class FFMpegEncoder(Encoder):
     def set_args(self):
         self.args = (f'-loglevel error -hide_banner -nostats '
                      f'-ac {self.channels} -ar {self.rate} '
-                     f'-f {self._pulse_format} -i - '
+                     f'-f {self.sample_format} -i - '
                      f'-f {self.container}')
         if self.encoder is not None:
             self.args += f' -c:a {self.encoder}'
@@ -345,7 +345,7 @@ class FFMpegL16WavEncoder(L16Mixin, FFMpegEncoder):
     container = 'wav'
 
     def __init__(self):
-        FFMpegEncoder.__init__(self, ['audio/l16'], pulse_format='s16be')
+        FFMpegEncoder.__init__(self, ['audio/l16'], sample_format='s16be')
 
 class FFMpegMp3Encoder(FFMpegEncoder):
     """Mp3 encoder.

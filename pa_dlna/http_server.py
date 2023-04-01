@@ -266,7 +266,7 @@ class StreamProcesses:
                 stdout = asyncio.subprocess.PIPE
             monitor = renderer.nullsink.sink.monitor_source_name
             parec_cmd.extend([f'--device={monitor}',
-                              f'--format={encoder._pulse_format}',
+                              f'--format={encoder.sample_format}',
                               f'--rate={encoder.rate}',
                               f'--channels={encoder.channels}'])
             logger.info(f"{renderer.name}: {' '.join(parec_cmd)}")

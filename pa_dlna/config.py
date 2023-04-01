@@ -127,14 +127,20 @@ class DefaultConfig:
 
     def override_options(self, encoder, section, defaults):
         for option, value in self.parser.items(section):
-            if option.startswith("#"):
+            if option.startswith("#") or option == 'selection':
                 continue
             if (hasattr(encoder, option) and
                     not option.startswith('_')):
                 new_val = self.get_value(section, encoder,
                                          option, value)
                 if new_val is not None:
-                    setattr(encoder, option, new_val)
+                    # Do not override 'sample_format' in L16 encoders,
+                    # as it is correctly set to 's16be' upon instantiation.
+                    if (option != 'sample_format' or
+                            'audio/l16' not in
+                                (mtype.lower() for mtype in
+                                 encoder._mime_types)):
+                        setattr(encoder, option, new_val)
             elif option not in defaults:
                 raise ParsingError(f'Unknown option'
                                    f" '{section}.{option}'")
