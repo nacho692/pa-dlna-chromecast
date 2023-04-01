@@ -173,14 +173,14 @@ Releasing
     $ git commit -m 'Version 0.n'
     $ git push
 
-* Publish the new version to PyPi::
-
-    $ flit publish
-
 * Tag the release and push::
 
     $ git tag -a v0.n -m 'Version 0.n'
     $ git push --tags
+
+* Publish the new version to PyPi::
+
+    $ flit publish
 
 .. include:: common.txt
 
