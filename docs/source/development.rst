@@ -150,7 +150,7 @@ Documentation:
 Documentation
 """""""""""""
 
-To build locally the documentation:
+To build locally the documentation and:
 
   - Generate the ``default-config.rst`` file.
   - Fetch the GitLab test coverage badge.
@@ -162,6 +162,18 @@ Run the following commands::
     $ curl -o docs/source/_static/coverage.svg\
     "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=95"
     $ make -C docs clean html man
+
+Updating development version
+""""""""""""""""""""""""""""
+
+In order to update the version at the `latest documentation`_ during
+development, after a change in the functionality or in the features, run the
+following commands::
+
+    $ python -m tools.set_devpt_version_name
+    $ make -C docs clean html man
+    $ git commit -m "Update version"
+    $ git push
 
 Releasing
 """""""""
@@ -206,6 +218,8 @@ Releasing
 .. _flit: https://pypi.org/project/flit/
 .. _unittest command line options:
     https://docs.python.org/3/library/unittest.html#command-line-options
+.. _latest documentation:
+    https://pa-dlna.readthedocs.io/en/latest/
 
 .. rubric:: Footnotes
 
