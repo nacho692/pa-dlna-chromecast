@@ -2,7 +2,7 @@
 
 import sys
 
-__version__ = '0.4'
+__version__ = 'v0.4-2-g3c46555'
 MIN_PYTHON_VERSION = (3, 8)
 
 _version = sys.version_info[:2]
