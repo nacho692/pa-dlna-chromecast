@@ -27,7 +27,7 @@ class Encoder:
         return True
 
     def set_args(self):
-        pass
+        raise NotImplementedError
 
 class StandAloneEncoder(Encoder):
     def __init__(self):
@@ -127,6 +127,19 @@ class UserConfigTests(BaseTestCase):
         self.assertEqual(cfg.encoders['TestEncoder'].__dict__,
                          {'args': 'command line: 2', 'option': 2})
 
+    def test_customize_args_option(self):
+        pa_dlna_conf = """
+        [FFMpegMp3Encoder]
+          bitrate = 320
+          args = foo
+        """
+
+        with mock.patch('builtins.open', mock.mock_open(
+                                                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        self.assertEqual(cfg.encoders['FFMpegMp3Encoder'].args, 'foo')
+
     def test_command_qscale(self):
         pa_dlna_conf = """
         [FFMpegMp3Encoder]
@@ -199,6 +212,9 @@ class UserConfigTests(BaseTestCase):
             def __init__(self):
                 super().__init__()
                 self._available = False
+
+            def set_args(self):
+                pass
 
         with mock.patch('pa_dlna.config.encoders_module',
                         new=encoders_module(encoder=UnAvailableEncoder)),\

@@ -105,10 +105,10 @@ class DefaultConfig:
                         write_separator = False
                         self.write_empty_comment(section)
                     self.parser.set(section, attr, val)
-            if isinstance(self, DefaultConfig):
-                encoder.set_args()
-                if encoder.args:
-                    self.parser.set(section, 'args', encoder.args)
+
+            encoder.set_args()
+            if encoder.args:
+                self.parser.set(section, 'args', encoder.args)
 
     def get_value(self, section, encoder, option, new_val):
         old_val = getattr(encoder, option)
@@ -126,6 +126,9 @@ class DefaultConfig:
         return new_val
 
     def override_options(self, encoder, section, defaults):
+        encoder.set_args()
+        default_args = encoder.args
+
         for option, value in self.parser.items(section):
             if option.startswith("#") or option == 'selection':
                 continue
@@ -144,7 +147,11 @@ class DefaultConfig:
             elif option not in defaults:
                 raise ParsingError(f'Unknown option'
                                    f" '{section}.{option}'")
-        encoder.set_args()
+
+        # Re-evaluate 'args' with possibly modified options, as 'args' itself
+        # has not been customized by the user.
+        if default_args == encoder.args:
+            encoder.set_args()
 
     def write(self, fileobject):
         """Write the configuration to a text file object."""

@@ -1,9 +1,13 @@
 Release history
 ===============
 
+Version 0.5
+  - Fix changing the ``args`` encoder option is ignored.
+
 Version 0.4
   - ``sample_format`` is a new encoder configuration option.
-  - The encoders sample format is 's16le' except for the 'audio/l16' encoder.
+  - The encoders sample format is ``s16le`` except for the ``audio/l16``
+    encoder.
   - The encoder command line is now updated with ``pa-dlna.conf`` user
     configuration.
   - Fix the parec command line length keeps increasing at each new track when

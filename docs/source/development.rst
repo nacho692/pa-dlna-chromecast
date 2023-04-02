@@ -121,21 +121,27 @@ registration:
     The `UPnP Device Architecture`_ specification does not specify the
     periodicity of NOTIFY SSDPs sent by DLNA devices.
 
-Development process
--------------------
+Development process [#]_
+------------------------
 
 Requirements
 """"""""""""
 
 Development:
-    * `curl`_ is needed to run the full test suite. If missing then the tests
-      using curl are skipped.
-    * `coverage`_ may be used to get the test suite coverage.
-    * `flit`_ to publish pa-dlna to PyPi. Use the following command to install
-      pa-dlna locally and have the changes in the source code reflected by the
-      ``pa-dlna`` command::
+    * `curl`_ is used to run the full test suite. When missing, the tests
+      using curl are skipped. It is needed when releasing a new version to fetch
+      the GitLab test coverage badge.
+    * `coverage`_ is used to get the test suite coverage.
+    * `flit`_ is used to install pa-dlna or to publish it to PyPi.
 
-        $ flit install --symlink [--python path/to/python_version]
+      At the root of pa-dlna local git repository, use the following command to
+      install pa-dlna locally::
+
+        $ flit install --symlink [--python path/to/python]
+
+      This symlinks pa-dlna into site-packages rather than copying it, so that
+      you can test changes by running the ``pa-dlna`` and ``upnp-cmd`` commands
+      without reinstalling the package.
 
 Documentation:
     * `Sphinx`_ [#]_.
@@ -144,14 +150,18 @@ Documentation:
 Documentation
 """""""""""""
 
-To build locally the documentation, generate the ``default-config.rst`` file,
-fetch the test coverage badge and build the html documentation and the man
-pages::
+To build locally the documentation:
 
-  $ python -m tools.gendoc_default_config
-  $ curl -o docs/source/_static/coverage.svg\
+  - Generate the ``default-config.rst`` file.
+  - Fetch the GitLab test coverage badge.
+  - Build the html documentation and the man pages.
+
+Run the following commands::
+
+    $ python -m tools.gendoc_default_config
+    $ curl -o docs/source/_static/coverage.svg\
     "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=95"
-  $ make -C docs clean html man
+    $ make -C docs clean html man
 
 Releasing
 """""""""
@@ -160,14 +170,16 @@ Releasing
 
     $ python -m unittest --verbose --catch --failfast
 
-* Optionally get the test suite coverage::
+* Get the test suite coverage::
 
     $ coverage run -m unittest
     $ coverage report -m
 
 * Update ``__version__`` in pa_dlna/__init__.py.
-* Update docs/source/history.rst
-* Build locally the documentation (fetch the latest test coverage badge).
+* Update docs/source/history.rst.
+* Build locally the documentation and possibly create a new version of
+  ``default-config.rst`` or create a new GitLab test coverage badge (see
+  above).
 * Commit the changes::
 
     $ git commit -m 'Version 0.n'
@@ -200,5 +212,7 @@ Releasing
 .. [#] All sockets bound to the notify multicast address receive the datagram
        sent by a DLNA device, even though it has been received by only one
        interface at the physical layer.
+.. [#] The shell commands in this section are all run from the root of the
+       repository.
 .. [#] Required versions at ``docs/requirements.txt``.
 .. [#] See `unittest command line options`_.
