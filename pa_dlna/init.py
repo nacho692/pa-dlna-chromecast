@@ -171,6 +171,7 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
         logging.shutdown()
         sys.exit(2)
 
+    logger.info('pa-dlna version ' + __version__)
     logger.info('Python version ' + sys.version)
     options['nics'] = [nic for nic in
                        (x.strip() for x in options['nics'].split(',')) if nic]
