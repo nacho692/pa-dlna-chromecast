@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.5
+  - Add the ``--ip-addresses``, ``-a`` command line argument.
   - Fix changing the ``args`` encoder option is ignored.
 
 Version 0.4

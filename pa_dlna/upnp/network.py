@@ -37,21 +37,25 @@ class UPnPInvalidSsdpError(UPnPError): pass
 class UPnPInvalidHttpError(UPnPError): pass
 
 # Networking helper functions.
-def ipv4_addresses(ifaces, yield_str=True):
-    """Yield IPv4 addresses on 'ifaces' network interface cards.
+def ipaddr_from_nics(nics, skip_loopback=False, as_string=True):
+    """Yield the IPv4 addresses of network interface controllers (NICS).
 
-    Use all existing network interface cards when 'ifaces' is empty.
+    Use all existing network interface when 'nics' is empty, except the
+    loopback interface when 'skip_loopback' is true.
     """
 
-    nics = psutil.net_if_addrs()
-    for nic in filter(lambda x: not ifaces or x in ifaces, nics):
-        for addr in filter(lambda x: x.family == socket.AF_INET, nics[nic]):
+    all_nics = psutil.net_if_addrs()
+    for nic in filter(lambda x:
+                      not nics and (not skip_loopback or x != 'lo') or
+                      x in nics, all_nics):
+        for addr in filter(lambda x:
+                           x.family == socket.AF_INET, all_nics[nic]):
             if addr.netmask is not None:
-                ipadd = IPv4Interface(f'{addr.address}/{addr.netmask}')
-                if ipadd.network.prefixlen != 32:
-                    yield addr.address if yield_str else ipadd
+                ip_addr = IPv4Interface(f'{addr.address}/{addr.netmask}')
+                if ip_addr.network.prefixlen != 32:
+                    yield addr.address if as_string else ip_addr
             else:
-                yield addr.address if yield_str else IPv4Address(addr.address)
+                yield addr.address if as_string else IPv4Address(addr.address)
 
 def http_header_as_dict(header):
     """Return the http header as a dict."""
@@ -298,7 +302,6 @@ class Notify:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
 
-        self.ip_addresses = set()
         self.manage_membership(ip_addresses)
 
         # Future used by the test suite.
@@ -308,7 +311,7 @@ class Notify:
     def close(self):
         self.sock.close()
 
-    def manage_membership(self, ip_addresses):
+    def manage_membership(self, new_ips, stale_ips=None):
         def member(ip, option):
             msg = ('member of' if option == socket.IP_ADD_MEMBERSHIP else
                    'dropped from')
@@ -331,13 +334,12 @@ class Notify:
                 return False
             return True
 
-        for ip in ip_addresses.difference(self.ip_addresses):
-            if member(ip, socket.IP_ADD_MEMBERSHIP):
-                self.ip_addresses.add(ip)
+        for ip in new_ips:
+            member(ip, socket.IP_ADD_MEMBERSHIP)
 
-        for ip in self.ip_addresses.difference(ip_addresses):
-            if member(ip, socket.IP_DROP_MEMBERSHIP):
-                self.ip_addresses.remove(ip)
+        if stale_ips is not None:
+            for ip in stale_ips:
+                member(ip, socket.IP_DROP_MEMBERSHIP)
 
     async def run(self):
         # Allow other processes to bind to the same multicast group and port.

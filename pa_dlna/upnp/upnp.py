@@ -7,8 +7,8 @@ discover an UPnP device on the 'enp0s31f6' ethernet interface.
 >>> import asyncio
 >>> import upnp
 >>>
->>> async def main(nics, interval):
-...   with upnp.UPnPControlPoint(nics, interval) as control_point:
+>>> async def main(nics):
+...   with upnp.UPnPControlPoint(nics=nics) as control_point:
 ...     notification, root_device = await control_point.get_notification()
 ...     print(f"  Got '{notification}' from {root_device.peer_ipaddress}")
 ...     print(f'  deviceType: {root_device.deviceType}')
@@ -17,7 +17,7 @@ discover an UPnP device on the 'enp0s31f6' ethernet interface.
 ...       print(f'    serviceId: {service.serviceId}')
 ...
 >>> try:
-...   asyncio.run(main(['enp0s31f6'], 10))
+...   asyncio.run(main(['enp0s31f6']))
 ... except KeyboardInterrupt:
 ...   pass
 ...
@@ -53,8 +53,8 @@ from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError, TEST_LOGLEVEL
 from .util import NL_INDENT, shorten, log_exception, AsyncioTasks
-from .network import (ipv4_addresses, parse_ssdp, msearch, send_mcast, Notify,
-                      http_get, http_soap)
+from .network import (ipaddr_from_nics, parse_ssdp, msearch, send_mcast,
+                      Notify, http_get, http_soap)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
                   dict_to_xml, parse_soap_response, parse_soap_fault,
@@ -494,8 +494,12 @@ class UPnPControlPoint:
     """An UPnP control point.
 
     Attributes:
+      ip_configured List of the IPv4 addresses of the networks where UPnP
+                    devices may be discovered.
       nics          List of the network interfaces where UPnP devices may be
                     discovered.
+      ip_monitored  List of the IPv4 addresses currently monitored by UPnP
+                    discovery.
       msearch_interval
                     The time interval in seconds between the sending of the
                     MSEARCH datagrams used for device discovery.
@@ -514,10 +518,15 @@ class UPnPControlPoint:
       __close__
     """
 
-    def __init__(self, nics, msearch_interval, ttl=2):
+    def __init__(self, ip_addresses=[], nics=[], msearch_interval=60, ttl=2):
+        self.ip_configured = ip_addresses
         self.nics = nics
         self.msearch_interval = msearch_interval
         self.ttl = ttl
+
+        # Get the list of active IPv4 addresses used for UPnP discovery.
+        self.ip_monitored = set()
+        self._update_ip_addresses()
 
         self._closed = False
         self._notify = None
@@ -525,21 +534,20 @@ class UPnPControlPoint:
         self._devices = {}              # {udn: UPnPRootDevice}
         self._faulty_devices = set()    # set of the udn of root devices
                                         # permanently disabled
-        self.msearch_task = None
-        self.notify_task = None
+        self._msearch_task = None
+        self._notify_task = None
         self._upnp_tasks = AsyncioTasks()
 
     def open(self):
         """Start the UPnP Control Point."""
 
         # Start the msearch task.
-        self.msearch_task = self._upnp_tasks.create_task(self._ssdp_msearch(),
-                                                         name='ssdp msearch')
+        self._msearch_task = self._upnp_tasks.create_task(
+                                    self._ssdp_msearch(), name='ssdp msearch')
 
         # Start the notify task.
-        self._notify = Notify(self._process_ssdp,
-                              set(ipv4_addresses(self.nics)))
-        self.notify_task = self._upnp_tasks.create_task(self._ssdp_notify(),
+        self._notify = Notify(self._process_ssdp, self.ip_monitored)
+        self._notify_task = self._upnp_tasks.create_task(self._ssdp_notify(),
                                                         name='ssdp notify')
 
     def close(self):
@@ -549,10 +557,10 @@ class UPnPControlPoint:
             self._closed = True
 
             self._put_notification(*QUEUE_CLOSED)
-            if self.msearch_task is not None:
-                self.msearch_task.cancel()
-            if self.notify_task is not None:
-                self.notify_task.cancel()
+            if self._msearch_task is not None:
+                self._msearch_task.cancel()
+            if self._notify_task is not None:
+                self._notify_task.cancel()
                 self._notify.close()
 
             for root_device in list(self._devices.values()):
@@ -652,11 +660,35 @@ class UPnPControlPoint:
         if exc is not None:
             self.disable_root_device(root_device)
 
+    def _update_ip_addresses(self):
+        """Set the new IPv4 addresses set."""
+
+        current_ips = set()
+        if self.ip_configured:
+            all_ips = list(ipaddr_from_nics(nics=[]))
+            for ip in self.ip_configured:
+                if ip in all_ips:
+                    current_ips.add(ip)
+
+        if self.nics or not self.ip_configured:
+            for ip in ipaddr_from_nics(nics=self.nics, skip_loopback=True):
+                current_ips.add(ip)
+
+        new_ips = current_ips.difference(self.ip_monitored)
+        if new_ips:
+            logger.info(f'Start UPnP discovery on new IPs {new_ips}')
+        stale_ips =  self.ip_monitored.difference(current_ips)
+        if stale_ips:
+            logger.info(f'Stop UPnP discovery on stale IPs {stale_ips}')
+        self.ip_monitored = current_ips
+
+        return new_ips, stale_ips
+
     def _process_ssdp(self, datagram, peer_ipaddress, local_ipaddress):
         """Process the received datagrams."""
 
         if (local_ipaddress is not None and local_ipaddress not in
-                                                ipv4_addresses(self.nics)):
+                                                self.ip_monitored):
             logger.warning(
                 f'Ignore msearch SSDP received on {local_ipaddress}')
             return
@@ -693,13 +725,13 @@ class UPnPControlPoint:
                                ' from {peer_ipaddress}')
 
     async def msearch_once(self, coro, port=None):
-        ip_addresses = set(ipv4_addresses(self.nics))
+        new_ips, stale_ips = self._update_ip_addresses()
 
-        # Update the notify task with the ip addresses.
+        # Update the notify task with the new and stale sets.
         if self._notify is not None:
-            self._notify.manage_membership(ip_addresses)
+            self._notify.manage_membership(new_ips, stale_ips)
 
-        for ip_addr in ip_addresses:
+        for ip_addr in self.ip_monitored:
             # 'coro' is a coroutine *function*.
             result = await send_mcast(ip_addr, port=port, ttl=self.ttl,
                                       coro=coro)

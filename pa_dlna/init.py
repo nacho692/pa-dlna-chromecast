@@ -3,6 +3,7 @@
 import sys
 import os
 import argparse
+import ipaddress
 import logging
 import asyncio
 import threading
@@ -83,7 +84,13 @@ def setup_logging(options, loglevel='warning'):
     return None
 
 def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
-    """Parse the command line."""
+    """Parse the command line.
+
+    UPnP discovery is run on all the networks (except the loopbak interface
+    'lo') when the '--ip-addresses' and '--nics' command line arguments are
+    not used or empty. Otherwise both arguments may be used indifferently or
+    even jointly.
+    """
 
     def pack_B(ttl):
         try:
@@ -102,18 +109,33 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
                 parser.error(f"'{mtype}' is not an audio mime type")
         return mtypes
 
-    parser = argparse.ArgumentParser(description=doc)
+    def ipv4_addresses(ip_addresses):
+        ipv4_addrs = []
+        for addr in (x.strip() for x in ip_addresses.split(',')):
+            if addr:
+                try:
+                    ipaddress.IPv4Address(addr)
+                except ValueError as e:
+                    parser.error(e)
+                ipv4_addrs.append(addr)
+        return ipv4_addrs
+
+    parser = argparse.ArgumentParser(description=doc,
+                        epilog=' '.join(parse_args.__doc__.split('\n')[2:]))
     prog = 'pa-dlna' if pa_dlna else 'upnp-cmd'
     parser.prog = prog
     parser.add_argument('--version', '-v', action='version',
                         version='%(prog)s: version ' + __version__)
+    parser.add_argument('--ip-addresses', '-a', default='',
+                        type=ipv4_addresses,
+                        help='IP_ADDRESSES is a comma separated list of the'
+                        ' IPv4 addresses of the networks where UPnP devices'
+                        " may be discovered (default: '%(default)s')")
     parser.add_argument('--nics', '-n', default='',
                         help='NICS is a comma separated list of the names of'
                         ' network interface controllers where UPnP devices'
-                        " may be discovered, such as 'wlan0,enp5s0' for"
-                        ' example. All the interfaces are used when this'
-                        ' option is an empty string or the option is missing'
-                        " (default: '%(default)s')")
+                        " may be discovered such as 'wlan0,enp5s0' for"
+                        " example (default: '%(default)s')")
     parser.add_argument('--msearch-interval', '-m', type=int, default=60,
                         help='set the time interval in seconds between the'
                         ' sending of the MSEARCH datagrams used for device'
@@ -142,7 +164,7 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
                         "'debug' log level whose path name is PATH")
     parser.add_argument('--nolog-upnp', '-u', action='store_true',
                         help="ignore UPnP log entries at 'debug' log level")
-    parser.add_argument('--log-aio', '-a', action='store_true',
+    parser.add_argument('--log-aio', '-y', action='store_true',
                         help='do not ignore asyncio log entries at'
                         " 'debug' log level; the default is to ignore those"
                         ' verbose logs')

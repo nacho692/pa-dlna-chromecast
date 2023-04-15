@@ -114,7 +114,7 @@ async def loopback_datagrams(datagrams, patch_method=None, setup=None):
         coro = datagrams
     else:
         coro = send_datagrams
-    control_point = UPnPControlPoint(['lo'], 3600)
+    control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
     with mock.patch.object(control_point,
                            '_ssdp_msearch') as ssdp_msearch:
         if patch_method is not None:

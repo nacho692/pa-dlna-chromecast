@@ -2,6 +2,7 @@
 
 import re
 import asyncio
+import psutil
 import logging
 import urllib
 from unittest import mock, IsolatedAsyncioTestCase
@@ -12,6 +13,7 @@ from . import load_ordered_tests as load_tests
 from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
                HTTP_PORT, SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL,
                bind_mcast_address)
+from .test_network import snicaddr
 from .device_resps import device_description, scpd, soap_response, soap_fault
 from ..util import HTTPRequestHandler, shorten
 from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPService,
@@ -214,7 +216,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
                 if mock.called:
                     return True
 
-        control_point = UPnPControlPoint(['lo'], 3600)
+        control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
         with mock.patch.object(UPnPControlPoint, 'msearch_once') as msearch,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             msearch.side_effect = OSError('FOO')
@@ -229,7 +231,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
     @bind_mcast_address()
     async def test_ssdp_race(self):
         header = { 'LOCATION': URL }
-        control_point = UPnPControlPoint(['lo'], 3600)
+        control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
         with mock.patch.object(control_point, '_put_notification') as notify,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             await start_http_server()
@@ -245,7 +247,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
     @bind_mcast_address()
     async def test_ssdp_no_race(self):
         header = { 'LOCATION': URL }
-        control_point = UPnPControlPoint(['lo'], 3600)
+        control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
         with mock.patch.object(control_point, '_put_notification') as notify,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             await start_http_server()
@@ -270,12 +272,31 @@ class ControlPoint(IsolatedAsyncioTestCase):
 
         self.assertEqual(root_device.local_ipaddress, HOST)
 
+    def test_update_ip_addresses(self):
+        init_nics = {
+            'eth0': [snicaddr('192.168.0.1', '255.255.255.0')],
+            'eth1': [snicaddr('192.168.1.1', '255.255.255.0')],
+        }
+        next_nics = {
+            'eth0': [snicaddr('192.168.0.1', '255.255.255.0')],
+            'wlan2': [snicaddr('192.168.2.1', '255.255.255.0')],
+        }
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
+            net_if_addrs.side_effect = [init_nics, init_nics,
+                                        next_nics, next_nics]
+            control_point = UPnPControlPoint(ip_addresses=['192.168.1.1'],
+                                             nics=['eth0', 'wlan2'])
+            new_ips, stale_ips = control_point._update_ip_addresses()
+            self.assertEqual(new_ips, {'192.168.2.1'})
+            self.assertEqual(stale_ips, {'192.168.1.1'})
+
 @bind_mcast_address()
 class RootDevice(IsolatedAsyncioTestCase):
     """Root device test cases."""
 
     def setUp(self):
-        self.control_point = UPnPControlPoint(['lo'], 3600)
+        self.control_point = UPnPControlPoint(nics=['lo'],
+                                              msearch_interval=3600)
         self.root_device = UPnPRootDevice(self.control_point, UDN, HOST, HOST,
                                           URL, 1800)
 

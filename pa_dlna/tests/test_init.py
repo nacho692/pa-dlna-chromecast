@@ -4,6 +4,7 @@ import sys
 import os
 import io
 import struct
+import ipaddress
 import logging
 import unittest
 try:
@@ -101,6 +102,7 @@ class Argv(BaseTestCase):
         options, _ = parse_args(self.__doc__, argv=[])
         self.assertEqual(options, {'dump_default': False,
                                    'dump_internal': False,
+                                   'ip_addresses': [],
                                    'log_aio': False,
                                    'logfile': None,
                                    'loglevel': 'info',
@@ -110,6 +112,19 @@ class Argv(BaseTestCase):
                                    'port': 8080,
                                    'test_devices': [],
                                    'ttl': b'\x02'})
+
+    def test_ip_addresses(self):
+        options, _ = parse_args(self.__doc__,
+                                argv=['--ip-addresses', '192.168.0.1'])
+        self.assertEqual(options['ip_addresses'], ['192.168.0.1'])
+
+    def test_invalid_ip_addresses(self):
+        with self.assertRaises(SystemExit) as cm:
+            options, _ = parse_args(self.__doc__,
+                                argv=['--ip-addresses', '192.168.0.999'])
+        self.assertEqual(cm.exception.args[0], 2)
+        self.assertTrue(isinstance(cm.exception.__context__,
+                                   ipaddress.AddressValueError))
 
     def test_ttl(self):
         options, _ = parse_args(self.__doc__, argv=['--ttl', '255'])

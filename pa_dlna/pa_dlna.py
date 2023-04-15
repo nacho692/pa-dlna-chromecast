@@ -15,7 +15,7 @@ from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError,
-                   UPnPSoapFaultError, ipv4_addresses, NL_INDENT, shorten,
+                   UPnPSoapFaultError, ipaddr_from_nics, NL_INDENT, shorten,
                    log_exception, AsyncioTasks, QUEUE_CLOSED)
 
 logger = logging.getLogger('pa-dlna')
@@ -639,7 +639,7 @@ class AVControlPoint(UPnPApplication):
                     # one of the networks of our local network interfaces.
                     if local_ipaddress is None:
                         ip_addr = IPv4Address(root_device.peer_ipaddress)
-                        for obj in ipv4_addresses(self.nics, yield_str=False):
+                        for obj in ipaddr_from_nics(self.nics, as_string=False):
                             if (isinstance(obj, IPv4Interface) and
                                     ip_addr in obj.network):
                                 local_ipaddress = str(obj.ip)
@@ -684,8 +684,9 @@ class AVControlPoint(UPnPApplication):
                 loop.add_signal_handler(sig, end_event.set)
 
             # Run the UPnP control point.
-            with UPnPControlPoint(self.nics, self.msearch_interval,
-                                  self.ttl) as self.upnp_control_point:
+            with UPnPControlPoint(
+                    self.ip_addresses, self.nics, self.msearch_interval,
+                    self.ttl) as self.upnp_control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
                 self.cp_tasks.create_task(self.pulse.run(), name='pulse')

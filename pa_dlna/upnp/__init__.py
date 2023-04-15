@@ -9,7 +9,7 @@ from .upnp import (UPnPClosedDeviceError, UPnPInvalidSoapError,
                    UPnPSoapFaultError,
                    UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                    QUEUE_CLOSED)
-from .network import ipv4_addresses
+from .network import ipaddr_from_nics
 from .util import (NL_INDENT, shorten, log_exception, AsyncioTasks,
                    log_exception)
 from .xml import UPnPXMLError, pformat_xml

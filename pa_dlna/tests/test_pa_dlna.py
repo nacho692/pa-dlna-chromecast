@@ -108,9 +108,9 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
                 mock.patch.object(shutil, 'which', which),\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
 
-            control_point = AVControlPoint(nics='lo', port=8080, ttl=2,
-                                           msearch_interval=60,
-                                           test_devices=test_devices)
+            control_point = AVControlPoint(ip_addresses=[], nics='lo',
+                                        port=8080, ttl=2, msearch_interval=60,
+                                        test_devices=test_devices)
             set_control_point(control_point)
             PulseAsync.add_sink_inputs([])
 
@@ -247,7 +247,8 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
     """Test cases using patch_get_notification()."""
 
     def setUp(self):
-        self.upnp_control_point = UPnPControlPoint([], 60)
+        self.upnp_control_point = UPnPControlPoint(nics=[],
+                                                   msearch_interval=60)
         self.control_point = AVControlPoint(nics=['lo'], port=8080)
         self.control_point.upnp_control_point = self.upnp_control_point
 
@@ -411,7 +412,7 @@ class PulseEventContext:
                 all((not sink_state, not is_index)))
 
         # Build the renderer.
-        upnp_control_point = UPnPControlPoint([], 60)
+        upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
         control_point = AVControlPoint()
         control_point.upnp_control_point = upnp_control_point
         _set_control_point(control_point)

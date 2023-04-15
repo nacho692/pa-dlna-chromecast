@@ -2,9 +2,14 @@
 
 import re
 import asyncio
+import psutil
 import logging
 import socket
-from unittest import IsolatedAsyncioTestCase, mock
+from collections import namedtuple
+from ipaddress import IPv4Address
+from unittest import TestCase, IsolatedAsyncioTestCase, mock
+
+from ..network import ipaddr_from_nics
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
@@ -37,6 +42,10 @@ NOT_FOUND = '\r\n'.join([
     'Content-Length: 0',
     '', '',
 ])
+
+# A shortened psutil address.
+snicaddr = namedtuple('snicaddr', ['address', 'netmask', 'family'],
+                      defaults=[socket.AF_INET])
 
 class HTTPServer:
     def __init__(self, body, content_length=None, start_line=None):
@@ -78,6 +87,52 @@ class HTTPServer:
         async with aio_server:
             self.startup.set_result(None)
             await aio_server.serve_forever()
+
+class AddrFromNics(TestCase):
+    """network.ipaddr_from_nics() tests."""
+
+    def test_cfg_skip_loopback_true(self):
+        # Test that '127.0.0.1' is returned when 'lo' is configured, even
+        # though 'skip_loopback' is true.
+        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
+            net_if_addrs.return_value = all_nics
+            result = list(ipaddr_from_nics(['lo'], skip_loopback=True))
+            self.assertEqual(result, ['127.0.0.1'])
+
+    def test_cfg_skip_loopback_false(self):
+        # Test that '127.0.0.1' is returned when 'lo' is not configured
+        # and 'skip_loopback' is false.
+        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
+            net_if_addrs.return_value = all_nics
+            result = list(ipaddr_from_nics(['lo'], skip_loopback=False))
+            self.assertEqual(result, ['127.0.0.1'])
+
+    def test_nocfg_skip_loopback_true(self):
+        # Test that '127.0.0.1' is ignored when 'lo' is not configured
+        # and 'skip_loopback' is true.
+        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
+            net_if_addrs.return_value = all_nics
+            result = list(ipaddr_from_nics([], skip_loopback=True))
+            self.assertEqual(result, [])
+
+    def test_nocfg_skip_loopback_false(self):
+        # Test that '127.0.0.1' is returned when 'lo' is not configured
+        # and 'skip_loopback' is false.
+        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
+            net_if_addrs.return_value = all_nics
+            result = list(ipaddr_from_nics([], skip_loopback=False))
+            self.assertEqual(result, ['127.0.0.1'])
+
+    def test_no_netmask(self):
+        all_nics = {'lo': [snicaddr('127.0.0.1', None)]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
+            net_if_addrs.return_value = all_nics
+            result = list(ipaddr_from_nics(['lo'], as_string=False))
+            self.assertEqual(result, [IPv4Address('127.0.0.1')])
 
 class SSDP_notify(IsolatedAsyncioTestCase):
     """SSDP notify test cases.

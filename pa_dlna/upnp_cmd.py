@@ -52,7 +52,7 @@ def build_commands_from(instance, obj, exclude=()):
         funcname = f'do_{key}'
         if not hasattr(instance, funcname):
             setattr(instance, funcname, DoMethod(print, value,
-                                            f"Print the value of '{key}'"))
+                                            f"Print the value of '{key}'."))
 
 def check_required(obj, attributes):
     """Check that all in 'attributes' are attributes of 'obj'."""
@@ -139,7 +139,7 @@ class _Cmd(cmd.Cmd):
             return  dev
 
     def do_EOF(self, unused):
-        """Quit the application"""
+        """Quit the application."""
         print()
         return self.do_quit(unused)
 
@@ -236,7 +236,7 @@ class UPnPServiceCmd(_Cmd):
         self.quit = False
 
     def do_quit(self, unused):
-        """Quit the application"""
+        """Quit the application."""
 
         # Tell cmdloop() to return True.
         self.quit = True
@@ -244,21 +244,21 @@ class UPnPServiceCmd(_Cmd):
         return True
 
     def do_previous(self, unused):
-        """Return to the device"""
+        """Return to the device."""
         return True
 
     def help_parent_device(self):
-        print('Shortened UDN of the parent device')
+        print('Shortened UDN of the parent device.')
 
     def do_description(self, unused):
-        """Print the xml 'description'"""
+        """Print the xml 'description'."""
         print(pformat_xml(self.upnp_service.description))
 
     def help_root_device(self):
-        print('Shortened UDN of the root device')
+        print('Shortened UDN of the root device.')
 
     def help_actionList(self):
-        print(_dedent("""Print an action or list actions
+        print(_dedent("""Print an action or list actions.
 
         With a numeric argument such as 'actionList DEPTH':
           When DEPTH is 1, print the list of the actions.
@@ -300,7 +300,7 @@ class UPnPServiceCmd(_Cmd):
                 print(f"*** '{arg}' is not an action")
 
     def help_serviceStateTable(self):
-        print(_dedent("""Print a stateVariable or list the stateVariables
+        print(_dedent("""Print a stateVariable or list the stateVariables.
 
         With a numeric argument such as 'serviceStateTable DEPTH':
           When DEPTH is 1, print the list of the stateVariables.
@@ -395,7 +395,7 @@ class UPnPDeviceCmd(_Cmd):
         self.quit = False
 
     def do_quit(self, unused):
-        """Quit the application"""
+        """Quit the application."""
 
         # Tell cmdloop() to return True.
         self.quit = True
@@ -408,7 +408,7 @@ class UPnPDeviceCmd(_Cmd):
                self.upnp_device.deviceList.values()])
 
     def help_embedded(self):
-        print(_dedent(f"""Select an embedded device
+        print(_dedent(f"""Select an embedded device.
 
         Use the command 'embedded IDX' to select the device at index IDX
         (starting at zero) in the list printed by the 'embedded_list' command.
@@ -425,7 +425,7 @@ class UPnPDeviceCmd(_Cmd):
                 return self.do_quit(None)
 
     def do_service_list(self, unused):
-        """List the services"""
+        """List the services."""
         print([str(serv) for serv in self.upnp_device.serviceList.values()])
 
     def complete_service(self, text, line, begidx, endidx):
@@ -434,7 +434,7 @@ class UPnPDeviceCmd(_Cmd):
                     if s.startswith(text)]
 
     def help_service(self):
-        print(_dedent("""Select a service
+        print(_dedent("""Select a service.
 
         Use the command 'service NAME' to select the service named NAME.
         Completion is enabled on the service names.
@@ -473,25 +473,25 @@ class UPnPDeviceCmd(_Cmd):
 
     def help_previous(self):
         if self.upnp_device.parent_device is self.upnp_device.root_device:
-            print('Return to the control point')
+            print('Return to the control point.')
         else:
-            print('Return to the previous device')
+            print('Return to the previous device.')
 
     def do_previous(self, unused):
         return True
 
     def help_peer_ipaddress(self):
-        print('Print the IP address of the UPnP device')
+        print('Print the IP address of the UPnP device.')
 
     def help_parent_device(self):
-        print('Shortened UDN of the parent device')
+        print('Shortened UDN of the parent device.')
 
     def do_description(self, unused):
-        """Print the xml 'description'"""
+        """Print the xml 'description'."""
         print(pformat_xml(self.upnp_device.description))
 
     def do_iconList(self, unused):
-        """Print the value of 'iconList'"""
+        """Print the value of 'iconList'."""
 
         device = self.upnp_device
         if hasattr(device, 'iconList'):
@@ -500,7 +500,7 @@ class UPnPDeviceCmd(_Cmd):
             print('None')
 
     def help_root_device(self):
-        print('Shortened UDN of the root device')
+        print('Shortened UDN of the root device.')
 
     def cmdloop(self):
         super().cmdloop()
@@ -533,16 +533,16 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.prompt = '[Control Point] '
 
     def do_quit(self, unused):
-        """Quit the application"""
+        """Quit the application."""
         self.close()
         return True
 
     def do_device_list(self, unused):
-        """List the discovered UPnP devices"""
+        """List the discovered UPnP devices."""
         print([device_name(dev) for dev in self.devices])
 
     def help_device(self):
-        print(_dedent(f"""Select a discovered device
+        print(_dedent(f"""Select a discovered device.
 
         Use the command 'device IDX' to select the device at index IDX
         (starting at zero) in the list printed by the 'device_list' command.
@@ -559,13 +559,25 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                 self.close()
                 return True
 
+    def help_ip_configured (self):
+        print(_dedent("""Print the list of the configured IPv4 addresses of
+        the networks where UPnP devices may be discovered. All addresses may
+        be monitored when both 'ip_configured' and 'nics' are empty.
+        """))
+
     def help_nics(self):
-        print(_dedent("""Print the list of the network interfaces where
-        UPnP devices may be discovered
+        print(_dedent("""Print the list of the network interfaces where UPnP
+        devices may be discovered. All IPv4 addresses may be monitored when
+        both 'ip_configured' and 'nics' are empty.
+        """))
+
+    def help_ip_monitored(self):
+        print(_dedent("""Print the list of the IPv4 addresses currently
+        monitored by UPnP discovery.
         """))
 
     def help_ttl(self):
-        print('Print the the IP packets time to live')
+        print('Print the IP packets time to live.')
 
     def close(self):
         if self.control_point is not None:
@@ -591,8 +603,9 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         self.loop = asyncio.get_running_loop()
         try:
             # Run the UPnP control point.
-            with UPnPControlPoint(self.nics, self.msearch_interval,
-                                  self.ttl) as self.control_point:
+            with UPnPControlPoint(
+                    self.ip_addresses, self.nics, self.msearch_interval,
+                    self.ttl) as self.control_point:
                 event.set()
                 while True:
                     notif, root_device = (await
