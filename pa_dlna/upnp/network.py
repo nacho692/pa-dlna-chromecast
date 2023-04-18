@@ -38,13 +38,19 @@ class UPnPInvalidHttpError(UPnPError): pass
 
 # Networking helper functions.
 def ipaddr_from_nics(nics, skip_loopback=False, as_string=True):
-    """Yield the IPv4 addresses of network interface controllers (NICS).
+    """Yield the IPv4 addresses of NICS in the UP state.
 
     Use all existing network interface when 'nics' is empty, except the
     loopback interface when 'skip_loopback' is true.
     """
 
-    all_nics = psutil.net_if_addrs()
+    # Get the IP addresses of each NIC in the UP state.
+    all_nics = {}
+    nics_stats = psutil.net_if_stats()
+    for nic, val in psutil.net_if_addrs().items():
+        if nic in nics_stats and nics_stats[nic].isup:
+            all_nics[nic] = val
+
     for nic in filter(lambda x:
                       not nics and (not skip_loopback or x != 'lo') or
                       x in nics, all_nics):
@@ -430,7 +436,7 @@ class NotifyServerProtocol:
             self.error_received(exc)
 
     def error_received(self, exc):
-        logger.error(f'Error received by NotifyServerProtocol: {exc!r}')
+        logger.exception(f'Error received by NotifyServerProtocol: {exc!r}')
 
     def connection_lost(self, exc):
         if exc:

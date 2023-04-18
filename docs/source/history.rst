@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.5
+  - UPnP discovery is triggered by NICs [#]_ state changes.
   - Add the ``--ip-addresses``, ``-a`` command line argument.
   - Fix changing the ``args`` encoder option is ignored.
 
@@ -49,3 +50,7 @@ Version 0.2
 
 Version 0.1
   - Publish the project on PyPi.
+
+.. rubric:: Footnotes
+
+.. [#] Network Interface Controller.

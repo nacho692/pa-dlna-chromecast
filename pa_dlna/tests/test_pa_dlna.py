@@ -367,29 +367,6 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         self.assertEqual(len(self.control_point.renderers), 1)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                                 re.compile('Ignore disabled UPnPRootDevice')))
-    async def test_local_ipaddress(self):
-        root_device = RootDevice(self.upnp_control_point)
-        root_device.local_ipaddress = None
-
-        logs = await self.patch_get_notification([('alive', root_device),],
-                                                 alive_count=1)
-
-        self.assertEqual(len(self.control_point.renderers), 1)
-        renderer = self.control_point.renderers.pop()
-        self.assertEqual(renderer.local_ipaddress, '127.0.0.1')
-
-    async def test_no_local_ipaddress(self):
-        root_device = RootDevice(self.upnp_control_point)
-        root_device.local_ipaddress = None
-        self.control_point.nics = ['an unknown network interface cards']
-
-        logs = await self.patch_get_notification([('alive', root_device),],
-                                                 alive_count=0)
-
-        self.assertEqual(len(self.control_point.renderers), 0)
-        self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
-                'Ignored: 127.0.0.1 does not belong to one of the known'
-                ' network interfaces'))
 
 class PulseEventContext:
     """The context set before running handle_pulse_event() tests.
@@ -418,7 +395,7 @@ class PulseEventContext:
         _set_control_point(control_point)
 
         root_device = RootDevice(upnp_control_point)
-        self.renderer = Renderer(control_point, None, root_device)
+        self.renderer = Renderer(control_point, root_device)
         self.renderer.previous_idx = previous_idx
 
         # Set the value of Renderer.nullsink.

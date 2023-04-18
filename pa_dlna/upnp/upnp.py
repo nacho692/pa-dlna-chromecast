@@ -49,6 +49,7 @@ import logging
 import time
 import collections
 import urllib.parse
+from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError, TEST_LOGLEVEL
@@ -617,6 +618,17 @@ class UPnPControlPoint:
 
         if udn not in self._devices:
             # Instantiate the UPnPDevice and start its task.
+            if local_ipaddress is None:
+                ip_addr = IPv4Address(peer_ipaddress)
+                for obj in ipaddr_from_nics(self.nics, as_string=False):
+                    if (isinstance(obj, IPv4Interface) and
+                            ip_addr in obj.network):
+                        local_ipaddress = str(obj.ip)
+                        break
+                else:
+                    logger.info(f'{peer_ipaddress} does not belong to one'
+                                f' of the known network interfaces')
+
             root_device = UPnPRootDevice(self, udn, peer_ipaddress,
                                 local_ipaddress, header['LOCATION'], max_age)
             self._upnp_tasks.create_task(root_device._run(),
@@ -724,12 +736,21 @@ class UPnPControlPoint:
                 logger.warning(f"Unknown NTS field '{nts}' in SSDP notify"
                                ' from {peer_ipaddress}')
 
-    async def msearch_once(self, coro, port=None):
+    async def msearch_once(self, coro, port=None, do_msearch=True):
         new_ips, stale_ips = self._update_ip_addresses()
+
+        for ip in stale_ips:
+            for root_device in self._devices.values():
+                if ip == root_device.local_ipaddress:
+                    root_device.close()
+                    break
 
         # Update the notify task with the new and stale sets.
         if self._notify is not None:
             self._notify.manage_membership(new_ips, stale_ips)
+
+        if not do_msearch and not new_ips:
+            return
 
         for ip_addr in self.ip_monitored:
             # 'coro' is a coroutine *function*.
@@ -748,9 +769,16 @@ class UPnPControlPoint:
         """Send msearch multicast SSDPs and process unicast responses."""
 
         try:
+            last_time = -1
             while True:
-                await self.msearch_once(coro)
-                await asyncio.sleep(self.msearch_interval)
+                do_msearch = False
+                cur_time = time.time()
+                if (last_time == -1 or
+                        cur_time - last_time >= self.msearch_interval):
+                    do_msearch = True
+                    last_time = cur_time
+                await self.msearch_once(coro, do_msearch=do_msearch)
+                await asyncio.sleep(1)
         except asyncio.CancelledError:
             pass
         except Exception as e:

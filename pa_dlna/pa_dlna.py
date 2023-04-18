@@ -6,7 +6,6 @@ import asyncio
 import logging
 import re
 import hashlib
-from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
@@ -15,7 +14,7 @@ from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPClosedDeviceError,
-                   UPnPSoapFaultError, ipaddr_from_nics, NL_INDENT, shorten,
+                   UPnPSoapFaultError, NL_INDENT, shorten,
                    log_exception, AsyncioTasks, QUEUE_CLOSED)
 
 logger = logging.getLogger('pa-dlna')
@@ -66,9 +65,9 @@ class Renderer:
       'ConnectionManager:3 Service'
     """
 
-    def __init__(self, control_point, local_ipaddress, root_device):
+    def __init__(self, control_point, root_device):
         self.control_point = control_point
-        self.local_ipaddress = local_ipaddress
+        self.local_ipaddress = root_device.local_ipaddress
         self.root_device = root_device
         udn_tail = root_device.udn[-5:]
         self.name = f'{root_device.modelName}-{udn_tail}'
@@ -462,6 +461,7 @@ class DLNATestDevice(Renderer):
             self.mime_type = mime_type
             self.closed = True
             self.peer_ipaddress = self.LOOPBACK
+            self.local_ipaddress = self.LOOPBACK
 
             match = re.match(r'audio/([^;]+)', mime_type)
             name = match.group(1)
@@ -471,8 +471,7 @@ class DLNATestDevice(Renderer):
 
     def __init__(self, control_point, mime_type):
         root_device = self.RootDevice(self, mime_type, control_point)
-        super().__init__(control_point, root_device.peer_ipaddress,
-                         root_device)
+        super().__init__(control_point, root_device)
         self.mime_type = mime_type
 
     async def play(self, speed=1):
@@ -632,27 +631,9 @@ class AVControlPoint(UPnPApplication):
                     continue
 
                 if renderer is None:
-                    local_ipaddress = root_device.local_ipaddress
-
-                    # Find the local_ipaddress when processing a notify SSDP.
-                    # Check that the root device peer_ipaddress belongs to
-                    # one of the networks of our local network interfaces.
-                    if local_ipaddress is None:
-                        ip_addr = IPv4Address(root_device.peer_ipaddress)
-                        for obj in ipaddr_from_nics(self.nics, as_string=False):
-                            if (isinstance(obj, IPv4Interface) and
-                                    ip_addr in obj.network):
-                                local_ipaddress = str(obj.ip)
-                                break
-                        else:
-                            logger.warning(
-                                f'Ignored: {root_device.peer_ipaddress} does'
-                                f' not belong to one of the known network'
-                                f' interfaces')
-                            continue
-
-                    renderer = Renderer(self, local_ipaddress, root_device)
-                    await self.register(renderer)
+                    if root_device.local_ipaddress is not None:
+                        renderer = Renderer(self, root_device)
+                        await self.register(renderer)
             else:
                 if renderer is not None:
                     await renderer.close()

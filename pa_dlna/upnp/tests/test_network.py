@@ -46,6 +46,8 @@ NOT_FOUND = '\r\n'.join([
 # A shortened psutil address.
 snicaddr = namedtuple('snicaddr', ['address', 'netmask', 'family'],
                       defaults=[socket.AF_INET])
+snicstats = namedtuple('snicstats', ['isup'])
+NICS_STAT = {'lo': snicstats(True)}
 
 class HTTPServer:
     def __init__(self, body, content_length=None, start_line=None):
@@ -94,43 +96,53 @@ class AddrFromNics(TestCase):
     def test_cfg_skip_loopback_true(self):
         # Test that '127.0.0.1' is returned when 'lo' is configured, even
         # though 'skip_loopback' is true.
-        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
-        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
-            net_if_addrs.return_value = all_nics
+        nics_addr = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs,\
+                mock.patch.object(psutil, 'net_if_stats') as net_if_stats:
+            net_if_addrs.return_value = nics_addr
+            net_if_stats.return_value = NICS_STAT
             result = list(ipaddr_from_nics(['lo'], skip_loopback=True))
             self.assertEqual(result, ['127.0.0.1'])
 
     def test_cfg_skip_loopback_false(self):
         # Test that '127.0.0.1' is returned when 'lo' is not configured
         # and 'skip_loopback' is false.
-        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
-        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
-            net_if_addrs.return_value = all_nics
+        nics_addr = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs,\
+                mock.patch.object(psutil, 'net_if_stats') as net_if_stats:
+            net_if_stats.return_value = NICS_STAT
+            net_if_addrs.return_value = nics_addr
             result = list(ipaddr_from_nics(['lo'], skip_loopback=False))
             self.assertEqual(result, ['127.0.0.1'])
 
     def test_nocfg_skip_loopback_true(self):
         # Test that '127.0.0.1' is ignored when 'lo' is not configured
         # and 'skip_loopback' is true.
-        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
-        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
-            net_if_addrs.return_value = all_nics
+        nics_addr = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs,\
+                mock.patch.object(psutil, 'net_if_stats') as net_if_stats:
+            net_if_stats.return_value = NICS_STAT
+            net_if_addrs.return_value = nics_addr
             result = list(ipaddr_from_nics([], skip_loopback=True))
             self.assertEqual(result, [])
 
     def test_nocfg_skip_loopback_false(self):
         # Test that '127.0.0.1' is returned when 'lo' is not configured
         # and 'skip_loopback' is false.
-        all_nics = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
-        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
-            net_if_addrs.return_value = all_nics
+        nics_addr = {'lo': [snicaddr('127.0.0.1', '255.0.0.0')]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs,\
+                mock.patch.object(psutil, 'net_if_stats') as net_if_stats:
+            net_if_addrs.return_value = nics_addr
+            net_if_stats.return_value = NICS_STAT
             result = list(ipaddr_from_nics([], skip_loopback=False))
             self.assertEqual(result, ['127.0.0.1'])
 
     def test_no_netmask(self):
-        all_nics = {'lo': [snicaddr('127.0.0.1', None)]}
-        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
-            net_if_addrs.return_value = all_nics
+        nics_addr = {'lo': [snicaddr('127.0.0.1', None)]}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs,\
+                mock.patch.object(psutil, 'net_if_stats') as net_if_stats:
+            net_if_addrs.return_value = nics_addr
+            net_if_stats.return_value = NICS_STAT
             result = list(ipaddr_from_nics(['lo'], as_string=False))
             self.assertEqual(result, [IPv4Address('127.0.0.1')])
 

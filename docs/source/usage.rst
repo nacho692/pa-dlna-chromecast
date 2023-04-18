@@ -20,6 +20,16 @@ Then when there is an association between a pulseaudio source and this sink (see
 below), ``pa-dlna`` sends an URL to the device so that the device may fetch the
 corresponding audio stream by issuing an HTTP GET for this URL.
 
+UPnP discovery is triggered by NICs [#]_ state changes, that is, whenever a
+configured NIC or the NIC of a configured IP address becomes up. Some examples
+of events triggering UPnP discovery on an IP address after ``pa-dlna`` or
+``upnp-cmd`` [#]_ has been started:
+
+  - A wifi controller connects to a hotspot and acquires a new IP address
+    through DHCP, possibly a different address from the previous one.
+  - A static IP address has been configured on an ethernet card connected to an
+    ethernet switch and the switch is turned on.
+
 See the :ref:`pa-dlna` man page.
 
 Source-sink association
@@ -140,6 +150,10 @@ Eventing is not supported.
 
 .. rubric:: Footnotes
 
+.. [#] Network Interface Controller.
+.. [#] The list of the IP addresses where UPnP discovery is currently activated
+       can be listed on ``upnp-cmd`` by printing the value of the
+       ``ip_monitored`` variable in the main menu.
 .. [#] ``pavucontrol`` and ``pacmd`` are  part of pulseaudio and installed with
        pulseaudio.
 .. [#] A source is called a sink-input by pulseaudio.

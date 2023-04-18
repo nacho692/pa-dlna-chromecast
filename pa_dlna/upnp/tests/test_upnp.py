@@ -13,7 +13,7 @@ from . import load_ordered_tests as load_tests
 from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
                HTTP_PORT, SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL,
                bind_mcast_address)
-from .test_network import snicaddr
+from .test_network import snicaddr, snicstats
 from .device_resps import device_description, scpd, soap_response, soap_fault
 from ..util import HTTPRequestHandler, shorten
 from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPService,
@@ -229,48 +229,23 @@ class ControlPoint(IsolatedAsyncioTestCase):
                                      'Close UPnPControlPoint'))
 
     @bind_mcast_address()
-    async def test_ssdp_race(self):
+    async def test_local_ip_address(self):
         header = { 'LOCATION': URL }
         control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
-        with mock.patch.object(control_point, '_put_notification') as notify,\
+        with mock.patch.object(control_point, '_put_notification'),\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             await start_http_server()
             # The SSDP notification.
-            control_point._create_root_device(header, UDN, HOST, False, None)
-            # The SSDP msearch.
-            control_point._create_root_device(header, UDN, HOST, True, HOST)
-
-        root_device = control_point._devices[UDN]
-        notify.assert_called_with('alive', root_device)
-        self.assertEqual(root_device.local_ipaddress, HOST)
-
-    @bind_mcast_address()
-    async def test_ssdp_no_race(self):
-        header = { 'LOCATION': URL }
-        control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
-        with mock.patch.object(control_point, '_put_notification') as notify,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
-            await start_http_server()
-            # The SSDP notification.
-            control_point._create_root_device(header, UDN, HOST, False, None)
-
+            # Using '192.168.0.1' instead of HOST to prevent the root device
+            # local_ipaddress to be found by matching the network of 'lo'.
+            control_point._create_root_device(header, UDN, '192.168.0.1',
+                                              False, None)
             root_device = control_point._devices[UDN]
-            with mock.patch.object(root_device, '_age_root_device') as age:
-                 # Make the UPnPRootDevice._run() coroutine terminate.
-                age.side_effect = [None]
-                for task in control_point._upnp_tasks:
-                    if task.get_name() == str(root_device):
-                        break
-                else:
-                    raise AssertionError(f'Root device task {root_device}'
-                                         ' not found')
-                await task
+            self.assertEqual(root_device.local_ipaddress, None)
 
-            # The SSDP msearch.
+            # The SSDP msearch provides the local_ipaddress.
             control_point._create_root_device(header, UDN, HOST, True, HOST)
-            notify.assert_called()
-
-        self.assertEqual(root_device.local_ipaddress, HOST)
+            self.assertEqual(root_device.local_ipaddress, HOST)
 
     def test_update_ip_addresses(self):
         init_nics = {
@@ -281,14 +256,43 @@ class ControlPoint(IsolatedAsyncioTestCase):
             'eth0': [snicaddr('192.168.0.1', '255.255.255.0')],
             'wlan2': [snicaddr('192.168.2.1', '255.255.255.0')],
         }
-        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs:
+        nics_stat = {
+            'eth0': snicstats(True),
+            'eth1': snicstats(True),
+            'wlan2': snicstats(True),
+        }
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs,\
+                mock.patch.object(psutil, 'net_if_stats') as net_if_stats:
             net_if_addrs.side_effect = [init_nics, init_nics,
                                         next_nics, next_nics]
+            net_if_stats.side_effect = [nics_stat, nics_stat,
+                                        nics_stat, nics_stat]
             control_point = UPnPControlPoint(ip_addresses=['192.168.1.1'],
                                              nics=['eth0', 'wlan2'])
             new_ips, stale_ips = control_point._update_ip_addresses()
             self.assertEqual(new_ips, {'192.168.2.1'})
             self.assertEqual(stale_ips, {'192.168.1.1'})
+
+    @bind_mcast_address()
+    async def test_stale_ip_address(self):
+        ip = '192.168.0.1'
+        nics = {'eth0': [snicaddr(ip, '255.255.255.0')]}
+        nics_stat = {'eth0': snicstats(True)}
+        next_nics_stat = {'eth0': snicstats(False)}
+        with mock.patch.object(psutil,'net_if_addrs') as net_if_addrs,\
+                mock.patch.object(psutil, 'net_if_stats') as net_if_stats:
+            net_if_addrs.side_effect = [nics, nics]
+            net_if_stats.side_effect = [nics_stat, next_nics_stat]
+            control_point = UPnPControlPoint(nics=['eth0'])
+
+            header = { 'LOCATION': URL }
+            with mock.patch.object(control_point, '_put_notification'),\
+                    self.assertLogs(level=logging.DEBUG) as m_logs:
+                await start_http_server()
+                control_point._create_root_device(header, UDN, ip, True, ip)
+                self.assertTrue(UDN in control_point._devices)
+                await control_point.msearch_once(None, do_msearch=False)
+                self.assertTrue(UDN not in control_point._devices)
 
 @bind_mcast_address()
 class RootDevice(IsolatedAsyncioTestCase):
