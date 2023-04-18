@@ -212,13 +212,13 @@ async def http_query(method, url, header='', body=''):
     assert method in ('GET', 'POST')
     writer = None
     try:
-        url = urllib.parse.urlsplit(url)
-        host = url.hostname
-        port = url.port if url.port is not None else 80
+        urlobj = urllib.parse.urlsplit(url)
+        host = urlobj.hostname
+        port = urlobj.port if urlobj.port is not None else 80
         reader, writer = await asyncio.open_connection(host, port)
 
         # Send the request.
-        request = url._replace(scheme='')._replace(netloc='').geturl()
+        request = urlobj._replace(scheme='')._replace(netloc='').geturl()
         query = (
             f"{method} {request or '/'} HTTP/1.0\r\n"
             f"Host: {host}:{port}\r\n"
@@ -248,6 +248,7 @@ async def http_query(method, url, header='', body=''):
         if content_length is not None:
             content_length = int(content_length)
             if content_length == 0:
+                logger.warning(f'Got content_length = 0 from {url}')
                 return header, b'', host
 
         body = await reader.read()
@@ -258,6 +259,8 @@ async def http_query(method, url, header='', body=''):
                 raise UPnPInvalidHttpError(f'Content-Length and actual length'
                                 f' mismatch ({content_length} != {len(body)})'
                                 f' from {host}')
+        if not body:
+            logger.warning(f'Got empty body from {url}')
         return header, body, host
 
     finally:

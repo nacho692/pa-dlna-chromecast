@@ -53,12 +53,11 @@ class HTTPServer:
     def __init__(self, body, content_length=None, start_line=None):
         self.body = body.encode()
         self.body_length = len(self.body)
-        content_length = (self.body_length if content_length is None else
-                          content_length)
 
         header = ['HTTP/1.1 200 OK' if start_line is None else
                   start_line]
-        header.append(f'Content-Length: {content_length}')
+        if content_length is not None:
+            header.append(f'Content-Length: {content_length}')
         header.extend(['', ''])
         self.header = '\r\n'.join(header).encode('latin-1')
 
@@ -335,8 +334,20 @@ class SSDP_http(IsolatedAsyncioTestCase):
 
     async def test_zero_length(self):
         body = 'Some content.'
-        received_body = await self._loopback_get(body, content_length=0)
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            received_body = await self._loopback_get(body, content_length=0)
 
+        self.assertTrue(search_in_logs(m_logs.output, 'network',
+                                       re.compile('Got content_length = 0')))
+        self.assertEqual(received_body, b'')
+
+    async def test_empty_body(self):
+        body = ''
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            received_body = await self._loopback_get(body)
+
+        self.assertTrue(search_in_logs(m_logs.output, 'network',
+                                       re.compile('Got empty body')))
         self.assertEqual(received_body, b'')
 
     async def test_length_mismatch(self):

@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.5
+  - Log a warning upon an empty body in the HTTP response from a DLNA device.
   - UPnP discovery is triggered by NICs [#]_ state changes.
   - Add the ``--ip-addresses``, ``-a`` command line argument.
   - Fix changing the ``args`` encoder option is ignored.
