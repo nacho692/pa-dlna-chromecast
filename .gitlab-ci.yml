@@ -40,5 +40,11 @@ py310:
     stage: test
     script:
         - *unittest-scripts
+
+py311:
+    image: python:3.11
+    stage: test
+    script:
+        - *unittest-scripts
         - *coverage-scripts
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'

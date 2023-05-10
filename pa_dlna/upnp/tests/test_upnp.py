@@ -243,6 +243,12 @@ class ControlPoint(IsolatedAsyncioTestCase):
             root_device = control_point._devices[UDN]
             self.assertEqual(root_device.local_ipaddress, None)
 
+            # Wait for the HTTP request to complete, otherwise Python 3.11
+            # complains with 'Error on transport creation for incoming
+            # connection'.
+            while root_device.urlbase is None:
+                await asyncio.sleep(0)
+
             # The SSDP msearch provides the local_ipaddress.
             control_point._create_root_device(header, UDN, HOST, True, HOST)
             self.assertEqual(root_device.local_ipaddress, HOST)
@@ -290,6 +296,13 @@ class ControlPoint(IsolatedAsyncioTestCase):
                     self.assertLogs(level=logging.DEBUG) as m_logs:
                 await start_http_server()
                 control_point._create_root_device(header, UDN, ip, True, ip)
+
+                # Wait for the HTTP request to complete (see
+                # test_local_ip_address).
+                root_device = control_point._devices[UDN]
+                while root_device.urlbase is None:
+                    await asyncio.sleep(0)
+
                 self.assertTrue(UDN in control_point._devices)
                 await control_point.msearch_once(None, do_msearch=False)
                 self.assertTrue(UDN not in control_point._devices)
