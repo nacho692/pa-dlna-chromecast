@@ -156,8 +156,11 @@ class UnixSocketServer:
             await reader.read(1024)
 
         self.stage = 'after count loop'
-        writer.close()
-        await writer.wait_closed()
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except ConnectionError:
+            pass
         self.stage = 'end connection'
         if self.completed is not None:
             self.completed.set_result(True)

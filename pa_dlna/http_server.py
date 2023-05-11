@@ -63,8 +63,11 @@ class Track:
             if not writer.is_closing():
                 writer.write('0\r\n\r\n'.encode())
             await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
             logger.debug(f'{self.task_name}: track is stopped')
         except asyncio.CancelledError:
             logger.debug(f'{self.task_name}: Got CancelledError at Track'
@@ -468,6 +471,13 @@ class HTTPServer:
             await handler.set_rfile()
             handler.handle_one_request()
 
+            if not hasattr(handler, 'path'):
+                content = handler.rfile.getvalue().decode()
+                request = content.splitlines()[0] if content else ''
+                logger.error(f'Invalid path in HTTP request from {ip_source}:'
+                             f' {request}')
+                return
+
             # Start the stream in a new task if the GET request is valid and
             # the uri path matches one of the encoder's.
 
@@ -512,8 +522,11 @@ class HTTPServer:
             logger.exception(f'{e!r}')
         finally:
             if do_close:
-                writer.close()
-                await writer.wait_closed()
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except ConnectionError:
+                    pass
 
     @log_exception(logger)
     async def run(self):

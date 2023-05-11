@@ -62,6 +62,8 @@ class HTTPServer:
             handler = HTTPRequestHandler(reader, writer, peername)
             await handler.set_rfile()
             handler.handle_one_request()
+            if not hasattr(handler, 'path'):
+                return
             uri_path = urllib.parse.unquote(handler.path)
             self.get_response(uri_path)
 
@@ -70,8 +72,11 @@ class HTTPServer:
             writer.write(self.body)
         finally:
             await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
 
     async def run(self):
         aio_server = await asyncio.start_server(self.client_connected,

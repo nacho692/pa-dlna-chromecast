@@ -37,8 +37,11 @@ class HTTPServer:
             handler.send_error(HTTPStatus.NOT_FOUND, self.message)
         finally:
             await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
 
     @log_exception(logger)
     async def run(self):

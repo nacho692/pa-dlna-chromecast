@@ -265,8 +265,11 @@ async def http_query(method, url, header='', body=''):
 
     finally:
         if writer is not None:
-            writer.close()
-            await writer.wait_closed()
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
 
 async def http_get(url):
     """An HTTP 1.0 GET request."""

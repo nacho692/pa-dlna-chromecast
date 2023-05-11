@@ -79,8 +79,11 @@ class HTTPServer:
                 writer.write(self.body)
         finally:
             await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
 
     async def run(self):
         aio_server = await asyncio.start_server(self.client_connected,

@@ -80,7 +80,7 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         # Overriding log_message() that logs the errors.
-        logger.error("%s - %s" % (self.client_address[0], format%args))
+        logger.error("%s - %s" % (self.client_address[0], format % args))
 
     def do_GET(self):
         logger.info(f'{self.request_version} GET request from '

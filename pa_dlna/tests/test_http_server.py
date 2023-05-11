@@ -12,7 +12,7 @@ from . import requires_resources, find_in_logs, search_in_logs
 from .streams import (BLKSIZE, run_curl, new_renderer, play_track, Renderer,
                       ControlPoint)
 from ..encoders import FFMpegEncoder, L16Encoder
-from ..http_server import HTTPServer, Track
+from ..http_server import HTTPServer, Track, HTTPRequestHandler
 
 @requires_resources('curl')
 class Http_Server(IsolatedAsyncioTestCase):
@@ -274,6 +274,30 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.assertNotEqual(length, 0)
         self.assertTrue(search_in_logs(m_logs.output, 'util',
                             re.compile('DLNATest.* temporarily disabled')))
+
+    async def test_no_path_in_request(self):
+        with mock.patch.object(HTTPRequestHandler, 'handle_one_request'),\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            renderer = await new_renderer('audio/mp3')
+
+            # Start the http server.
+            control_point = renderer.control_point
+            http_server = HTTPServer(control_point, renderer.local_ipaddress,
+                                     control_point.port)
+            http_server.allow_from(renderer.root_device.peer_ipaddress)
+            asyncio.create_task(http_server.run(), name='http_server')
+
+            # Start curl.
+            curl_task = asyncio.create_task(run_curl(renderer.current_uri))
+            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+
+        # curl: (52) Empty reply from server.
+        # See https://curl.se/libcurl/c/libcurl-errors.html
+        self.assertEqual(returncode, 52)
+        self.assertEqual(length, 0)
+
+        self.assertTrue(search_in_logs(m_logs.output, 'http',
+                                re.compile('Invalid path in HTTP request')))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
