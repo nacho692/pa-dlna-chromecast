@@ -163,9 +163,13 @@ def parse_callbacks(pathname, functions=None):
     return callbacks
 
 def write_header(typedef_enums, fileobj):
-    doc = '"""Pulseaudio enums."""\n\n'
+    doc = '"""Pulseaudio constants."""\n\n'
     fileobj.write(doc)
 
+    # def.h:#define PA_INVALID_INDEX ((uint32_t) -1)
+    fileobj.write('PA_INVALID_INDEX = 0xffffffff\n\n')
+
+    # Write the enums.
     first_one = True
     for typedef, enums in typedef_enums.items():
         if first_one:

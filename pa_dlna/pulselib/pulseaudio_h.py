@@ -1,4 +1,6 @@
-"""Pulseaudio enums."""
+"""Pulseaudio constants."""
+
+PA_INVALID_INDEX = 0xffffffff
 
 # Enum pa_context_state.
 PA_CONTEXT_UNCONNECTED = 0
