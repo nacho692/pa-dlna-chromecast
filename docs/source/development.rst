@@ -128,6 +128,15 @@ Requirements
 """"""""""""
 
 Development:
+    * ``gcc`` is used to parse pulselib's pulseaudio.h and to create
+      pulseaudio_h.py and prototypes.py. It should not be needed after the
+      creation of both these Python modules as pulseaudio enforces the ABI
+      compatibility of pulselib across its different versions.
+
+      pulseaudio_h.py and prototypes.py are created by running the command::
+
+        $ python -m tools.parse_pulselib
+
     * `curl`_ is used to run the full test suite. When missing, the tests
       using curl are skipped. It is needed when releasing a new version to fetch
       the GitLab test coverage badge.
