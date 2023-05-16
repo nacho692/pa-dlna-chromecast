@@ -1,4 +1,4 @@
-"""Parse pulseaudio header files."""
+"""Parse the pulseaudio.h header."""
 
 import sys
 import os
@@ -16,21 +16,60 @@ PROTOTYPES_PY = 'pa_dlna/pulselib/prototypes.py'
 ENUM_TYPEDEFS = { 'pa_context_state', 'pa_operation_state',
                   'pa_error_code', 'pa_subscription_mask',
                   'pa_subscription_event_type', 'pa_sink_state',
+                  'pa_io_event_flags',
                 }
-FUNCTION_REGEXPS = (re.compile(r'pa_context_\w+'),
-                    re.compile(r'pa_mainloop_\w+'),
-                    re.compile(r'pa_module_\w+'),
-                    re.compile(r'pa_sink_\w+'),
-                )
 
 # The regular expressions.
-ENUMS_RE = re.compile(r'typedef\s+enum\s+(pa_\w+)\s+{([^}]+)}\s+pa_\w+\s*;')
+ENUMS_RE = re.compile(r'typedef\s+enum\s+(pa_\w+)\s*{([^}]+)}\s*pa_\w+\s*;')
 CONSTANT_RE = re.compile(r'(\w+)\s*=\s*(0x[0-9A-Fa-f]+|-?\d+)')
 PROTOTYPE_RE = re.compile(
                 r'\n(\w.*[ *])(pa_\w+\s*?)\(([^)]+)\)\s*(__attribute__)*.*;')
 CALLBACK_RE = re.compile(
-        r'\ntypedef\s+(\w.*[ *])\(\s*\*\s*(pa_\w+\s*)\)\s*\(([^)]+)\)\s*;')
+        r'\n(typedef| )\s*(\w.*[ *])\(\s*\*\s*(\w+\s*)\)\s*\(([^)]+)\)\s*;')
 POINTER_RE = re.compile(r'(\w+)\s*(\*+)\s*(\w+\[?]?)?')
+
+def callback_regexps():
+    regexps = (
+        r'pa_context_notify_cb_t',
+        r'pa_sink_info_cb_t',
+        r'pa_sink_input_info_cb_t',
+        r'pa_context_index_cb_t',
+        r'pa_context_subscribe_cb_t',
+        r'pa_context_success_cb_t',
+
+        # mainloop API.
+        r'io_\w+',
+        r'time_\w+',
+        r'defer_\w+',
+        r'quit',
+
+        # mainloop API callbacks.
+        r'pa_defer_event_cb_t',
+        r'pa_defer_event_destroy_cb_t',
+        r'pa_io_event_cb_t',
+        r'pa_io_event_destroy_cb_t',
+        r'pa_time_event_cb_t',
+        r'pa_time_event_destroy_cb_t',
+    )
+    return [re.compile(reg) for reg in regexps]
+
+def function_regexps():
+    regexps = (
+        r'pa_context_new',
+        r'pa_context_set_state_callback',
+        r'pa_context_errno',
+        r'pa_context_\w*ref',
+        r'pa_context_\w*connect',
+        r'pa_context_\w+module',
+        r'pa_context_get_sink_info_by_name',
+        r'pa_context_get_sink_\w*info_list',
+        r'pa_context_get_state',
+        r'pa_context_\w*protocol\w*',
+        r'pa_context_\w*subscribe\w*',
+        r'pa_operation_\w*ref',
+        r'pa_operation_cancel',
+    )
+    return [re.compile(reg) for reg in regexps]
 
 @functools.lru_cache
 def preprocess(pathname):
@@ -147,7 +186,7 @@ def parse_callbacks(pathname, functions=None):
     """
 
     callbacks = dict()
-    for res, name, args in re.findall(CALLBACK_RE, preprocess(pathname)):
+    for _, res, name, args in re.findall(CALLBACK_RE, preprocess(pathname)):
         name = name.strip()
         if functions is not None:
             for func in functions:
@@ -206,8 +245,8 @@ def main(stdout=False):
         sys.exit(1)
 
     typedef_enums = parse_enums(PULSEAUDIO_H, ENUM_TYPEDEFS)
-    prototypes = parse_prototypes(PULSEAUDIO_H, FUNCTION_REGEXPS)
-    callbacks = parse_callbacks(PULSEAUDIO_H, FUNCTION_REGEXPS)
+    prototypes = parse_prototypes(PULSEAUDIO_H, function_regexps())
+    callbacks = parse_callbacks(PULSEAUDIO_H, callback_regexps())
 
     if stdout:
         write_header(typedef_enums, sys.stdout)
