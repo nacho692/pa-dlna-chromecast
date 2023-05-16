@@ -26,7 +26,7 @@ PROTOTYPE_RE = re.compile(
                 r'\n(\w.*[ *])(pa_\w+\s*?)\(([^)]+)\)\s*(__attribute__)*.*;')
 CALLBACK_RE = re.compile(
         r'\n(typedef| )\s*(\w.*[ *])\(\s*\*\s*(\w+\s*)\)\s*\(([^)]+)\)\s*;')
-POINTER_RE = re.compile(r'(\w+)\s*(\*+)\s*(\w+\[?]?)?')
+POINTER_RE = re.compile(r'(\w+|\w.*\w)\s*(\*+)\s*(\w+\[?]?)?')
 
 def callback_regexps():
     regexps = (
