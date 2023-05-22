@@ -18,14 +18,14 @@ PULSEAUDIO_H_PY = 'pa_dlna/pulselib/pulseaudio_h.py'
 PROTOTYPES_PY = 'pa_dlna/pulselib/prototypes.py'
 
 # What we are looking for.
-ENUM_TYPEDEFS = { 'pa_context_state', 'pa_operation_state',
-                  'pa_error_code', 'pa_subscription_mask',
-                  'pa_subscription_event_type', 'pa_sink_state',
-                  'pa_io_event_flags',
+ENUM_TYPEDEFS = { 'pa_context_flags_t', 'pa_context_state_t',
+                  'pa_operation_state_t', 'pa_error_code_t',
+                  'pa_subscription_mask_t', 'pa_subscription_event_type_t',
+                  'pa_sink_state_t', 'pa_io_event_flags_t',
                 }
 
 # The regular expressions.
-ENUMS_RE = re.compile(r'typedef\s+enum\s+(pa_\w+)\s*{([^}]+)}\s*pa_\w+\s*;')
+ENUMS_RE = re.compile(r'typedef\s+enum\s+pa_\w+\s*{([^}]+)}\s*(pa_\w+)\s*;')
 CONSTANT_RE = re.compile(r'(\w+)\s*=\s*(0x[0-9A-Fa-f]+|-?\d+)')
 PROTOTYPE_RE = re.compile(
                 r'\n(\w.*[ *])(pa_\w+\s*?)\(([^)]+)\)\s*(__attribute__)*.*;')
@@ -91,7 +91,7 @@ def parse_enums(pathname, typedefs=None):
     """
 
     typedef_enums = dict()
-    for name, enum in re.findall(ENUMS_RE, preprocess(pathname)):
+    for enum, name in re.findall(ENUMS_RE, preprocess(pathname)):
         if typedefs is not None:
             if name not in typedefs:
                 continue
@@ -225,10 +225,14 @@ def write_header(typedef_enums, fileobj):
     DO NOT MODIFY.
     """
 
+    PA_ENUM_LIST = []
+
     '''
     fileobj.write(dedent(doc))
 
     # def.h:#define PA_INVALID_INDEX ((uint32_t) -1)
+    # Assume pulseaudio is built with a compiler that represents signed
+    # integers using 2’s complement notation.
     fileobj.write('PA_INVALID_INDEX = 0xffffffff\n\n')
 
     # Write the enums.
@@ -241,6 +245,7 @@ def write_header(typedef_enums, fileobj):
 
         title = f'# Enum {typedef}.\n'
         fileobj.write(title)
+        fileobj.write(f"PA_ENUM_LIST.append('{typedef}')\n")
         for enum, value in enums.items():
             fileobj.write(f'{enum} = {value}\n')
 
@@ -254,14 +259,14 @@ def write_prototypes(prototypes, callbacks, fileobj):
     '''
     fileobj.write(dedent(doc))
 
-    title = '# Functions.\n'
+    title = '# Prototypes.\n'
     fileobj.write(title)
-    fileobj.write('functions = ' + pprint.pformat(prototypes))
+    fileobj.write('PROTOTYPES = ' + pprint.pformat(prototypes))
     fileobj.write('\n\n')
 
     title = '# Callbacks.\n'
     fileobj.write(title)
-    fileobj.write('callbacks = ' + pprint.pformat(callbacks))
+    fileobj.write('CALLBACKS = ' + pprint.pformat(callbacks))
     fileobj.write('\n')
 
 def main(stdout=False):
