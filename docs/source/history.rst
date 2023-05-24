@@ -1,6 +1,12 @@
 Release history
 ===============
 
+Version 0.6
+  - Wait for the http server to be ready before starting the renderer task. This
+    also fixes the test_None_nullsink and test_no_path_in_request tests on
+    GitLab CI/CD.
+  - Support Python 3.11.
+
 Version 0.5
   - Log a warning upon an empty body in the HTTP response from a DLNA device.
   - UPnP discovery is triggered by NICs [#]_ state changes.

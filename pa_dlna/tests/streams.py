@@ -93,7 +93,7 @@ async def play_track(mime_type, transactions, wait_for_completion=True,
         server_t = asyncio.create_task(server.run(), name='socket server')
 
         # Start curl.
-        await http_server.ready_fut
+        await http_server.startup
         await server.ready_fut
         curl_task = asyncio.create_task(run_curl(renderer.current_uri),
                                         name='curl')
@@ -182,8 +182,6 @@ class UnixSocketServer:
 class _HTTPServer(HTTPServer):
     def __init__(self, control_point, ip_address, port):
         super().__init__(control_point, ip_address, port)
-        loop = asyncio.get_running_loop()
-        self.ready_fut = loop.create_future()
         self.stage = 'init'
 
     async def client_connected(self, reader, writer):
@@ -198,11 +196,11 @@ class _HTTPServer(HTTPServer):
             aio_server = await asyncio.start_server(self.client_connected,
                                                 self.ip_address, self.port)
             async with aio_server:
-                self.ready_fut.set_result(True)
+                self.startup.set_result(True)
                 await aio_server.serve_forever()
         except Exception as e:
             try:
-                self.ready_fut.set_result(True)
+                self.startup.set_result(True)
             except asyncio.InvalidStateError:
                 pass
             raise

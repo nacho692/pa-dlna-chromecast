@@ -445,6 +445,8 @@ class HTTPServer:
         self.ip_address = ip_address
         self.port = port
         self.allowed_ips = set()
+        loop = asyncio.get_running_loop()
+        self.startup = loop.create_future()
 
     def allow_from(self, ip_addr):
         self.allowed_ips.add(ip_addr)
@@ -540,6 +542,7 @@ class HTTPServer:
 
             async with aio_server:
                 try:
+                    self.startup.set_result(None)
                     await aio_server.serve_forever()
                 finally:
                     logger.info(f'{task_name} closed')

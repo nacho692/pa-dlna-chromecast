@@ -181,6 +181,7 @@ class Http_Server(IsolatedAsyncioTestCase):
             http_server = HTTPServer(control_point, renderer.local_ipaddress,
                                      control_point.port)
             asyncio.create_task(http_server.run(), name='http_server')
+            await http_server.startup
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
@@ -201,6 +202,7 @@ class Http_Server(IsolatedAsyncioTestCase):
                                      control_point.port)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
             asyncio.create_task(http_server.run(), name='http_server')
+            await http_server.startup
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(
@@ -222,6 +224,7 @@ class Http_Server(IsolatedAsyncioTestCase):
                                      control_point.port)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
             asyncio.create_task(http_server.run(), name='http_server')
+            await http_server.startup
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri,
@@ -244,6 +247,7 @@ class Http_Server(IsolatedAsyncioTestCase):
                                      control_point.port)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
             asyncio.create_task(http_server.run(), name='http_server')
+            await http_server.startup
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
@@ -265,6 +269,7 @@ class Http_Server(IsolatedAsyncioTestCase):
                                      control_point.port)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
             asyncio.create_task(http_server.run(), name='http_server')
+            await http_server.startup
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
@@ -286,6 +291,7 @@ class Http_Server(IsolatedAsyncioTestCase):
                                      control_point.port)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
             asyncio.create_task(http_server.run(), name='http_server')
+            await http_server.startup
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))

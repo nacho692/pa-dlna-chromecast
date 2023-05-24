@@ -576,20 +576,22 @@ class AVControlPoint(UPnPApplication):
                 self.renderers.add(renderer)
 
         if registered:
-            http_server = self.create_httpserver(renderer.local_ipaddress)
+            http_server = await self.create_httpserver(
+                                                renderer.local_ipaddress)
             http_server.allow_from(renderer.root_device.peer_ipaddress)
 
             # Create the renderer task.
             self.cp_tasks.create_task(renderer.run(),
                                       name=renderer.nullsink.sink.name)
 
-    def create_httpserver(self, ip_address):
+    async def create_httpserver(self, ip_address):
         """Create the http_server task."""
 
         if ip_address not in self.http_servers:
             http_server = HTTPServer(self, ip_address, self.port)
             self.cp_tasks.create_task(http_server.run(),
                                       name=f'http_server-{ip_address}')
+            await http_server.startup
             self.http_servers[ip_address] = http_server
         return self.http_servers[ip_address]
 
