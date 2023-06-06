@@ -2,99 +2,318 @@
 
 import asyncio
 import logging
+import pprint
 import functools
+import time
 import ctypes as ct
 
-from .pulseaudio_h import *
+from .pulseaudio_h import (PA_ENUM_LIST, PA_IO_EVENT_NULL, PA_IO_EVENT_INPUT,
+                           PA_IO_EVENT_OUTPUT)
 from .prototypes import CALLBACKS
 from .structures import PA_SINK_INFO, PA_SINK_INPUT_INFO, TIMEVAL
 
-debug = 0
 logger = logging.getLogger('pulslib')
 
+if __name__ == '__main__':
+    PULSELIB_LVL = 5                    # Pulselib log level.
+    current_loglevel = logging.DEBUG
+    current_loglevel = PULSELIB_LVL
+    logging.addLevelName(PULSELIB_LVL, 'PLS_LVL')
+    logging.basicConfig(level=current_loglevel,
+                        format='%(name)-7s %(levelname)-7s %(message)s')
+
+def python_object(ctypes_object):
+    return ct.cast(ctypes_object, ct.POINTER(ct.py_object)).contents.value
+
 @functools.lru_cache
-def get_ctype(name):
+def known_ctypes():
     map = { 'void':                         None,
             'int':                          ct.c_int,
             'uint32_t':                     ct.c_uint32,
             'char *':                       ct.c_char_p,
-            'struct timeval *':             TIMEVAL,
+            'struct timeval *':             ct.POINTER(TIMEVAL),
             'pa_sink_info *':               ct.POINTER(PA_SINK_INFO),
             'pa_sink_input_info *':         ct.POINTER(PA_SINK_INPUT_INFO),
            }
     for enum_name in PA_ENUM_LIST:
         map[enum_name] = ct.c_int
+    return map
 
+@functools.lru_cache
+def get_ctype(name):
+    map = known_ctypes()
     if name in map:
         return map[name]
     elif name.endswith('*'):
         return ct.c_void_p
     else:
-        return False
+        raise KeyError(f'No ctypes match found for {name}')
 
-def callback_types():
+@functools.lru_cache
+def callback_types(debug=False):
     """Build a dictionary mapping callbacks to their ctypes type."""
 
-    def callback_type(func_name):
+    def get_cb_type(func_name):
         types = []
         val = CALLBACKS[func_name]
         restype = get_ctype(val[0])     # The return type.
-        assert restype is not False
         types.append(restype)
 
         for arg in val[1]:              # The args types.
-            argtype = get_ctype(arg)
-
-            # Not a known data type. So it must be a function pointer to a
-            # callback. Find its description in CALLBACKS and call
-            # callback_type() recursively.
-            if argtype is False:
+            try:
+                argtype = get_ctype(arg)
+            except KeyError:
+                # Not a known data type. So it must be a function pointer to a
+                # callback. Find its description in CALLBACKS and call
+                # get_cb_type() recursively.
                 assert arg in CALLBACKS
                 # First check if it's already in the dictionary.
-                argtype = map.get(arg)
+                argtype = cb_types.get(arg)
                 if argtype is None:
-                    argtype = callback_type(arg)
-
+                    argtype = get_cb_type(arg)
             types.append(argtype)
 
-        if debug:
-            print(f'{func_name}: {types}')
-
+        if cb_types_params is not None:
+            cb_types_params[func_name] = types
         return ct.CFUNCTYPE(*types)
 
-    map = dict()
-    for name in CALLBACKS:
-        map[name] = callback_type(name)
-    return map
+    # Used to log the parameters of ct.CFUNCTYPE().
+    cb_types_params = dict() if debug else None
 
-PULSE_CALLBACK_TYPES = callback_types()
+    cb_types = dict()
+    for name in CALLBACKS:
+        cb_types[name] = get_cb_type(name)
+
+    if cb_types_params is not None:
+        logger.log(PULSELIB_LVL, pprint.pformat(cb_types_params))
+
+    return cb_types
+
+def build_mainloop_api():
+    """Build an instance of the libpulse Main Loop API."""
+
+    cb_types = callback_types()
+    api = {'io_new': IoEvent.io_new,
+           'io_enable': IoEvent.io_enable,
+           'io_free': IoEvent.io_free,
+           'io_set_destroy': PulseEvent.set_destroy,
+           'time_new': TimeEvent.time_new,
+           'time_restart': TimeEvent.time_restart,
+           'time_free': TimeEvent.time_free,
+           'time_set_destroy': PulseEvent.set_destroy,
+           'defer_new': DeferEvent.defer_new,
+           'defer_enable': DeferEvent.defer_enable,
+           'defer_free': DeferEvent.defer_free,
+           'defer_set_destroy': PulseEvent.set_destroy,
+           'quit': quit
+           }
+
+    class Mainloop_api(ct.Structure):
+        _fields_ = [('userdata', ct.c_void_p)]
+        for name in api:
+            _fields_.append((name, cb_types[name]))
+
+    # Instantiate Mainloop_api.
+    args = [cb_types[name](api[name]) for name in api]
+    return Mainloop_api(None, *args)
 
 # Main Loop API functions.
+# There is only one asyncio loop and therefore only one MainLoop instance per
+# thread. The MainLoop instance referenced by any callback of the API is
+# obtained by calling MainLoop.get_instance().
+class PulseEvent:
+    def __init__(self, c_callback, c_userdata):
+        self.mainloop = MainLoop.get_instance()
+        self.c_callback = c_callback
+        self.c_userdata = c_userdata
+        self.c_destroy_cb = None
+
+        # XXX byref instead of pointer: that should work
+        # XXX c_self.value: NOT NEEDED ?
+        self.c_self = ct.cast(ct.pointer(ct.py_object(self)), ct.c_void_p)
+
+        logger.debug(f'New {self.__class__.__name__} instance')
+
+    def destroy(self):
+        if self.c_destroy_cb:
+            self.c_destroy_cb(self.mainloop.C_MAINLOOP_API, self.c_self,
+                              self.c_userdata)
+
+    @staticmethod
+    def set_destroy(c_event, c_callback):
+        event = python_object(c_event)
+        event.c_destroy_cb = c_callback
+
+    @classmethod
+    def cleanup(cls, mainloop):
+        for event in cls.EVENTS:
+            if event.mainloop is mainloop:
+                event.destroy()
+
+class IoEvent(PulseEvent):
+    EVENTS = set()
+
+    def __init__(self, fd, c_callback, c_userdata):
+        super().__init__(c_callback, c_userdata)
+        self.fd = fd
+        self.flags = PA_IO_EVENT_NULL
+
+    def callback(self, flags):
+        self.c_callback(self.mainloop.C_MAINLOOP_API, self.c_self, self.fd,
+                        flags, self.c_userdata)
+
+    def enable(self, flags):
+        aio_loop = self.mainloop.aio_loop
+        if flags & PA_IO_EVENT_INPUT and not (self.flags & PA_IO_EVENT_INPUT):
+            aio_loop.add_reader(self.fd, self.callback, flags)
+        if not (flags & PA_IO_EVENT_INPUT) and self.flags & PA_IO_EVENT_INPUT:
+            aio_loop.remove_reader(self.fd)
+        if (flags & PA_IO_EVENT_OUTPUT and
+                not (self.flags & PA_IO_EVENT_OUTPUT)):
+            aio_loop.add_writer(self.fd, self.callback, flags)
+        if (not (flags & PA_IO_EVENT_OUTPUT) and
+                self.flags & PA_IO_EVENT_OUTPUT):
+            aio_loop.remove_writer(self.fd)
+        self.flags = flags
+
+    @staticmethod
+    def io_new(c_mainloop_api, fd, flags, c_callback, c_userdata):
+        event = IoEvent(fd, c_callback, c_userdata)
+        event.enable(flags)
+        IoEvent.EVENTS.add(event)
+        return event.c_self
+
+    @staticmethod
+    def io_enable(c_io_event, flags):
+        event = python_object(c_io_event)
+        event.enable(flags)
+
+    @staticmethod
+    def io_free(c_io_event):
+        event = python_object(c_io_event)
+        event.enable(PA_IO_EVENT_NULL)
+        IoEvent.EVENTS.remove(event)
+
+class TimeEvent(PulseEvent):
+    EVENTS = set()
+
+    def __init__(self, c_callback, c_userdata):
+        super().__init__(c_callback, c_userdata)
+        self.timer_handle = None
+
+    def restart(self, c_time):
+        if self.timer_handle is not None:
+            self.timer_handle.cancel()
+            self.timer_handle = None
+        if c_time is not None:
+            timeval = c_time.contents
+            delay = timeval.tv_sec + timeval.tv_usec / 10**6 - time.time()
+            self.timer_handle = self.mainloop.aio_loop.call_later(
+                delay, self.c_callback, self.mainloop.C_MAINLOOP_API,
+                self.c_self, c_time, self.c_userdata)
+
+    @staticmethod
+    def time_new(c_mainloop_api, c_time, c_callback, c_userdata):
+        event = TimeEvent(c_callback, c_userdata)
+        event.restart(c_time)
+        TimeEvent.EVENTS.add(event)
+        return event.c_self
+
+    @staticmethod
+    def time_restart(c_time_event, c_time):
+        event = python_object(c_time_event)
+        event.restart(c_time)
+
+    @staticmethod
+    def time_free(c_time_event):
+        event = python_object(c_time_event)
+        event.restart(None)
+        TimeEvent.EVENTS.remove(event)
+
+class DeferEvent(PulseEvent):
+    EVENTS = set()
+
+    def __init__(self, c_callback, c_userdata):
+        super().__init__(c_callback, c_userdata)
+        self.handle = None
+
+    def enable(self, enable):
+        if self.handle is None and enable:
+            self.handle = self.mainloop.aio_loop.call_soon(self.callback)
+        elif self.handle is not None and not enable:
+            self.handle.cancel()
+            self.handle = None
+        self.enabled = True if enable else False
+
+    def callback(self):
+        self.handle = None
+        self.c_callback(self.mainloop.C_MAINLOOP_API, self.c_self,
+                        self.c_userdata)
+        if self.enabled:
+            self.handle = self.mainloop.aio_loop.call_soon(self.callback)
+
+    @staticmethod
+    def defer_new(c_mainloop_api, c_callback, c_userdata):
+        event = DeferEvent(c_callback, c_userdata)
+        event.enable(True)
+        DeferEvent.EVENTS.add(event)
+        return event.c_self
+
+    @staticmethod
+    def defer_enable(c_defer_event, enable):
+        event = python_object(c_defer_event)
+        event.enable(enable)
+
+    @staticmethod
+    def defer_free(c_defer_event):
+        event = python_object(c_defer_event)
+        event.enable(False)
+        DeferEvent.EVENTS.remove(event)
+
+def quit(c_mainloop_api, retval):
+    logger.debug(f'quit() of the mainloop API called with retval={retval}')
 
 class MainLoop:
-    """An implementation of the pulselib Main Loop based on asyncio.
+    """An implementation of the pulselib Main Loop based on asyncio."""
 
-    Use the get_instance() static method to instantiate MainLoop or to get
-    the current instance.
-    """
+    ASYNCIO_LOOPS = dict()              # {asyncio loop: MainLoop instance}
+    # XXX pointer or byref ?
+    C_MAINLOOP_API = ct.cast(ct.pointer(build_mainloop_api()), ct.c_void_p)
 
-    _asyncio_loops = dict()             # {asyncio loop: MainLoop instance}
-
-    def __init__(self, loop):
-        assert loop not in MainLoop._asyncio_loops
-        self.loop = loop
-        self._asyncio_loops[loop] = self
+    def __init__(self, aio_loop):
+        assert aio_loop not in self.ASYNCIO_LOOPS, (
+            'There is already a MainLoop instance on this asyncio loop')
+        self.aio_loop = aio_loop
+        self.ASYNCIO_LOOPS[aio_loop] = self
 
     @staticmethod
     def get_instance():
-        loop = asyncio.get_running_loop()
-        mloop = MainLoop._asyncio_loops.get(loop)
-        return mloop if mloop is not None else MainLoop(loop)
+        aio_loop = asyncio.get_running_loop()
+        mloop = MainLoop.ASYNCIO_LOOPS.get(aio_loop)
+        return mloop if mloop is not None else MainLoop(aio_loop)
 
     def close(self):
-        loops = MainLoop._asyncio_loops
-        for loop, mloop in loops.items():
+        for cls in (IoEvent, TimeEvent, DeferEvent):
+            cls.cleanup(self)
+
+        for aio_loop, mloop in list(self.ASYNCIO_LOOPS.items()):
             if mloop is self:
-                del loops[loop]
+                del self.ASYNCIO_LOOPS[aio_loop]
+                break
         else:
-            assert False, 'Cannot remove the MainLoop instance upon closing'
+            assert False, 'Cannot remove MainLoop instance upon closing'
+
+    def __enter__(self):
+        return MainLoop.get_instance()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
+
+async def main():
+    mloop = MainLoop.get_instance()
+    mloop.close()
+    logger.debug('Fin')
+
+if __name__ == '__main__':
+    asyncio.run(main())
