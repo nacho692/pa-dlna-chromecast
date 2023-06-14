@@ -46,6 +46,14 @@ Task names in **bold** characters indicate that there is one such task for each
 DLNA device, when in *italics* that there may be such tasks for each DLNA
 device.
 
+  PulseLib tasks:
+
+    ================      ======================================================
+    *coroutines*          Coroutines are wrapped in a task that is cancelled
+                          when the |br| pulselib connection state becomes
+                          PA_CONTEXT_FAILED.
+    ================      ======================================================
+
   UPnPControlPoint tasks:
 
     ================      ======================================================

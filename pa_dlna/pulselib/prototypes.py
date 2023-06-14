@@ -57,7 +57,8 @@ PROTOTYPES = {'pa_context_connect': ('int',
  'pa_context_unref': ('void', ['pa_context *']),
  'pa_operation_cancel': ('void', ['pa_operation *']),
  'pa_operation_ref': ('pa_operation *', ['pa_operation *']),
- 'pa_operation_unref': ('void', ['pa_operation *'])}
+ 'pa_operation_unref': ('void', ['pa_operation *']),
+ 'pa_strerror': ('char *', ['int'])}
 
 # Callbacks.
 CALLBACKS = {'defer_enable': ('void', ['pa_defer_event *', 'int']),

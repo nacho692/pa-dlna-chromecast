@@ -73,6 +73,7 @@ def function_regexps():
         r'pa_context_\w*subscribe\w*',
         r'pa_operation_\w*ref',
         r'pa_operation_cancel',
+        r'pa_strerror',
     )
     return [re.compile(reg) for reg in regexps]
 
