@@ -38,6 +38,16 @@ def run_in_task():
 def setup_prototype(func_name, pulselib):
     """Set the restype and argtypes of a pulselib function name."""
 
+    # Ctypes does not allow None as a NULL callback function pointer.
+    # Overriding _CFuncPtr.from_param() allows it. This is a hack as _CFuncPtr
+    # is private.
+    # See https://ctypes-users.narkive.com/wmJNDPu2/optional-callbacks-
+    # passing-null-for-function-pointers.
+    def from_param(cls, obj):
+        if obj is None:
+            return None     # Return a NULL pointer.
+        return ct._CFuncPtr.from_param(obj)
+
     func = getattr(pulselib, func_name)
     val = PROTOTYPES[func_name]
     func.restype = get_ctype(val[0])        # The return type.
@@ -50,6 +60,7 @@ def setup_prototype(func_name, pulselib):
             # Not a known data type. So it must be a function pointer to a
             # callback.
             argtype = CALLBACK_TYPES[arg]
+            argtype.from_param = classmethod(from_param)
         argtypes.append(argtype)
     func.argtypes = argtypes
     return func
