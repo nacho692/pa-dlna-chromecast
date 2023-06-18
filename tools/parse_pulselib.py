@@ -66,6 +66,7 @@ def function_regexps():
         r'pa_context_\w*ref',
         r'pa_context_\w*connect',
         r'pa_context_\w+module',
+        r'pa_context_get_server',
         r'pa_context_get_sink_info_by_name',
         r'pa_context_get_sink_\w*info_list',
         r'pa_context_get_state',

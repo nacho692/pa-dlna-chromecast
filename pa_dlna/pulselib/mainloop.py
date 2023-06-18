@@ -86,7 +86,7 @@ def callback_types(debug=False):
 
 CALLBACK_TYPES = callback_types()
 
-def callback_function(name, python_function):
+def callback_func_ptr(name, python_function):
     return CALLBACK_TYPES[name](python_function)
 
 def build_mainloop_api():
@@ -113,7 +113,7 @@ def build_mainloop_api():
             _fields_.append((name, CALLBACK_TYPES[name]))
 
     # Instantiate Mainloop_api.
-    args = [callback_function(name, api[name]) for name in api]
+    args = [callback_func_ptr(name, api[name]) for name in api]
     return Mainloop_api(None, *args)
 
 # Main Loop API functions.
