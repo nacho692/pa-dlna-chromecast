@@ -50,6 +50,20 @@ def handle_context_success(func_name, future, success):
     elif not future.done():
         future.set_result(None)
 
+async def handle_operation(c_operation, future, errmsg):
+    if c_operation is None:
+        future.cancel()
+        raise PulseOperationError(errmsg)
+
+    try:
+        await future
+        return True
+    except asyncio.CancelledError:
+        pa_operation_cancel(c_operation)
+        return False
+    finally:
+        pa_operation_unref(c_operation)
+
 def setup_prototype(func_name, pulselib):
     """Set the restype and argtypes of a pulselib function name."""
 
@@ -97,7 +111,29 @@ def build_pulselib_prototypes(debug=False):
 
 build_pulselib_prototypes()
 
-class PulseconnectionError(Exception): pass
+def event_codes_to_names():
+    def build_events_dict(mask):
+        for fac in globals():
+            if fac.startswith(prefix):
+                val = eval(fac)
+                if (val & mask) and val != mask:
+                    yield val, fac[prefix_len:].lower()
+
+    prefix = 'PA_SUBSCRIPTION_EVENT_'
+    prefix_len = len(prefix)
+    facilities = {0 : 'sink'}
+    facilities.update(build_events_dict(PA_SUBSCRIPTION_EVENT_FACILITY_MASK))
+    event_types = {0: 'new'}
+    event_types.update(build_events_dict(PA_SUBSCRIPTION_EVENT_TYPE_MASK))
+    return facilities, event_types
+
+# Dictionaries mapping pulselib event types values to their names.
+EVENT_FACILITIES, EVENT_TYPES = event_codes_to_names()
+
+class PulseLibError(Exception): pass
+class PulseStateError(PulseLibError): pass
+class PulseOperationError(PulseLibError): pass
+
 class EventIterator:
     def __init__(self):
         self.event_queue = asyncio.Queue()
@@ -170,6 +206,10 @@ class PulseLib:
 
         'subscription_masks' is built by ORing the masks of the
         'pa_subscription_mask_t' Enum defined in the pulseaudio_h module.
+
+        This method may be invoked at any time to change the subscription
+        masks currently set, even from within the async for loop that iterates
+        over the reception of pulselib events.
         """
 
         def context_success_callback(c_context, success, c_userdata):
@@ -181,24 +221,64 @@ class PulseLib:
                         'pa_context_success_cb_t', context_success_callback)
         c_operation = pa_context_subscribe(self.c_context, subscription_masks,
                                            c_context_success_callback, None)
-        try:
-            await success_notification
-        except asyncio.CancelledError:
-            pa_operation_cancel(c_operation)
-        finally:
-            pa_operation_unref(c_operation)
+
+        errmsg = f'Cannot subscribe events with {subscription_masks} mask'
+        await handle_operation(c_operation, success_notification, errmsg)
 
     def get_events(self):
         """Return an Asynchronous Iterator of pulselib events.
 
-        The iterator loop can be terminated by invoking the close() method of
-        the iterator.
+        The iterator is used to run an async for loop over pulselib events.
+        Calling this method while an async for loop is already running will
+        terminate this loop.
+
+        The async for loop can be terminated by invoking the close() method of
+        the iterator from within the loop or from another task.
         """
 
         if self.event_iterator is not None:
             self.event_iterator.close()
         self.event_iterator = EventIterator()
         return self.event_iterator
+
+    @run_in_task()
+    async def pa_context_load_module(self, name, argument):
+        def context_index_callback(c_context, index, c_userdata):
+            if not index_notification.done():
+                index_notification.set_result(index)
+
+        index_notification  = self.loop.create_future()
+        c_context_index_callback = callback_func_ptr('pa_context_index_cb_t',
+                                             context_index_callback)
+        c_operation = pa_context_load_module(self.c_context, name.encode(),
+                        argument.encode(), c_context_index_callback, None)
+
+        errmsg = f"Cannot load '{name}' module with '{argument}' argument"
+        result = await handle_operation(c_operation, index_notification,
+                                        errmsg)
+        if result:
+            index = index_notification.result()
+            if index == PA_INVALID_INDEX:
+                raise PulseOperationError(errmsg)
+            return index
+
+    @run_in_task()
+    async def pa_context_unload_module(self, index):
+        def context_success_callback(c_context, success, c_userdata):
+            handle_context_success('pa_context_unload_module',
+                                   success_notification, success)
+
+        success_notification  = self.loop.create_future()
+        c_context_success_callback = callback_func_ptr(
+                        'pa_context_success_cb_t', context_success_callback)
+        c_operation = pa_context_unload_module(self.c_context, index,
+                                            c_context_success_callback, None)
+
+        # Note that this operation fails (c_operation is None) only if the
+        # 'index' argument is PA_INVALID_INDEX !
+        # See command_kill() in pulselib instrospect.c.
+        errmsg = f'Cannot unload module at {index} index'
+        await handle_operation(c_operation, success_notification, errmsg)
 
 
     # Private methods.
@@ -235,7 +315,7 @@ class PulseLib:
         await self.state_notification
 
         if self.state[0] != 'PA_CONTEXT_READY':
-            raise PulseconnectionError(self.state)
+            raise PulseStateError(self.state)
 
         version = pa_context_get_protocol_version(self.c_context)
         server_version = pa_context_get_server_protocol_version(
@@ -270,6 +350,7 @@ class PulseLib:
             pa_context_set_subscribe_callback(self.c_context, None, None)
 
             if self.state[0] == 'PA_CONTEXT_READY':
+                logger.info('Disconnecting from pulselib context')
                 pa_context_disconnect(self.c_context)
         finally:
             pa_context_unref(self.c_context)
@@ -294,7 +375,7 @@ class PulseLib:
         except asyncio.CancelledError:
             self._close()
             if self.state[0] != 'PA_CONTEXT_READY':
-                raise PulseconnectionError(self.state)
+                raise PulseStateError(self.state)
         except Exception:
             self._close()
             raise
@@ -303,21 +384,35 @@ class PulseLib:
         self._close()
         if exc_type is asyncio.CancelledError:
             if self.state[0] != 'PA_CONTEXT_READY':
-                raise PulseconnectionError(self.state)
+                raise PulseStateError(self.state)
 
 async def main():
     try:
         async with PulseLib('pa-dlna') as pulse_lib:
             logger.debug(f'main: connected')
 
-            await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
-            async for event in pulse_lib.get_events():
-                event_type, index = event
-                facility = event_type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK
-                type = event_type & PA_SUBSCRIPTION_EVENT_TYPE_MASK
-                logger.debug(f'index {index}: {hex(facility)} - {hex(type)}')
+            # Load/unload module.
+            try:
+                module_index = PA_INVALID_INDEX
+                module_index = await pulse_lib.pa_context_load_module(
+                    'module-null-sink',
+                    f'sink_name="foo" sink_properties=device.description='
+                    f'"foo\ description"')
 
-    except PulseconnectionError as e:
+                # Events
+                await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
+                iterator = pulse_lib.get_events()
+                async for event_type, index in iterator:
+                    fac = event_type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK
+                    type = event_type & PA_SUBSCRIPTION_EVENT_TYPE_MASK
+                    logger.debug(f'{EVENT_FACILITIES[fac]}({index}):'
+                                 f' {EVENT_TYPES[type]}')
+
+            finally:
+                if module_index != PA_INVALID_INDEX:
+                    await pulse_lib.pa_context_unload_module(module_index)
+
+    except PulseLibError as e:
         logger.error(f'{e!r}')
     logger.info('FIN')
 
