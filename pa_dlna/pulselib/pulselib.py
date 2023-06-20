@@ -5,10 +5,6 @@ import logging
 import ctypes as ct
 from ctypes.util import find_library
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG,
-                        format='%(name)-7s %(levelname)-7s %(message)s')
-
 from .pulseaudio_h import *
 from .mainloop import MainLoop, get_ctype, CALLBACK_TYPES, callback_func_ptr
 from .prototypes import PROTOTYPES
@@ -16,13 +12,31 @@ from .prototypes import PROTOTYPES
 logger = logging.getLogger('pulslib')
 
 # Map some of the values defined in pulseaudio_h to their name.
-_ERROR_CODES = dict((eval(var), var) for var in globals() if
-                    var.startswith('PA_ERR_') or var == 'PA_OK')
-_CTX_STATES = dict((eval(state), state) for state in
-                   ('PA_CONTEXT_UNCONNECTED', 'PA_CONTEXT_CONNECTING',
-                    'PA_CONTEXT_AUTHORIZING', 'PA_CONTEXT_SETTING_NAME',
-                    'PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
-                    'PA_CONTEXT_TERMINATED'))
+ERROR_CODES = dict((eval(var), var) for var in globals() if
+                   var.startswith('PA_ERR_') or var == 'PA_OK')
+CTX_STATES = dict((eval(state), state) for state in
+                  ('PA_CONTEXT_UNCONNECTED', 'PA_CONTEXT_CONNECTING',
+                   'PA_CONTEXT_AUTHORIZING', 'PA_CONTEXT_SETTING_NAME',
+                   'PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
+                   'PA_CONTEXT_TERMINATED'))
+def event_codes_to_names():
+    def build_events_dict(mask):
+        for fac in globals():
+            if fac.startswith(prefix):
+                val = eval(fac)
+                if (val & mask) and val != mask:
+                    yield val, fac[prefix_len:].lower()
+
+    prefix = 'PA_SUBSCRIPTION_EVENT_'
+    prefix_len = len(prefix)
+    facilities = {0 : 'sink'}
+    facilities.update(build_events_dict(PA_SUBSCRIPTION_EVENT_FACILITY_MASK))
+    event_types = {0: 'new'}
+    event_types.update(build_events_dict(PA_SUBSCRIPTION_EVENT_TYPE_MASK))
+    return facilities, event_types
+
+# Dictionaries mapping pulselib events values to their names.
+EVENT_FACILITIES, EVENT_TYPES = event_codes_to_names()
 
 def run_in_task():
     """Decorator to wrap a coroutine in a task of AsyncioTasks instance."""
@@ -111,25 +125,6 @@ def build_pulselib_prototypes(debug=False):
 
 build_pulselib_prototypes()
 
-def event_codes_to_names():
-    def build_events_dict(mask):
-        for fac in globals():
-            if fac.startswith(prefix):
-                val = eval(fac)
-                if (val & mask) and val != mask:
-                    yield val, fac[prefix_len:].lower()
-
-    prefix = 'PA_SUBSCRIPTION_EVENT_'
-    prefix_len = len(prefix)
-    facilities = {0 : 'sink'}
-    facilities.update(build_events_dict(PA_SUBSCRIPTION_EVENT_FACILITY_MASK))
-    event_types = {0: 'new'}
-    event_types.update(build_events_dict(PA_SUBSCRIPTION_EVENT_TYPE_MASK))
-    return facilities, event_types
-
-# Dictionaries mapping pulselib event types values to their names.
-EVENT_FACILITIES, EVENT_TYPES = event_codes_to_names()
-
 class PulseLibError(Exception): pass
 class PulseStateError(PulseLibError): pass
 class PulseOperationError(PulseLibError): pass
@@ -171,6 +166,34 @@ class AsyncioTasks:
     def __iter__(self):
         for t in self._tasks:
             yield t
+
+class PulseEvent:
+    """A pulselib event.
+
+    Use the event_facilities() and event_types() static methods to get the
+    values defined by the pulselib library for 'facility' and 'type'. They
+    correspond to some of the constants defined in the pulseaudio_h module
+    under the pa_subscription_event_type_t Enum.
+    """
+
+    def __init__(self, event_type, index):
+        fac = event_type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK
+        assert fac in EVENT_FACILITIES
+        self.facility = EVENT_FACILITIES[fac]
+
+        type = event_type & PA_SUBSCRIPTION_EVENT_TYPE_MASK
+        assert type in EVENT_TYPES
+        self.type = EVENT_TYPES[type]
+
+        self.index = index
+
+    @staticmethod
+    def event_facilities():
+        return list(EVENT_FACILITIES.values())
+
+    @staticmethod
+    def event_types():
+        return list(EVENT_TYPES.values())
 
 class PulseLib:
     """Interface to the pulselib library."""
@@ -287,11 +310,11 @@ class PulseLib:
         """Call back that monitors the connection state."""
 
         state = pa_context_get_state(c_context)
-        state = _CTX_STATES[state]
+        state = CTX_STATES[state]
         if state in ('PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
                      'PA_CONTEXT_TERMINATED'):
             error = pa_context_errno(c_context)
-            error = _ERROR_CODES[error]
+            error = ERROR_CODES[error]
             loop = asyncio.get_running_loop()
             pulse_lib = PulseLib.ASYNCIO_LOOPS[loop]
             pulse_lib.state = (state, error)
@@ -330,7 +353,7 @@ class PulseLib:
         loop = asyncio.get_running_loop()
         pulse_lib = PulseLib.ASYNCIO_LOOPS[loop]
         if pulse_lib.event_iterator is not None:
-            pulse_lib.event_iterator.put_nowait((event_type, index))
+            pulse_lib.event_iterator.put_nowait(PulseEvent(event_type, index))
 
     def _abort(self):
         self.main_task.cancel()
@@ -385,36 +408,3 @@ class PulseLib:
         if exc_type is asyncio.CancelledError:
             if self.state[0] != 'PA_CONTEXT_READY':
                 raise PulseStateError(self.state)
-
-async def main():
-    try:
-        async with PulseLib('pa-dlna') as pulse_lib:
-            logger.debug(f'main: connected')
-
-            # Load/unload module.
-            try:
-                module_index = PA_INVALID_INDEX
-                module_index = await pulse_lib.pa_context_load_module(
-                    'module-null-sink',
-                    f'sink_name="foo" sink_properties=device.description='
-                    f'"foo\ description"')
-
-                # Events
-                await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
-                iterator = pulse_lib.get_events()
-                async for event_type, index in iterator:
-                    fac = event_type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK
-                    type = event_type & PA_SUBSCRIPTION_EVENT_TYPE_MASK
-                    logger.debug(f'{EVENT_FACILITIES[fac]}({index}):'
-                                 f' {EVENT_TYPES[type]}')
-
-            finally:
-                if module_index != PA_INVALID_INDEX:
-                    await pulse_lib.pa_context_unload_module(module_index)
-
-    except PulseLibError as e:
-        logger.error(f'{e!r}')
-    logger.info('FIN')
-
-if __name__ == '__main__':
-    asyncio.run(main())
