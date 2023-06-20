@@ -42,6 +42,16 @@ async def start_http_server(allow_from=True):
 class Http_Server(IsolatedAsyncioTestCase):
     """Http server test cases."""
 
+    def skip_if_curl_cannot_connect(self, returncode):
+        # Curl fails to connect to the http server under the following
+        # conditions:
+        #   - only when run with coverage.py
+        #   - only on Python 3.11
+        #   - on GitLab CI/CD
+        if returncode == 7:
+            self.skipTest('CURLE_COULDNT_CONNECT (7) Failed to connect() to'
+                          ' host or proxy')
+
     async def test_play_mp3(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             transactions = ['ignore', 16 * BLKSIZE]
@@ -246,6 +256,7 @@ class Http_Server(IsolatedAsyncioTestCase):
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
             returncode, length = await asyncio.wait_for(curl_task, timeout=1)
 
+        self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
         self.assertTrue(search_in_logs(m_logs.output, 'util',
@@ -260,6 +271,7 @@ class Http_Server(IsolatedAsyncioTestCase):
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
             returncode, length = await asyncio.wait_for(curl_task, timeout=1)
 
+        self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
         self.assertTrue(search_in_logs(m_logs.output, 'util',
@@ -274,6 +286,7 @@ class Http_Server(IsolatedAsyncioTestCase):
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
             returncode, length = await asyncio.wait_for(curl_task, timeout=1)
 
+        self.skip_if_curl_cannot_connect(returncode)
         # curl: (52) Empty reply from server.
         # See https://curl.se/libcurl/c/libcurl-errors.html
         self.assertEqual(returncode, 52)
