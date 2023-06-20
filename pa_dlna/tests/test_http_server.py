@@ -14,9 +14,43 @@ from .streams import (BLKSIZE, run_curl, new_renderer, play_track, Renderer,
 from ..encoders import FFMpegEncoder, L16Encoder
 from ..http_server import HTTPServer, Track, HTTPRequestHandler
 
+async def start_http_server(allow_from=True):
+    renderer = await new_renderer('audio/mp3')
+
+    # Start the http server.
+    control_point = renderer.control_point
+    http_server = HTTPServer(control_point, renderer.local_ipaddress,
+                             control_point.port)
+    if allow_from:
+        http_server.allow_from(renderer.root_device.peer_ipaddress)
+    asyncio.create_task(http_server.run(), name='http_server')
+    await http_server.startup
+
+    # Tests using that function fail randomly on GitLab and Python 3.11 with
+    # the curl error:
+    #   CURLE_COULDNT_CONNECT (7) Failed to connect() to host or proxy.
+    # When the http_server.startup future is done, the Server._start_serving()
+    # method of asyncio's base_events module has added the socket to the
+    # asyncio loop, but the http server is not yet ready to accept
+    # connections. Therefore we wait some loop iterations.
+    for i in range(10):
+        await asyncio.sleep(0)
+
+    return renderer
+
 @requires_resources('curl')
 class Http_Server(IsolatedAsyncioTestCase):
     """Http server test cases."""
+
+    def skip_if_curl_cannot_connect(self, returncode):
+        # Curl fails to connect to the http server under the following
+        # conditions:
+        #   - only when run with coverage.py
+        #   - only on Python 3.11
+        #   - on GitLab CI/CD
+        if returncode == 7:
+            self.skipTest('CURLE_COULDNT_CONNECT (7) Failed to connect() to'
+                          ' host or proxy')
 
     async def test_play_mp3(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
@@ -174,13 +208,7 @@ class Http_Server(IsolatedAsyncioTestCase):
 
     async def test_not_allowed(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
-            renderer = await new_renderer('audio/mp3')
-
-            # Start the http server.
-            control_point = renderer.control_point
-            http_server = HTTPServer(control_point, renderer.local_ipaddress,
-                                     control_point.port)
-            asyncio.create_task(http_server.run(), name='http_server')
+            renderer = await start_http_server(allow_from=False)
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
@@ -193,14 +221,7 @@ class Http_Server(IsolatedAsyncioTestCase):
 
     async def test_renderer_not_found(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
-            renderer = await new_renderer('audio/mp3')
-
-            # Start the http server.
-            control_point = renderer.control_point
-            http_server = HTTPServer(control_point, renderer.local_ipaddress,
-                                     control_point.port)
-            http_server.allow_from(renderer.root_device.peer_ipaddress)
-            asyncio.create_task(http_server.run(), name='http_server')
+            renderer = await start_http_server()
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(
@@ -214,14 +235,7 @@ class Http_Server(IsolatedAsyncioTestCase):
 
     async def test_http_version(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
-            renderer = await new_renderer('audio/mp3')
-
-            # Start the http server.
-            control_point = renderer.control_point
-            http_server = HTTPServer(control_point, renderer.local_ipaddress,
-                                     control_point.port)
-            http_server.allow_from(renderer.root_device.peer_ipaddress)
-            asyncio.create_task(http_server.run(), name='http_server')
+            renderer = await start_http_server()
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri,
@@ -235,20 +249,14 @@ class Http_Server(IsolatedAsyncioTestCase):
 
     async def test_is_playing(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
-            renderer = await new_renderer('audio/mp3')
+            renderer = await start_http_server()
             renderer.stream_sessions.is_playing = True
-
-            # Start the http server.
-            control_point = renderer.control_point
-            http_server = HTTPServer(control_point, renderer.local_ipaddress,
-                                     control_point.port)
-            http_server.allow_from(renderer.root_device.peer_ipaddress)
-            asyncio.create_task(http_server.run(), name='http_server')
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
             returncode, length = await asyncio.wait_for(curl_task, timeout=1)
 
+        self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
         self.assertTrue(search_in_logs(m_logs.output, 'util',
@@ -256,20 +264,14 @@ class Http_Server(IsolatedAsyncioTestCase):
 
     async def test_None_nullsink(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
-            renderer = await new_renderer('audio/mp3')
+            renderer = await start_http_server()
             renderer.nullsink = None
-
-            # Start the http server.
-            control_point = renderer.control_point
-            http_server = HTTPServer(control_point, renderer.local_ipaddress,
-                                     control_point.port)
-            http_server.allow_from(renderer.root_device.peer_ipaddress)
-            asyncio.create_task(http_server.run(), name='http_server')
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
             returncode, length = await asyncio.wait_for(curl_task, timeout=1)
 
+        self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
         self.assertTrue(search_in_logs(m_logs.output, 'util',
@@ -278,19 +280,13 @@ class Http_Server(IsolatedAsyncioTestCase):
     async def test_no_path_in_request(self):
         with mock.patch.object(HTTPRequestHandler, 'handle_one_request'),\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
-            renderer = await new_renderer('audio/mp3')
-
-            # Start the http server.
-            control_point = renderer.control_point
-            http_server = HTTPServer(control_point, renderer.local_ipaddress,
-                                     control_point.port)
-            http_server.allow_from(renderer.root_device.peer_ipaddress)
-            asyncio.create_task(http_server.run(), name='http_server')
+            renderer = await start_http_server()
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
             returncode, length = await asyncio.wait_for(curl_task, timeout=1)
 
+        self.skip_if_curl_cannot_connect(returncode)
         # curl: (52) Empty reply from server.
         # See https://curl.se/libcurl/c/libcurl-errors.html
         self.assertEqual(returncode, 52)
