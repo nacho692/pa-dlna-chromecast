@@ -59,6 +59,8 @@ PROTOTYPES = {'pa_context_connect': ('int',
  'pa_operation_cancel': ('void', ['pa_operation *']),
  'pa_operation_ref': ('pa_operation *', ['pa_operation *']),
  'pa_operation_unref': ('void', ['pa_operation *']),
+ 'pa_proplist_gets': ('char *', ['pa_proplist *', 'char *']),
+ 'pa_proplist_iterate': ('char *', ['pa_proplist *', 'void **']),
  'pa_strerror': ('char *', ['int'])}
 
 # Callbacks.

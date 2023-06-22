@@ -8,6 +8,8 @@ from ctypes.util import find_library
 from .pulseaudio_h import *
 from .mainloop import MainLoop, get_ctype, CALLBACK_TYPES, callback_func_ptr
 from .prototypes import PROTOTYPES
+from .structures import (PA_SAMPLE_SPEC, PA_CHANNEL_MAP, PA_CVOLUME,
+                         PA_SINK_INFO, PA_SINK_INPUT_INFO)
 
 logger = logging.getLogger('pulslib')
 
@@ -65,7 +67,9 @@ def handle_context_success(func_name, future, success):
         future.set_result(None)
 
 async def handle_operation(c_operation, future, errmsg):
-    if c_operation is None:
+    # From the ctypes documentation: "NULL pointers have a False
+    # boolean value".
+    if not bool(c_operation):
         future.cancel()
         raise PulseOperationError(errmsg)
 
@@ -170,10 +174,15 @@ class AsyncioTasks:
 class PulseEvent:
     """A pulselib event.
 
-    Use the event_facilities() and event_types() static methods to get the
-    values defined by the pulselib library for 'facility' and 'type'. They
-    correspond to some of the constants defined in the pulseaudio_h module
-    under the pa_subscription_event_type_t Enum.
+    Use the event_facilities() and event_types() static methods to get all the
+    values currently defined by the pulselib library for 'facility' and
+    'type'. They correspond to some of the variables defined in the
+    pulseaudio_h module under the pa_subscription_event_type_t Enum.
+
+    attributes:
+        facility:   str - name of the facility, for example 'sink'.
+        index:      int - index of the facility.
+        type:       str - type of event, normaly 'new', 'change' or 'remove'.
     """
 
     def __init__(self, event_type, index):
@@ -195,15 +204,95 @@ class PulseEvent:
     def event_types():
         return list(EVENT_TYPES.values())
 
+class PropList:
+    def __init__(self, c_pa_proplist):
+        null_ptr = ct.POINTER(ct.c_void_p)()
+        null_ptr_ptr = ct.pointer(null_ptr)
+        while True:
+            key = pa_proplist_iterate(c_pa_proplist, null_ptr_ptr)
+            if isinstance(key, bytes):
+                val = pa_proplist_gets(c_pa_proplist, key)
+                if bool(val):
+                    setattr (self, key.decode(), val.decode())
+            elif not bool(key):
+                break
+
+class PulseStructure:
+    def __init__(self, c_struct, c_struct_type):
+        # Make a deep copy of the elements of the structure as they are only
+        # temporarily available.
+        for name, c_type in c_struct_type._fields_:
+            c_struct_val = getattr(c_struct, name)
+            if not bool(c_struct_val):
+                continue
+            if c_type is ct.c_char_p:
+                setattr(self, name, c_struct_val.decode())
+            elif c_type in (ct.c_int, ct.c_uint32, ct.c_uint64, ct.c_uint8):
+                setattr(self, name, int(c_struct_val))
+            elif c_type is PA_SAMPLE_SPEC:
+                setattr(self, name, SampleSpec(c_struct_val))
+            elif c_type is PA_CHANNEL_MAP:
+                setattr(self, name, ChannelMap(c_struct_val))
+            elif c_type is PA_CVOLUME:
+                setattr(self, name, CVolume(c_struct_val))
+            elif name == 'proplist':
+                setattr(self, name, PropList(c_struct_val))
+
+class SampleSpec(PulseStructure):
+    def __init__(self, c_struct):
+        super().__init__(c_struct, PA_SAMPLE_SPEC)
+
+class ChannelMap(PulseStructure):
+    def __init__(self, c_struct):
+        super().__init__(c_struct, PA_CHANNEL_MAP)
+
+class ChannelMap(PulseStructure):
+    def __init__(self, c_struct):
+        super().__init__(c_struct, PA_CHANNEL_MAP)
+
+class CVolume(PulseStructure):
+    def __init__(self, c_struct):
+        super().__init__(c_struct, PA_CVOLUME)
+
+class Sink(PulseStructure):
+    """A pulseaudio sink.
+
+    The attribute names of an instance of this class form a subset of the
+    names of the _fields_ of the PA_SINK_INFO structure defined in the
+    'structures' module. Among them, 'proplist' is a dictionary of the
+    properties of the pulseaudio sink whose value is a string.
+    """
+
+    def __init__(self, c_struct):
+        super().__init__(c_struct, PA_SINK_INFO)
+
+class SinkInput(PulseStructure):
+    """A pulseaudio sink input.
+
+    The attribute names of an instance of this class form a subset of the
+    names of the _fields_ of the PA_SINK_INPUT_INFO structure defined in the
+    'structures' module. Among them, 'proplist' is a dictionary of the
+    properties of the pulseaudio sink input whose value is a string.
+    """
+
+    def __init__(self, c_struct):
+        super().__init__(c_struct, PA_SINK_INPUT_INFO)
+
 class PulseLib:
     """Interface to the pulselib library."""
 
     ASYNCIO_LOOPS = dict()              # {asyncio loop: PulseLib instance}
 
+    # Public methods.
     def __init__(self, name):
+        """'name' is the name of the application."""
+
+        assert isinstance(name, str)
         self.c_context = pa_context_new(MainLoop.C_MAINLOOP_API,
                                         name.encode())
-        if self.c_context is None:
+        # From the ctypes documentation: "NULL pointers have a False
+        # boolean value".
+        if not bool(self.c_context):
             raise RuntimeError('Cannot get context from pulselib library')
 
         self.closed = False
@@ -221,14 +310,12 @@ class PulseLib:
         self.c_context_subscribe_callback = callback_func_ptr(
             'pa_context_subscribe_cb_t', PulseLib._context_subscribe_callback)
 
-
-    # Public methods.
     @run_in_task()
     async def pa_context_subscribe(self, subscription_masks):
         """Enable event notification.
 
-        'subscription_masks' is built by ORing the masks of the
-        'pa_subscription_mask_t' Enum defined in the pulseaudio_h module.
+        'subscription_masks' is built by ORing the masks defined by the
+        'pa_subscription_mask_t' Enum in the pulseaudio_h module.
 
         This method may be invoked at any time to change the subscription
         masks currently set, even from within the async for loop that iterates
@@ -237,23 +324,23 @@ class PulseLib:
 
         def context_success_callback(c_context, success, c_userdata):
             handle_context_success('pa_context_subscribe',
-                                   success_notification, success)
+                                   notification, success)
 
-        success_notification  = self.loop.create_future()
+        notification  = self.loop.create_future()
         c_context_success_callback = callback_func_ptr(
                         'pa_context_success_cb_t', context_success_callback)
         c_operation = pa_context_subscribe(self.c_context, subscription_masks,
                                            c_context_success_callback, None)
 
         errmsg = f'Cannot subscribe events with {subscription_masks} mask'
-        await handle_operation(c_operation, success_notification, errmsg)
+        await handle_operation(c_operation, notification, errmsg)
 
     def get_events(self):
         """Return an Asynchronous Iterator of pulselib events.
 
-        The iterator is used to run an async for loop over pulselib events.
-        Calling this method while an async for loop is already running will
-        terminate this loop.
+        The iterator is used to run an async for loop over the PulseEvent
+        instances. Calling this method while an async for loop is already
+        running will terminate this loop.
 
         The async for loop can be terminated by invoking the close() method of
         the iterator from within the loop or from another task.
@@ -266,42 +353,105 @@ class PulseLib:
 
     @run_in_task()
     async def pa_context_load_module(self, name, argument):
-        def context_index_callback(c_context, index, c_userdata):
-            if not index_notification.done():
-                index_notification.set_result(index)
+        """Load the pulseaudio module named 'name' and return its index.
 
-        index_notification  = self.loop.create_future()
+        'argument' is a string. Note that space characters within the double
+        quoted strings MUST be escaped with '\'.
+        For example:
+        sink_name="foo" sink_properties=device.description="foo\ description"
+        """
+
+        def context_index_callback(c_context, index, c_userdata):
+            if not notification.done():
+                notification.set_result(index)
+
+        notification  = self.loop.create_future()
         c_context_index_callback = callback_func_ptr('pa_context_index_cb_t',
                                              context_index_callback)
         c_operation = pa_context_load_module(self.c_context, name.encode(),
                         argument.encode(), c_context_index_callback, None)
 
         errmsg = f"Cannot load '{name}' module with '{argument}' argument"
-        result = await handle_operation(c_operation, index_notification,
+        result = await handle_operation(c_operation, notification,
                                         errmsg)
         if result:
-            index = index_notification.result()
+            index = notification.result()
             if index == PA_INVALID_INDEX:
                 raise PulseOperationError(errmsg)
             return index
 
     @run_in_task()
     async def pa_context_unload_module(self, index):
+        """Unload the module whose index is 'index'.
+
+        Note that this operation fails only if the 'index' argument is
+        PA_INVALID_INDEX !
+        See command_kill() in pulselib instrospect.c.
+        """
+
         def context_success_callback(c_context, success, c_userdata):
             handle_context_success('pa_context_unload_module',
-                                   success_notification, success)
+                                   notification, success)
 
-        success_notification  = self.loop.create_future()
+        notification  = self.loop.create_future()
         c_context_success_callback = callback_func_ptr(
                         'pa_context_success_cb_t', context_success_callback)
         c_operation = pa_context_unload_module(self.c_context, index,
                                             c_context_success_callback, None)
 
-        # Note that this operation fails (c_operation is None) only if the
-        # 'index' argument is PA_INVALID_INDEX !
-        # See command_kill() in pulselib instrospect.c.
         errmsg = f'Cannot unload module at {index} index'
-        await handle_operation(c_operation, success_notification, errmsg)
+        await handle_operation(c_operation, notification, errmsg)
+
+    @run_in_task()
+    async def pa_context_get_sink_info_list(self):
+        """Return the list of Sink instances."""
+
+        def sink_info_callback(c_context, c_sink_info, eol, c_userdata):
+            # From the ctypes documentation: "NULL pointers have a False
+            # boolean value".
+            if not bool(c_sink_info):
+                if not notification.done():
+                    notification.set_result(eol)
+            else:
+                sink_infos.append(Sink(c_sink_info.contents))
+
+        sink_infos = []
+        notification  = self.loop.create_future()
+        c_sink_info_callback = callback_func_ptr('pa_sink_info_cb_t',
+                                                 sink_info_callback)
+        c_operation = pa_context_get_sink_info_list(self.c_context,
+                                                c_sink_info_callback, None)
+        errmsg = 'Error at pa_context_get_sink_info_list()'
+        eol  = await handle_operation(c_operation, notification, errmsg)
+        if eol < 0:
+            raise PulseOperationError(errmsg)
+        return sink_infos
+
+    @run_in_task()
+    async def pa_context_get_sink_input_info_list(self):
+        """Return the list of SinkInput instances."""
+
+        def sink_input_info_callback(c_context, c_sink_input_info, eol,
+                                     c_userdata):
+            # From the ctypes documentation: "NULL pointers have a False
+            # boolean value".
+            if not bool(c_sink_input_info):
+                if not notification.done():
+                    notification.set_result(eol)
+            else:
+                sink_input_infos.append(SinkInput(c_sink_input_info.contents))
+
+        sink_input_infos = []
+        notification  = self.loop.create_future()
+        c_sink_input_info_callback = callback_func_ptr(
+                        'pa_sink_input_info_cb_t', sink_input_info_callback)
+        c_operation = pa_context_get_sink_input_info_list(self.c_context,
+                                            c_sink_input_info_callback, None)
+        errmsg = 'Error at pa_context_get_sink_input_info_list()'
+        eol  = await handle_operation(c_operation, notification, errmsg)
+        if eol < 0:
+            raise PulseOperationError(errmsg)
+        return sink_input_infos
 
 
     # Private methods.
@@ -330,6 +480,8 @@ class PulseLib:
 
     @run_in_task()
     async def _pa_context_connect(self):
+        """Connect the context to the default server."""
+
         pa_context_set_state_callback(self.c_context,
                                       self.c_context_state_callback, None)
         rc = pa_context_connect(self.c_context, None, PA_CONTEXT_NOAUTOSPAWN,
@@ -350,6 +502,8 @@ class PulseLib:
 
     @staticmethod
     def _context_subscribe_callback(c_context, event_type, index, c_userdata):
+        """Call back to handle pulseaudio events."""
+
         loop = asyncio.get_running_loop()
         pulse_lib = PulseLib.ASYNCIO_LOOPS[loop]
         if pulse_lib.event_iterator is not None:
