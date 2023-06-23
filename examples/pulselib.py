@@ -24,10 +24,14 @@ async def main():
 
                 # List the sinks and sink inputs.
                 for sink in await pulse_lib.pa_context_get_sink_info_list():
-                    logger.debug(f'{sink.__dict__}')
+                    logger.debug(f'Sink: {sink.__dict__}')
                 sink_input_list = pulse_lib.pa_context_get_sink_input_info_list
                 for sink_input in await sink_input_list():
-                    logger.debug(f'{sink_input.__dict__}')
+                    logger.debug(f'Sink input: {sink_input.__dict__}')
+
+                # Get sink by name.
+                sink = await pulse_lib.pa_context_get_sink_info_by_name('foo')
+                logger.debug(f'Sink by name: {sink.__dict__}')
 
                 # Events
                 await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)

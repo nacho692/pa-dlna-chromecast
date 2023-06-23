@@ -56,32 +56,6 @@ def run_in_task():
         return wrapper
     return decorator
 
-def handle_context_success(func_name, future, success):
-    # 'success' may be PA_OPERATION_DONE or PA_OPERATION_CANCELLED.
-    # PA_OPERATION_CANCELLED occurs "as a result of the context getting
-    # disconnected while the operation is pending". We just log this event as
-    # the PulseLib instance will be aborted following this disconnection.
-    if success == PA_OPERATION_CANCELLED:
-        logger.debug(f'Got PA_OPERATION_CANCELLED for {func_name}')
-    elif not future.done():
-        future.set_result(None)
-
-async def handle_operation(c_operation, future, errmsg):
-    # From the ctypes documentation: "NULL pointers have a False
-    # boolean value".
-    if not bool(c_operation):
-        future.cancel()
-        raise PulseOperationError(errmsg)
-
-    try:
-        await future
-        return True
-    except asyncio.CancelledError:
-        pa_operation_cancel(c_operation)
-        return False
-    finally:
-        pa_operation_unref(c_operation)
-
 def setup_prototype(func_name, pulselib):
     """Set the restype and argtypes of a pulselib function name."""
 
@@ -323,8 +297,8 @@ class PulseLib:
         """
 
         def context_success_callback(c_context, success, c_userdata):
-            handle_context_success('pa_context_subscribe',
-                                   notification, success)
+            PulseLib._success_callback('pa_context_subscribe', notification,
+                                       success)
 
         notification  = self.loop.create_future()
         c_context_success_callback = callback_func_ptr(
@@ -333,7 +307,7 @@ class PulseLib:
                                            c_context_success_callback, None)
 
         errmsg = f'Cannot subscribe events with {subscription_masks} mask'
-        await handle_operation(c_operation, notification, errmsg)
+        await PulseLib._handle_operation(c_operation, notification, errmsg)
 
     def get_events(self):
         """Return an Asynchronous Iterator of pulselib events.
@@ -372,8 +346,8 @@ class PulseLib:
                         argument.encode(), c_context_index_callback, None)
 
         errmsg = f"Cannot load '{name}' module with '{argument}' argument"
-        result = await handle_operation(c_operation, notification,
-                                        errmsg)
+        result = await PulseLib._handle_operation(c_operation, notification,
+                                                  errmsg)
         if result:
             index = notification.result()
             if index == PA_INVALID_INDEX:
@@ -390,8 +364,8 @@ class PulseLib:
         """
 
         def context_success_callback(c_context, success, c_userdata):
-            handle_context_success('pa_context_unload_module',
-                                   notification, success)
+            PulseLib._success_callback('pa_context_unload_module',
+                                       notification, success)
 
         notification  = self.loop.create_future()
         c_context_success_callback = callback_func_ptr(
@@ -400,20 +374,15 @@ class PulseLib:
                                             c_context_success_callback, None)
 
         errmsg = f'Cannot unload module at {index} index'
-        await handle_operation(c_operation, notification, errmsg)
+        await PulseLib._handle_operation(c_operation, notification, errmsg)
 
     @run_in_task()
     async def pa_context_get_sink_info_list(self):
         """Return the list of Sink instances."""
 
         def sink_info_callback(c_context, c_sink_info, eol, c_userdata):
-            # From the ctypes documentation: "NULL pointers have a False
-            # boolean value".
-            if not bool(c_sink_info):
-                if not notification.done():
-                    notification.set_result(eol)
-            else:
-                sink_infos.append(Sink(c_sink_info.contents))
+            PulseLib._list_callback(notification, sink_infos, Sink,
+                                    c_sink_info, eol)
 
         sink_infos = []
         notification  = self.loop.create_future()
@@ -422,7 +391,8 @@ class PulseLib:
         c_operation = pa_context_get_sink_info_list(self.c_context,
                                                 c_sink_info_callback, None)
         errmsg = 'Error at pa_context_get_sink_info_list()'
-        eol  = await handle_operation(c_operation, notification, errmsg)
+        eol  = await PulseLib._handle_operation(c_operation, notification,
+                                                errmsg)
         if eol < 0:
             raise PulseOperationError(errmsg)
         return sink_infos
@@ -433,13 +403,8 @@ class PulseLib:
 
         def sink_input_info_callback(c_context, c_sink_input_info, eol,
                                      c_userdata):
-            # From the ctypes documentation: "NULL pointers have a False
-            # boolean value".
-            if not bool(c_sink_input_info):
-                if not notification.done():
-                    notification.set_result(eol)
-            else:
-                sink_input_infos.append(SinkInput(c_sink_input_info.contents))
+            PulseLib._list_callback(notification, sink_input_infos, SinkInput,
+                                    c_sink_input_info, eol)
 
         sink_input_infos = []
         notification  = self.loop.create_future()
@@ -448,13 +413,73 @@ class PulseLib:
         c_operation = pa_context_get_sink_input_info_list(self.c_context,
                                             c_sink_input_info_callback, None)
         errmsg = 'Error at pa_context_get_sink_input_info_list()'
-        eol  = await handle_operation(c_operation, notification, errmsg)
+        eol  = await PulseLib._handle_operation(c_operation, notification,
+                                                errmsg)
         if eol < 0:
             raise PulseOperationError(errmsg)
         return sink_input_infos
 
+    @run_in_task()
+    async def pa_context_get_sink_info_by_name(self, name):
+        """Return the Sink instance whose name is 'name'."""
+
+        def sink_info_callback(c_context, c_sink_info, eol, c_userdata):
+            PulseLib._list_callback(notification, sink_infos, Sink,
+                                    c_sink_info, eol)
+
+        sink_infos = []
+        notification  = self.loop.create_future()
+        c_sink_info_callback = callback_func_ptr('pa_sink_info_cb_t',
+                                                 sink_info_callback)
+        c_operation = pa_context_get_sink_info_by_name(self.c_context,
+                                    name.encode(), c_sink_info_callback, None)
+        errmsg = 'Error at pa_context_get_sink_info_by_name()'
+        eol  = await PulseLib._handle_operation(c_operation, notification,
+                                                errmsg)
+        if eol < 0:
+            raise PulseOperationError(errmsg)
+        return sink_infos[0]
+
 
     # Private methods.
+    @staticmethod
+    def _success_callback(func_name, future, success):
+        # 'success' may be PA_OPERATION_DONE or PA_OPERATION_CANCELLED.
+        # PA_OPERATION_CANCELLED occurs "as a result of the context getting
+        # disconnected while the operation is pending". We just log this event as
+        # the PulseLib instance will be aborted following this disconnection.
+        if success == PA_OPERATION_CANCELLED:
+            logger.debug(f'Got PA_OPERATION_CANCELLED for {func_name}')
+        elif not future.done():
+            future.set_result(None)
+
+    @staticmethod
+    def _list_callback(notification, instances, cls, c_object, eol):
+        # From the ctypes documentation: "NULL pointers have a False
+        # boolean value".
+        if not bool(c_object):
+            if not notification.done():
+                notification.set_result(eol)
+        else:
+            instances.append(cls(c_object.contents))
+
+    @staticmethod
+    async def _handle_operation(c_operation, future, errmsg):
+        # From the ctypes documentation: "NULL pointers have a False
+        # boolean value".
+        if not bool(c_operation):
+            future.cancel()
+            raise PulseOperationError(errmsg)
+
+        try:
+            await future
+            return True
+        except asyncio.CancelledError:
+            pa_operation_cancel(c_operation)
+            return False
+        finally:
+            pa_operation_unref(c_operation)
+
     @staticmethod
     def _context_state_callback(c_context, c_userdata):
         """Call back that monitors the connection state."""
