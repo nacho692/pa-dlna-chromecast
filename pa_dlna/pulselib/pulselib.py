@@ -40,21 +40,18 @@ def event_codes_to_names():
 # Dictionaries mapping pulselib events values to their names.
 EVENT_FACILITIES, EVENT_TYPES = event_codes_to_names()
 
-def run_in_task():
+def run_in_task(coro):
     """Decorator to wrap a coroutine in a task of AsyncioTasks instance."""
 
-    def decorator(coro):
-        async def wrapper(*args, **kwargs):
-            loop = asyncio.get_running_loop()
-            pulse_lib = PulseLib.ASYNCIO_LOOPS[loop]
-            try:
-                return await pulse_lib.pulselib_tasks.create_task(
-                                                        coro(*args, **kwargs))
-            except asyncio.CancelledError:
-                logger.error(f'{coro.__qualname__}() has been cancelled')
-                raise
-        return wrapper
-    return decorator
+    async def wrapper(*args, **kwargs):
+        pulse_lib = PulseLib.get_instance()
+        try:
+            return await pulse_lib.pulselib_tasks.create_task(
+                                                    coro(*args, **kwargs))
+        except asyncio.CancelledError:
+            logger.error(f'{coro.__qualname__}() has been cancelled')
+            raise
+    return wrapper
 
 def setup_prototype(func_name, pulselib):
     """Set the restype and argtypes of a pulselib function name."""
@@ -284,7 +281,15 @@ class PulseLib:
         self.c_context_subscribe_callback = callback_func_ptr(
             'pa_context_subscribe_cb_t', PulseLib._context_subscribe_callback)
 
-    @run_in_task()
+    @staticmethod
+    def get_instance():
+        loop = asyncio.get_running_loop()
+        try:
+            return PulseLib.ASYNCIO_LOOPS[loop]
+        except KeyError:
+            raise PulseOperationError('The PulseLib instance is closed')
+
+    @run_in_task
     async def pa_context_subscribe(self, subscription_masks):
         """Enable event notification.
 
@@ -319,13 +324,15 @@ class PulseLib:
         The async for loop can be terminated by invoking the close() method of
         the iterator from within the loop or from another task.
         """
+        if self.closed:
+            raise PulseOperationError('The PulseLib instance is closed')
 
         if self.event_iterator is not None:
             self.event_iterator.close()
         self.event_iterator = EventIterator()
         return self.event_iterator
 
-    @run_in_task()
+    @run_in_task
     async def pa_context_load_module(self, name, argument):
         """Load the pulseaudio module named 'name' and return its index.
 
@@ -354,7 +361,7 @@ class PulseLib:
                 raise PulseOperationError(errmsg)
             return index
 
-    @run_in_task()
+    @run_in_task
     async def pa_context_unload_module(self, index):
         """Unload the module whose index is 'index'.
 
@@ -376,7 +383,7 @@ class PulseLib:
         errmsg = f'Cannot unload module at {index} index'
         await PulseLib._handle_operation(c_operation, notification, errmsg)
 
-    @run_in_task()
+    @run_in_task
     async def pa_context_get_sink_info_list(self):
         """Return the list of Sink instances."""
 
@@ -397,7 +404,7 @@ class PulseLib:
             raise PulseOperationError(errmsg)
         return sink_infos
 
-    @run_in_task()
+    @run_in_task
     async def pa_context_get_sink_input_info_list(self):
         """Return the list of SinkInput instances."""
 
@@ -419,7 +426,7 @@ class PulseLib:
             raise PulseOperationError(errmsg)
         return sink_input_infos
 
-    @run_in_task()
+    @run_in_task
     async def pa_context_get_sink_info_by_name(self, name):
         """Return the Sink instance whose name is 'name'."""
 
@@ -490,8 +497,7 @@ class PulseLib:
                      'PA_CONTEXT_TERMINATED'):
             error = pa_context_errno(c_context)
             error = ERROR_CODES[error]
-            loop = asyncio.get_running_loop()
-            pulse_lib = PulseLib.ASYNCIO_LOOPS[loop]
+            pulse_lib = PulseLib.get_instance()
             pulse_lib.state = (state, error)
             logger.info(f'PulseLib connection: {pulse_lib.state}')
 
@@ -503,7 +509,7 @@ class PulseLib:
         else:
             logger.debug(f'PulseLib connection: {state}')
 
-    @run_in_task()
+    @run_in_task
     async def _pa_context_connect(self):
         """Connect the context to the default server."""
 
@@ -529,8 +535,7 @@ class PulseLib:
     def _context_subscribe_callback(c_context, event_type, index, c_userdata):
         """Call back to handle pulseaudio events."""
 
-        loop = asyncio.get_running_loop()
-        pulse_lib = PulseLib.ASYNCIO_LOOPS[loop]
+        pulse_lib = PulseLib.get_instance()
         if pulse_lib.event_iterator is not None:
             pulse_lib.event_iterator.put_nowait(PulseEvent(event_type, index))
 
