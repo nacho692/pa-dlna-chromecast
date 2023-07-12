@@ -334,8 +334,6 @@ class MainLoop:
         for cls in (IoEvent, TimeEvent, DeferEvent):
             cls.cleanup(mloop)
         gc.collect()
-        logger.info('Closing the PulseLib main loop')
-        logger.debug(f'PulseEvent HASHES count: {len(PulseEvent.HASHES)}')
 
         for aio_loop, loop in list(MainLoop.ASYNCIO_LOOPS.items()):
             if loop is mloop:
@@ -343,3 +341,4 @@ class MainLoop:
                 break
         else:
             assert False, 'Cannot remove MainLoop instance upon closing'
+        logger.info('PulseLib main loop closed')

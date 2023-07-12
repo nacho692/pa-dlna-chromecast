@@ -9,6 +9,18 @@ logging.basicConfig(level=logging.DEBUG,
                     format='%(name)-7s %(levelname)-7s %(message)s')
 logger = logging.getLogger('pulstst')
 
+async def log_events(pulse_lib):
+    try:
+        await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
+        iterator = pulse_lib.get_events()
+        async for event in iterator:
+            logger.debug(f'{event.facility}({event.index}): {event.type}')
+            if 0:
+                # The iterator may be closed from the loop.
+                iterator.close()
+    except PulseLibError as e:
+        logger.error(f'log_events(): {e!r}')
+
 async def main():
     try:
         async with PulseLib('pa-dlna') as pulse_lib:
@@ -34,19 +46,23 @@ async def main():
                 logger.debug(f'Sink by name: {sink.__dict__}')
 
                 # Events
-                await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
-                iterator = pulse_lib.get_events()
-                async for event in iterator:
-                    logger.debug(f'{event.facility}({event.index}):'
-                                 f' {event.type}')
+                evt_task = asyncio.create_task(log_events(pulse_lib))
+                if 0:
+                    await evt_task
+                elif 1:
+                    # The iterator is aborted upon closing the PulseLib
+                    # instance.
+                    time = 1
+                    logger.info(f'main(): waiting {time} second(s)')
+                    await asyncio.sleep(time)
 
             finally:
                 if module_index != PA_INVALID_INDEX:
                     await pulse_lib.pa_context_unload_module(module_index)
 
     except PulseLibError as e:
-        logger.error(f'{e!r}')
-    logger.info('FIN')
+        logger.error(f'main(): {e!r}')
 
 if __name__ == '__main__':
     asyncio.run(main())
+    logger.info('FIN')

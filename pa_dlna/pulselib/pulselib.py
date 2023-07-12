@@ -45,6 +45,9 @@ def run_in_task(coro):
 
     async def wrapper(*args, **kwargs):
         pulse_lib = PulseLib.get_instance()
+        if pulse_lib is None:
+            raise PulseClosedError
+
         try:
             return await pulse_lib.pulselib_tasks.create_task(
                                                     coro(*args, **kwargs))
@@ -101,32 +104,56 @@ def build_pulselib_prototypes(debug=False):
 build_pulselib_prototypes()
 
 class PulseLibError(Exception): pass
+class PulseClosedError(PulseLibError): pass
 class PulseStateError(PulseLibError): pass
 class PulseOperationError(PulseLibError): pass
+class PulseClosedIteratorError(PulseLibError): pass
 
 class EventIterator:
+    """Pulse events asynchronous iterator."""
+
+    QUEUE_CLOSED = object()
+
     def __init__(self):
         self.event_queue = asyncio.Queue()
         self.closed = False
 
-    def put_nowait(self, obj):
-        if not self.closed:
-            self.event_queue.put_nowait(obj)
-
+    # Public methods.
     def close(self):
         self.closed = True
+
+
+    # Private methods.
+    def _abort(self):
+        while True:
+            try:
+                self.event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._put_nowait(self.QUEUE_CLOSED)
+
+    def _put_nowait(self, obj):
+        if not self.closed:
+            self.event_queue.put_nowait(obj)
 
     def __aiter__(self):
         return self
 
     async def __anext__(self):
         if self.closed:
+            logger.info('Events Asynchronous Iterator is closed')
             raise StopAsyncIteration
+
         try:
-            return await self.event_queue.get()
+            event = await self.event_queue.get()
         except asyncio.CancelledError:
             self.close()
             raise StopAsyncIteration
+
+        if event is not self.QUEUE_CLOSED:
+            return event
+        self.close()
+        raise PulseClosedIteratorError('Got QUEUE_CLOSED')
 
 class AsyncioTasks:
     def __init__(self):
@@ -217,10 +244,6 @@ class ChannelMap(PulseStructure):
     def __init__(self, c_struct):
         super().__init__(c_struct, PA_CHANNEL_MAP)
 
-class ChannelMap(PulseStructure):
-    def __init__(self, c_struct):
-        super().__init__(c_struct, PA_CHANNEL_MAP)
-
 class CVolume(PulseStructure):
     def __init__(self, c_struct):
         super().__init__(c_struct, PA_CVOLUME)
@@ -250,7 +273,7 @@ class SinkInput(PulseStructure):
         super().__init__(c_struct, PA_SINK_INPUT_INFO)
 
 class PulseLib:
-    """Interface to the pulselib library."""
+    """Interface to pulselib library as an asynchronous context manager."""
 
     ASYNCIO_LOOPS = dict()              # {asyncio loop: PulseLib instance}
 
@@ -287,7 +310,7 @@ class PulseLib:
         try:
             return PulseLib.ASYNCIO_LOOPS[loop]
         except KeyError:
-            raise PulseOperationError('The PulseLib instance is closed')
+            return None
 
     @run_in_task
     async def pa_context_subscribe(self, subscription_masks):
@@ -318,17 +341,16 @@ class PulseLib:
         """Return an Asynchronous Iterator of pulselib events.
 
         The iterator is used to run an async for loop over the PulseEvent
-        instances. Calling this method while an async for loop is already
-        running will terminate this loop.
-
-        The async for loop can be terminated by invoking the close() method of
-        the iterator from within the loop or from another task.
+        instances. The async for loop can be terminated by invoking the
+        close() method of the iterator from within the loop or from another
+        task.
         """
         if self.closed:
             raise PulseOperationError('The PulseLib instance is closed')
 
-        if self.event_iterator is not None:
-            self.event_iterator.close()
+        if self.event_iterator is not None and not self.event_iterator.closed:
+            raise PulseLibError('Not allowed: the current Asynchronous'
+                                ' Iterator must be closed first')
         self.event_iterator = EventIterator()
         return self.event_iterator
 
@@ -491,13 +513,17 @@ class PulseLib:
     def _context_state_callback(c_context, c_userdata):
         """Call back that monitors the connection state."""
 
+        pulse_lib = PulseLib.get_instance()
+        if pulse_lib is None:
+            return
+
         state = pa_context_get_state(c_context)
         state = CTX_STATES[state]
         if state in ('PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
                      'PA_CONTEXT_TERMINATED'):
             error = pa_context_errno(c_context)
             error = ERROR_CODES[error]
-            pulse_lib = PulseLib.get_instance()
+
             pulse_lib.state = (state, error)
             logger.info(f'PulseLib connection: {pulse_lib.state}')
 
@@ -505,7 +531,9 @@ class PulseLib:
             if not state_notification.done():
                 state_notification.set_result(None)
             elif not pulse_lib.closed and state != 'PA_CONTEXT_READY':
-                pulse_lib._abort()
+                # Cancelling the main task does close the PulseLib context
+                # manager.
+                pulse_lib.main_task.cancel()
         else:
             logger.debug(f'PulseLib connection: {state}')
 
@@ -536,29 +564,30 @@ class PulseLib:
         """Call back to handle pulseaudio events."""
 
         pulse_lib = PulseLib.get_instance()
-        if pulse_lib.event_iterator is not None:
-            pulse_lib.event_iterator.put_nowait(PulseEvent(event_type, index))
+        if pulse_lib is None:
+            return
 
-    def _abort(self):
-        self.main_task.cancel()
-        for task in self.pulselib_tasks:
-            task.cancel()
-        if self.event_iterator is not None:
-            self.event_iterator.close()
+        if pulse_lib.event_iterator is not None:
+            pulse_lib.event_iterator._put_nowait(PulseEvent(event_type,
+                                                            index))
 
     def _close(self):
         if self.closed:
             return
         self.closed = True
 
-        logger.debug('Closing the PulseLib instance')
         try:
+            for task in self.pulselib_tasks:
+                task.cancel()
+            if self.event_iterator is not None:
+                self.event_iterator._abort()
+
             pa_context_set_state_callback(self.c_context, None, None)
             pa_context_set_subscribe_callback(self.c_context, None, None)
 
             if self.state[0] == 'PA_CONTEXT_READY':
-                logger.info('Disconnecting from pulselib context')
                 pa_context_disconnect(self.c_context)
+                logger.info('Disconnected from pulselib context')
         finally:
             pa_context_unref(self.c_context)
 
@@ -570,11 +599,13 @@ class PulseLib:
                 assert False, 'Cannot remove PulseLib instance upon closing'
 
             MainLoop.close()
+            logger.debug('PulseLib instance closed')
 
     async def __aenter__(self):
         try:
             # Set up the two callbacks that live until this instance is
             # closed.
+            self.main_task = asyncio.current_task(self.loop)
             await self._pa_context_connect()
             pa_context_set_subscribe_callback(self.c_context,
                                     self.c_context_subscribe_callback, None)
