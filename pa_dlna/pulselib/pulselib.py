@@ -381,6 +381,7 @@ class PulseLib:
             index = notification.result()
             if index == PA_INVALID_INDEX:
                 raise PulseOperationError(errmsg)
+            logger.debug(f"Load '{name}'({index}) {argument}")
             return index
 
     @run_in_task
@@ -404,49 +405,19 @@ class PulseLib:
 
         errmsg = f'Cannot unload module at {index} index'
         await PulseLib._handle_operation(c_operation, notification, errmsg)
+        logger.debug(f'Unload module at index {index}')
 
     @run_in_task
     async def pa_context_get_sink_info_list(self):
         """Return the list of Sink instances."""
-
-        def sink_info_callback(c_context, c_sink_info, eol, c_userdata):
-            PulseLib._list_callback(notification, sink_infos, Sink,
-                                    c_sink_info, eol)
-
-        sink_infos = []
-        notification  = self.loop.create_future()
-        c_sink_info_callback = callback_func_ptr('pa_sink_info_cb_t',
-                                                 sink_info_callback)
-        c_operation = pa_context_get_sink_info_list(self.c_context,
-                                                c_sink_info_callback, None)
-        errmsg = 'Error at pa_context_get_sink_info_list()'
-        eol  = await PulseLib._handle_operation(c_operation, notification,
-                                                errmsg)
-        if eol < 0:
-            raise PulseOperationError(errmsg)
-        return sink_infos
+        return await self._get_info_list(Sink, 'pa_sink_info_cb_t',
+                                         pa_context_get_sink_info_list)
 
     @run_in_task
     async def pa_context_get_sink_input_info_list(self):
         """Return the list of SinkInput instances."""
-
-        def sink_input_info_callback(c_context, c_sink_input_info, eol,
-                                     c_userdata):
-            PulseLib._list_callback(notification, sink_input_infos, SinkInput,
-                                    c_sink_input_info, eol)
-
-        sink_input_infos = []
-        notification  = self.loop.create_future()
-        c_sink_input_info_callback = callback_func_ptr(
-                        'pa_sink_input_info_cb_t', sink_input_info_callback)
-        c_operation = pa_context_get_sink_input_info_list(self.c_context,
-                                            c_sink_input_info_callback, None)
-        errmsg = 'Error at pa_context_get_sink_input_info_list()'
-        eol  = await PulseLib._handle_operation(c_operation, notification,
-                                                errmsg)
-        if eol < 0:
-            raise PulseOperationError(errmsg)
-        return sink_input_infos
+        return await self._get_info_list(SinkInput, 'pa_sink_input_info_cb_t',
+                                         pa_context_get_sink_input_info_list)
 
     @run_in_task
     async def pa_context_get_sink_info_by_name(self, name):
@@ -492,6 +463,21 @@ class PulseLib:
         else:
             instances.append(cls(c_object.contents))
 
+    async def _get_info_list(self, cls, callback_name, operation):
+        def info_callback(c_context, c_info, eol, c_userdata):
+            PulseLib._list_callback(notification, infos, cls, c_info, eol)
+
+        infos = []
+        notification = self.loop.create_future()
+        c_info_callback = callback_func_ptr(callback_name, info_callback)
+        c_operation = operation(self.c_context, c_info_callback, None)
+        errmsg = f'Error in getting infos on the list of {cls.__name__}s'
+        eol = await PulseLib._handle_operation(c_operation, notification,
+                                               errmsg)
+        if eol < 0:
+            raise PulseOperationError(errmsg)
+        return infos
+
     @staticmethod
     async def _handle_operation(c_operation, future, errmsg):
         # From the ctypes documentation: "NULL pointers have a False
@@ -517,25 +503,26 @@ class PulseLib:
         if pulse_lib is None:
             return
 
-        state = pa_context_get_state(c_context)
-        state = CTX_STATES[state]
-        if state in ('PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
+        st = pa_context_get_state(c_context)
+        st = CTX_STATES[st]
+        if st in ('PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
                      'PA_CONTEXT_TERMINATED'):
             error = pa_context_errno(c_context)
             error = ERROR_CODES[error]
 
-            pulse_lib.state = (state, error)
-            logger.info(f'PulseLib connection: {pulse_lib.state}')
+            state = (st, error)
+            logger.info(f'PulseLib connection: {state}')
 
             state_notification = pulse_lib.state_notification
             if not state_notification.done():
-                state_notification.set_result(None)
-            elif not pulse_lib.closed and state != 'PA_CONTEXT_READY':
-                # Cancelling the main task does close the PulseLib context
-                # manager.
-                pulse_lib.main_task.cancel()
+                state_notification.set_result(state)
+            elif not pulse_lib.closed and st != 'PA_CONTEXT_READY':
+                # A task is used here instead of calling directly _abort() so
+                # that _pa_context_connect() has the time to handle a
+                # previous PA_CONTEXT_READY state.
+                asyncio.create_task(pulse_lib._abort(state))
         else:
-            logger.debug(f'PulseLib connection: {state}')
+            logger.debug(f'PulseLib connection: {st}')
 
     @run_in_task
     async def _pa_context_connect(self):
@@ -547,6 +534,7 @@ class PulseLib:
                                 None)
         logger.debug(f'pa_context_connect return code: {rc}')
         await self.state_notification
+        self.state = self.state_notification.result()
 
         if self.state[0] != 'PA_CONTEXT_READY':
             raise PulseStateError(self.state)
@@ -570,6 +558,11 @@ class PulseLib:
         if pulse_lib.event_iterator is not None:
             pulse_lib.event_iterator._put_nowait(PulseEvent(event_type,
                                                             index))
+
+    async def _abort(self, state):
+        # Cancelling the main task does close the PulseLib context manager.
+        logger.error(f'The PulseLib instance has been aborted: {state}')
+        self.main_task.cancel()
 
     def _close(self):
         if self.closed:
@@ -596,7 +589,7 @@ class PulseLib:
                     del self.ASYNCIO_LOOPS[loop]
                     break
             else:
-                assert False, 'Cannot remove PulseLib instance upon closing'
+                logger.error('Cannot remove PulseLib instance upon closing')
 
             MainLoop.close()
             logger.debug('PulseLib instance closed')

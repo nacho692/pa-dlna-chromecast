@@ -9,10 +9,12 @@ logging.basicConfig(level=logging.DEBUG,
                     format='%(name)-7s %(levelname)-7s %(message)s')
 logger = logging.getLogger('pulstst')
 
-async def log_events(pulse_lib):
+async def log_events(pulse_lib, ready):
     try:
         await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
         iterator = pulse_lib.get_events()
+        ready.set_result(True)
+
         async for event in iterator:
             logger.debug(f'{event.facility}({event.index}): {event.type}')
             if 0:
@@ -27,7 +29,12 @@ async def main():
             logger.debug(f'main: connected')
 
             try:
-                # Load/unload module.
+                # Events
+                ready = pulse_lib.loop.create_future()
+                evt_task = asyncio.create_task(log_events(pulse_lib, ready))
+                await ready
+
+                # Load a module.
                 module_index = PA_INVALID_INDEX
                 module_index = await pulse_lib.pa_context_load_module(
                     'module-null-sink',
@@ -44,9 +51,10 @@ async def main():
                 # Get sink by name.
                 sink = await pulse_lib.pa_context_get_sink_info_by_name('foo')
                 logger.debug(f'Sink by name: {sink.__dict__}')
+                description = getattr(sink.proplist, 'device.description')
+                logger.debug(f'Sink proplist.device.description:'
+                             f" '{description}'")
 
-                # Events
-                evt_task = asyncio.create_task(log_events(pulse_lib))
                 if 0:
                     await evt_task
                 elif 1:
