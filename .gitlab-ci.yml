@@ -12,6 +12,7 @@ default:
 
     before_script:
         - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio
+        - pulseaudio --verbose --daemonize=yes
         - python --version    # For debugging.
         - python -m pip install psutil
 
