@@ -51,7 +51,7 @@ async def main():
                 # Get sink by name.
                 sink = await pulse_lib.pa_context_get_sink_info_by_name('foo')
                 logger.debug(f'Sink by name: {sink.__dict__}')
-                description = getattr(sink.proplist, 'device.description')
+                description = sink.proplist['device.description']
                 logger.debug(f'Sink proplist.device.description:'
                              f" '{description}'")
 

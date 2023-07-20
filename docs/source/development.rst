@@ -177,7 +177,7 @@ Run the following commands::
 
     $ python -m tools.gendoc_default_config
     $ curl -o docs/source/_static/coverage.svg\
-    "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=95"
+    "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=90"
     $ make -C docs clean html man
 
 Updating development version

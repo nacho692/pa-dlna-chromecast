@@ -202,8 +202,14 @@ class PulseEvent:
     def event_types():
         return list(EVENT_TYPES.values())
 
-class PropList:
+class PropList(dict):
+    """Dictionary of the properties of a pulseaudio object."""
+
     def __init__(self, c_pa_proplist):
+        super().__init__()
+        if not bool(c_pa_proplist):
+            return
+
         null_ptr = ct.POINTER(ct.c_void_p)()
         null_ptr_ptr = ct.pointer(null_ptr)
         while True:
@@ -211,19 +217,19 @@ class PropList:
             if isinstance(key, bytes):
                 val = pa_proplist_gets(c_pa_proplist, key)
                 if bool(val):
-                    setattr (self, key.decode(), val.decode())
+                    self[key.decode()] = val.decode()
             elif not bool(key):
                 break
 
 class PulseStructure:
     def __init__(self, c_struct, c_struct_type):
-        # Make a deep copy of the elements of the structure as they are only
-        # temporarily available.
+        # Make a deep copy of some of the elements of the structure as they
+        # are only temporarily available.
         for name, c_type in c_struct_type._fields_:
             c_struct_val = getattr(c_struct, name)
-            if not bool(c_struct_val):
-                continue
             if c_type is ct.c_char_p:
+                if not bool(c_struct_val):
+                    c_struct_val = b''
                 setattr(self, name, c_struct_val.decode())
             elif c_type in (ct.c_int, ct.c_uint32, ct.c_uint64, ct.c_uint8):
                 setattr(self, name, int(c_struct_val))
@@ -234,7 +240,7 @@ class PulseStructure:
             elif c_type is PA_CVOLUME:
                 setattr(self, name, CVolume(c_struct_val))
             elif name == 'proplist':
-                setattr(self, name, PropList(c_struct_val))
+                self.proplist = PropList(c_struct_val)
 
 class SampleSpec(PulseStructure):
     def __init__(self, c_struct):
@@ -253,8 +259,7 @@ class Sink(PulseStructure):
 
     The attribute names of an instance of this class form a subset of the
     names of the _fields_ of the PA_SINK_INFO structure defined in the
-    'structures' module. Among them, 'proplist' is a dictionary of the
-    properties of the pulseaudio sink whose value is a string.
+    'structures' module.
     """
 
     def __init__(self, c_struct):
@@ -265,8 +270,7 @@ class SinkInput(PulseStructure):
 
     The attribute names of an instance of this class form a subset of the
     names of the _fields_ of the PA_SINK_INPUT_INFO structure defined in the
-    'structures' module. Among them, 'proplist' is a dictionary of the
-    properties of the pulseaudio sink input whose value is a string.
+    'structures' module.
     """
 
     def __init__(self, c_struct):

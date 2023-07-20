@@ -5,15 +5,15 @@ import contextlib
 import asyncio
 import collections.abc
 from unittest import mock
-from enum import Enum
 
 from . import skip_loop_iterations
+from ..pulselib.pulseaudio_h import PA_SUBSCRIPTION_MASK_SINK_INPUT
 
 SKIP_LOOP_ITERATIONS = 30
 
 @contextlib.contextmanager
-def use_pulsectl_stubs(modules):
-    """Patch the 'modules' recursively with pulsectl stubs.
+def use_pulselib_stubs(modules):
+    """Patch 'modules' with stubs defined in this module.
 
     The first module in 'modules' is patched first.
     """
@@ -30,36 +30,54 @@ def use_pulsectl_stubs(modules):
     for module in modules:
         if module in sys.modules:
             del sys.modules[module]
+    for module in ('pa_dlna.pulselib', 'pa_dlna.pulselib.pulselib'):
+        if module in sys.modules:
+            del sys.modules[module]
     importlib.invalidate_caches()
 
     with mock.patch.dict('sys.modules',
-                         {'pulsectl': sys.modules[__name__],
-                          'pulsectl_asyncio': sys.modules[__name__]}):
+                         {'pa_dlna.pulselib': sys.modules[__name__],
+                          'pa_dlna.pulselib.pulselib': sys.modules[__name__]
+                          }):
         yield tuple(reversed(recurse_import(modules.copy())))
 
     for module in modules:
         assert module not in sys.modules
 
-# Stubs of pulsectl's module variables.
-class PulseEventTypeEnum(Enum):
-    new = ('new', )
-    change = ('change', )
-    remove = ('remove',)
 
-    def __new__(cls, evt_type):
-        obj = object.__new__(cls)
-        obj._value = evt_type   # pulsectl uses '_value' and enum '_value_'.
-        return obj
+class PulseLibError(Exception): pass
+class PulseClosedError(PulseLibError): pass
+class PulseStateError(PulseLibError): pass
 
 class Event:
     def __init__(self, event, proplist=None):
-        assert event in PulseEventTypeEnum
-        self.t = event      # PulseEventTypeEnum event.
+        assert event in ('new', 'change', 'remove')
+        self.type = event
         self.proplist = proplist
         self.index = None
 
-PulseEventMaskEnum = Enum('PulseEventMaskEnum', 'sink sink_input')
-class PulseDisconnected(Exception): pass
+class EventIterator:
+    """Pulse events asynchronous iterator."""
+
+    def __init__(self, pulse_lib):
+        self.pulse_lib = pulse_lib
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        while True:
+            has_event = False
+            for sink_input in self.pulse_lib.sink_inputs:
+                event = sink_input.get_event()
+                if event is not None:
+                    has_event = True
+                    return event
+                    # Allow the processing of the event.
+                    await skip_loop_iterations(SKIP_LOOP_ITERATIONS)
+            if not has_event:
+                # The sink_inputs don't have any more events.
+                raise StopAsyncIteration
 
 class SinkInput:
     def __init__(self, name, events):
@@ -92,8 +110,8 @@ class Sink:
     def __str__(self):
         return self.name
 
-class PulseAsync():
-    """PulseAsync stub."""
+class PulseLib():
+    """PulseLib stub."""
 
     sink_inputs = None
     sink_input_index = 0
@@ -101,7 +119,7 @@ class PulseAsync():
 
     def __init__(self, name):
         assert self.sink_inputs is not None, ('missing call to'
-                                              ' PulseAsync.add_sink_inputs()')
+                                              ' PulseLib.add_sink_inputs()')
 
         self.raise_once()
         Sink.index = 0
@@ -115,9 +133,9 @@ class PulseAsync():
         """Extend the list of sink_inputs.
 
         This class method MUST be called BEFORE the instantiation of
-        PulseAsync.
+        PulseLib.
         The first sink_input in the list (if any) is associated with the sink
-        loaded by the following call to PulseAsync.module_load().
+        loaded by the following call to PulseLib.pa_context_load_module().
         """
 
         cls.sink_inputs = sink_inputs
@@ -128,7 +146,7 @@ class PulseAsync():
                 event.index = index
             cls.sink_input_index += 1
 
-    async def module_load(self, module, args):
+    async def pa_context_load_module(self, module, args):
         assert module == 'module-null-sink'
         args = dict(re.findall(r"(?P<key>\w+)=\"(?P<value>[^\"]*)\"", args))
         sink_name = args['sink_name'].strip("\"")
@@ -140,57 +158,45 @@ class PulseAsync():
         sink = Sink(sink_name, owner_module=index)
 
         # Link this sink to the first sink_input.
-        if len(PulseAsync.sink_inputs):
-            PulseAsync.sink_inputs[0].sink = sink.index
+        if len(PulseLib.sink_inputs):
+            PulseLib.sink_inputs[0].sink = sink.index
 
         self.sinks.append(sink)
         self.module_index += 1
         return index
 
-    async def module_unload(self, index):
+    async def pa_context_unload_module(self, index):
         for i, sink in enumerate(list(self.sinks)):
             if sink.owner_module == index:
                 self.sinks.pop(i)
                 break
 
-    async def sink_list(self):
+    async def pa_context_get_sink_info_list(self):
         return list(sink for sink in self.sinks)
 
-    async def sink_input_list(self):
-        return list(sink_input for sink_input in PulseAsync.sink_inputs)
+    async def pa_context_get_sink_input_info_list(self):
+        return list(sink_input for sink_input in PulseLib.sink_inputs)
 
-    async def get_sink_by_name(self, name):
+    async def pa_context_get_sink_info_by_name(self, name):
         for sink in self.sinks:
             if sink.name == name:
                 return sink
 
-    async def subscribe_events(self, mask):
-        assert mask == PulseEventMaskEnum.sink_input
-        while True:
-            has_event = False
-            for sink_input in self.sink_inputs:
-                event = sink_input.get_event()
-                if event is not None:
-                    has_event = True
-                    yield event
-                    # Allow the processing of the event.
-                    await skip_loop_iterations(SKIP_LOOP_ITERATIONS)
-            if not has_event:
-                # The sink_inputs don't have any more events.
-                break
+    async def pa_context_subscribe(self, mask):
+        assert mask == PA_SUBSCRIPTION_MASK_SINK_INPUT
+
+    def get_events(self):
+        return EventIterator(self)
 
     def raise_once(self):
         if self.do_raise_once:
-            PulseAsync.do_raise_once = False
-            e = Exception()
-            cause = Exception('pulse errno 6')
-            e.__cause__ = cause
-            raise e
+            PulseLib.do_raise_once = False
+            raise PulseLibError
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
-        PulseAsync.sink_inputs = None
-        PulseAsync.sink_input_index = 0
-        PulseAsync.do_raise_once = False
+        PulseLib.sink_inputs = None
+        PulseLib.sink_input_index = 0
+        PulseLib.do_raise_once = False

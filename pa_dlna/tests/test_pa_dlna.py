@@ -13,14 +13,18 @@ from unittest import IsolatedAsyncioTestCase, mock
 from . import load_ordered_tests as load_tests
 
 from . import find_in_logs, search_in_logs
-from .streams import pulseaudio, pa_dlna
 from .streams import set_control_point as _set_control_point
-from .pulsectl import PulseAsync
+from .pulselib import use_pulselib_stubs, PulseLib
 from ..init import ControlPointAbortError
 from ..upnp.upnp import (UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint,
                          UPnPSoapFaultError)
 from ..upnp.tests import min_python_version
 from ..upnp.xml import SoapFault
+
+# Use the patched pulseaudio and pa_dlna modules to avoid importing pulselib
+# that is not required for running the test.
+with use_pulselib_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
+    pulseaudio, pa_dlna = modules
 
 AVControlPoint = pa_dlna.AVControlPoint
 Renderer = pa_dlna.Renderer
@@ -112,7 +116,7 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
                                         port=8080, ttl=2, msearch_interval=60,
                                         test_devices=test_devices)
             set_control_point(control_point)
-            PulseAsync.add_sink_inputs([])
+            PulseLib.add_sink_inputs([])
 
             try:
                 return_code = await wait_for(
@@ -252,11 +256,11 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         self.control_point = AVControlPoint(nics=['lo'], port=8080)
         self.control_point.upnp_control_point = self.upnp_control_point
 
-        # PulseAsync must be instantiated after the call to the
+        # PulseLib must be instantiated after the call to the
         # add_sink_inputs() class method.
-        PulseAsync.add_sink_inputs([])
+        PulseLib.add_sink_inputs([])
         self.control_point.pulse = pulseaudio.Pulse(self.control_point)
-        self.control_point.pulse.pulse_ctl = PulseAsync('pa-dlna')
+        self.control_point.pulse.pulse_lib = PulseLib('pa-dlna')
 
     async def patch_get_notification(self, notifications=[], alive_count=0):
         async def handle_pulse_event(renderer):

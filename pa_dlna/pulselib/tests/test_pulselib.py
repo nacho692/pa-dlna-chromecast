@@ -92,7 +92,7 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                                   MODULE_ARG) as loaded_module:
                 sink = (await
                     pulse_lib.pa_context_get_sink_info_by_name(SINK_NAME))
-                self.assertEqual(getattr(sink.proplist, 'device.description'),
+                self.assertEqual(sink.proplist['device.description'],
                                  f'{SINK_NAME} description')
 
     async def test_events(self):

@@ -11,9 +11,8 @@ from . import load_ordered_tests as load_tests
 
 from . import find_in_logs, search_in_logs
 from .streams import pulseaudio, pa_dlna
-from .pulsectl import (use_pulsectl_stubs, SinkInput, Event,
-                       PulseEventTypeEnum, PulseEventMaskEnum,
-                       PulseDisconnected, PulseAsync)
+from .pulselib import (SinkInput, Event, PulseClosedError, PulseLib,
+                       PulseLibError, PA_SUBSCRIPTION_MASK_SINK_INPUT)
 
 class Renderer(pa_dlna.DLNATestDevice):
     def __init__(self, control_point, mime_type, results=None):
@@ -58,40 +57,39 @@ class Pulseaudio(IsolatedAsyncioTestCase):
 
     async def test_run_pulse(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            PulseAsync.add_sink_inputs([])
+            PulseLib.add_sink_inputs([])
             await self.pulse.run()
 
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_connect_raise_once(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            PulseAsync.add_sink_inputs([SinkInput('source',
-                                            [Event(PulseEventTypeEnum.new)])])
-            PulseAsync.do_raise_once = True
-            await self.pulse.run(sleep=0)
+            PulseLib.add_sink_inputs([SinkInput('source', [Event('new')])])
+            PulseLib.do_raise_once = True
+            await self.pulse.run()
 
-        self.assertTrue(find_in_logs(m_logs.output, 'pulse',
-                                'Waiting to connect to pulseaudio server'))
+        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
+                                     re.compile('raise PulseLibError')))
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_disconnected(self):
         with mock.patch.object(self.pulse, 'dispatch_event') as dispatch,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
-            PulseAsync.add_sink_inputs([SinkInput('source',
-                                            [Event(PulseEventTypeEnum.new)])])
-            dispatch.side_effect = PulseDisconnected()
+            PulseLib.add_sink_inputs([SinkInput('source', [Event('new')])])
+            dispatch.side_effect = PulseClosedError()
             await self.pulse.run()
 
-        self.assertTrue(find_in_logs(m_logs.output, 'pulse',
-                                     'Pulseaudio error: PulseDisconnected()'))
+        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
+                    re.compile('pa_dlna.tests.pulselib.PulseClosedError')))
+        self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_register(self):
         renderer = Renderer(self.control_point, 'audio/mp3')
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            PulseAsync.add_sink_inputs([])
-            async with PulseAsync('pa-dlna') as self.pulse.pulse_ctl:
+            PulseLib.add_sink_inputs([])
+            async with PulseLib('pa-dlna') as self.pulse.pulse_lib:
                 sink = await self.pulse.register(renderer)
-                self.assertTrue(str(self.pulse.pulse_ctl.sinks[1]).startswith(
+                self.assertTrue(str(self.pulse.pulse_lib.sinks[1]).startswith(
                                                         'DLNATest_mp3-uuid:'))
                 await self.pulse.unregister(sink)
 
@@ -102,10 +100,10 @@ class Pulseaudio(IsolatedAsyncioTestCase):
     async def test_register_failure(self):
         renderer = Renderer(self.control_point, 'audio/mp3')
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            PulseAsync.add_sink_inputs([])
-            async with PulseAsync('pa-dlna') as self.pulse.pulse_ctl:
-                with mock.patch.object(self.pulse.pulse_ctl,
-                                       'module_load') as load:
+            PulseLib.add_sink_inputs([])
+            async with PulseLib('pa-dlna') as self.pulse.pulse_lib:
+                with mock.patch.object(self.pulse.pulse_lib,
+                                       'pa_context_load_module') as load:
                     load.side_effect = [999]
                     await self.pulse.register(renderer)
 
@@ -115,8 +113,8 @@ class Pulseaudio(IsolatedAsyncioTestCase):
     async def test_register_twice(self):
         renderer = Renderer(self.control_point, 'audio/mp3')
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            PulseAsync.add_sink_inputs([])
-            async with PulseAsync('pa-dlna') as self.pulse.pulse_ctl:
+            PulseLib.add_sink_inputs([])
+            async with PulseLib('pa-dlna') as self.pulse.pulse_lib:
                 with mock.patch.object(self.control_point, 'abort') as abort:
                     await self.pulse.register(renderer)
                     await self.pulse.register(renderer)
@@ -127,14 +125,15 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         results = []
         renderer = self.new_renderer('mp3', results)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            sink_input = SinkInput('source', [Event(PulseEventTypeEnum.new),
-                                            Event(PulseEventTypeEnum.remove)])
-            PulseAsync.add_sink_inputs([sink_input])
+            sink_input = SinkInput('source', [Event('new'), Event('remove')])
+            PulseLib.add_sink_inputs([sink_input])
 
-            async with PulseAsync('pa-dlna') as self.pulse.pulse_ctl:
+            async with PulseLib('pa-dlna') as self.pulse.pulse_lib:
                 renderer.nullsink = await self.pulse.register(renderer)
-                async for event in self.pulse.pulse_ctl.subscribe_events(
-                                            PulseEventMaskEnum.sink_input):
+                await self.pulse.pulse_lib.pa_context_subscribe(
+                                            PA_SUBSCRIPTION_MASK_SINK_INPUT)
+                iterator = self.pulse.pulse_lib.get_events()
+                async for event in iterator:
                     await self.pulse.dispatch_event(event)
                     await asyncio.sleep(0)
 
@@ -147,15 +146,16 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         mp3_renderer = self.new_renderer('mp3', results)
         mpeg_renderer = self.new_renderer('mpeg', results)
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            sink_input = SinkInput('source', [Event(PulseEventTypeEnum.new),
-                                            Event(PulseEventTypeEnum.new)])
-            PulseAsync.add_sink_inputs([sink_input])
+            sink_input = SinkInput('source', [Event('new'), Event('new')])
+            PulseLib.add_sink_inputs([sink_input])
 
-            async with PulseAsync('pa-dlna') as self.pulse.pulse_ctl:
+            async with PulseLib('pa-dlna') as self.pulse.pulse_lib:
                 mp3_renderer.nullsink = await self.pulse.register(
                                                             mp3_renderer)
-                async for event in self.pulse.pulse_ctl.subscribe_events(
-                                            PulseEventMaskEnum.sink_input):
+                await self.pulse.pulse_lib.pa_context_subscribe(
+                                            PA_SUBSCRIPTION_MASK_SINK_INPUT)
+                iterator = self.pulse.pulse_lib.get_events()
+                async for event in iterator:
                     await self.pulse.dispatch_event(event)
                     await asyncio.sleep(0)
                     if mpeg_renderer.nullsink is None:
