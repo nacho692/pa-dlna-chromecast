@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.6
+  - Use the built-in pulselib package that uses ctypes to interface with the
+    pulseaudio library and remove the dependency to ``pulsectl_asyncio``.
   - Wait for the http server to be ready before starting the renderer task. This
     also fixes the test_None_nullsink and test_no_path_in_request tests on
     GitLab CI/CD.

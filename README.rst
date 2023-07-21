@@ -1,10 +1,12 @@
 The **pa-dlna** Python project forwards pulseaudio streams to DLNA devices. It
-is based on asyncio and is composed of the following components:
+is based on asyncio and uses ctypes to interface with the pulseaudio library.
+It is composed of the following components:
 
- * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices [#]_.
- * The ``upnp-cmd`` is an interactive command line tool for introspection and
-   control of UPnP devices.
- * A standalone UPnP library used by both commands.
+ * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices.
+ * The ``upnp-cmd``, an interactive command line tool for introspection and
+   control of UPnP devices [#]_.
+ * The UPnP library used by both commands.
+ * The pulselib library, a ctypes interface to the pulseaudio library.
 
 See the **pa-dlna** `documentation`_.
 
@@ -24,9 +26,8 @@ specification.
 Dependencies
 ------------
 
-The ``pa-dlna`` command uses the Python packages ``psutil`` and
-``pulsectl-asyncio``. They are automatically installed with pa-dlna when
-installing with pip.
+The built-in UPnP library  and therefore the ``upnp-cmd`` and ``pa-dlna``
+commands depend on the ``psutil`` Python package.
 
 The ``pa-dlna`` command does not require any other dependency when the DLNA
 devices support raw PCM L16 (:rfc:`2586`).
@@ -39,17 +40,17 @@ options, is printed by the command::
 
   $ pa-dlna --dump-default
 
-The  UPnP library  and the ``upnp-cmd`` command depend on the ``psutil``
-Python package.
-
 Configuration
 -------------
 
-A ``pa-dlna.conf`` user configuration file may be used to:
+A ``pa-dlna.conf`` user configuration file is used to:
 
  * Change the preferred encoders ordered list used to select an encoder.
- * Customize encoder options.
- * Set an encoder for a given device and customize its options for this device.
+ * Configure encoder options.
+ * Set an encoder for a given device and configure its options for this device.
+ * Configure for a device, for an encoder type or for all devices the
+   *sample_format*, *rate* and *channels* parameters of the ``parec`` program
+   used to forward pulseaudio streams.
 
 .. _documentation: https://pa-dlna.readthedocs.io/en/stable/
 .. _iproute2: https://en.wikipedia.org/wiki/Iproute2
