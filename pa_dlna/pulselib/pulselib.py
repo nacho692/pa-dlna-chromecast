@@ -21,6 +21,13 @@ CTX_STATES = dict((eval(state), state) for state in
                    'PA_CONTEXT_AUTHORIZING', 'PA_CONTEXT_SETTING_NAME',
                    'PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
                    'PA_CONTEXT_TERMINATED'))
+_plen = len('PA_SINK_')
+SINK_STATES = dict((eval(state), state[_plen:].lower()) for state in
+                   ('PA_SINK_INVALID_STATE', 'PA_SINK_RUNNING',
+                    'PA_SINK_IDLE', 'PA_SINK_SUSPENDED', 'PA_SINK_INIT',
+                    'PA_SINK_UNLINKED'))
+del _plen
+
 def event_codes_to_names():
     def build_events_dict(mask):
         for fac in globals():
@@ -264,6 +271,8 @@ class Sink(PulseStructure):
 
     def __init__(self, c_struct):
         super().__init__(c_struct, PA_SINK_INFO)
+        if hasattr(self, 'state'):
+            self.state = SINK_STATES[self.state]
 
 class SinkInput(PulseStructure):
     """A pulseaudio sink input.
@@ -275,6 +284,8 @@ class SinkInput(PulseStructure):
 
     def __init__(self, c_struct):
         super().__init__(c_struct, PA_SINK_INPUT_INFO)
+        if hasattr(self, 'state'):
+            self.state = SINK_STATES[self.state]
 
 class PulseLib:
     """Interface to pulselib library as an asynchronous context manager."""

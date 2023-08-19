@@ -154,13 +154,13 @@ class Renderer:
     def pulse_states(self, sink):
         if sink is None:
             sink = self.nullsink.sink
-            prev_state = sink.state._value
+            prev_state = sink.state
             new_state = None
         else:
             prev_sink = self.nullsink.sink
-            prev_state = (prev_sink.state._value
+            prev_state = (prev_sink.state
                           if prev_sink is not None else None)
-            new_state = sink.state._value
+            new_state = sink.state
         return prev_state, new_state
 
     def log_pulse_event(self, event, prev_state, new_state, sink_input):
@@ -174,6 +174,10 @@ class Renderer:
 
         logger.debug(f"'{event}' pulseaudio event [{self.name} "
                      f'sink: idx {sink_input.index}, {sink_state}]')
+        for state in (prev_state, new_state):
+            if state not in (None, 'idle', 'running'):
+                logger.info(f"Expecting 'idle' or 'running' state"
+                            f" but found '{state}'")
 
     def sink_input_meta(self, sink_input):
         if sink_input is None:

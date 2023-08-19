@@ -80,11 +80,8 @@ class RootDevice(UPnPRootDevice):
                          None, 3600)
 
 class Sink:
-    class State: pass
-
     def __init__(self, state):
-        self.state = self.State()
-        self.state._value = state
+        self.state = state
 
 class SinkInput:
     def __init__(self, index=0, proplist=None):
