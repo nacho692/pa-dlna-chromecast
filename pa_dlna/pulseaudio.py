@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from .pulselib import (PulseLib, PA_SUBSCRIPTION_MASK_SINK_INPUT,
-                       PulseStateError)
+                       PulseMissingLibError, PulseStateError)
 from .upnp.util import NL_INDENT, log_exception
 
 logger = logging.getLogger('pulse')
@@ -179,7 +179,7 @@ class Pulse:
                 if test_end is not None:
                     await test_end
 
-        except PulseStateError as e:
+        except (PulseMissingLibError, PulseStateError) as e:
             logger.error(f'{e!r}')
         except Exception as e:
             logger.exception(f'{e!r}')

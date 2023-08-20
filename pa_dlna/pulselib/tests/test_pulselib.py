@@ -209,3 +209,15 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                     self.fail('wait_forever has not been cancelled as expected')
             self.assertTrue(search_in_logs(m_logs.output, 'pulslib',
                     re.compile('PulseLib instance .* aborted:.*PA_CONTEXT_FAILED')))
+
+    async def test_missing_lib(self):
+        # Force the reloading of the library.
+        if hasattr(pulselib_module, 'pa_context_new'):
+            del pulselib_module.pa_context_new
+
+        with mock.patch.object(pulselib_module,
+                               'find_library') as find_library,\
+                self.assertRaises(PulseMissingLibError):
+            find_library.return_value = None
+            async with PulseLib('pulselib-test') as pulse_lib:
+                pass

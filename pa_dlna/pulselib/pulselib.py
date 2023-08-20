@@ -96,11 +96,15 @@ def setup_prototype(func_name, pulselib):
 def build_pulselib_prototypes(debug=False):
     """Add the ctypes pulselib functions to the current module namespace."""
 
+    _globals = globals()
+    # The current module namespace has already been set up.
+    if 'pa_context_new' in _globals:
+        return
+
     path = find_library('pulse')
     if path is None:
-        raise RuntimeError('Cannot find the pulselib library')
+        raise PulseMissingLibError('Cannot find the pulselib library')
     pulselib = ct.CDLL(path)
-    _globals = globals()
     for func_name in PROTOTYPES:
         func = setup_prototype(func_name, pulselib)
         _globals[func_name] = func
@@ -108,9 +112,8 @@ def build_pulselib_prototypes(debug=False):
         if debug:
             logger.debug(f'{func.__name__}: ({func.restype}, {func.argtypes})')
 
-build_pulselib_prototypes()
-
 class PulseLibError(Exception): pass
+class PulseMissingLibError(PulseLibError): pass
 class PulseClosedError(PulseLibError): pass
 class PulseStateError(PulseLibError): pass
 class PulseOperationError(PulseLibError): pass
@@ -295,6 +298,8 @@ class PulseLib:
     # Public methods.
     def __init__(self, name):
         """'name' is the name of the application."""
+
+        build_pulselib_prototypes()
 
         assert isinstance(name, str)
         self.c_context = pa_context_new(MainLoop.C_MAINLOOP_API,

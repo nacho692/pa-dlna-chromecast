@@ -8,6 +8,7 @@ from unittest import mock
 
 from . import skip_loop_iterations
 from ..pulselib.pulseaudio_h import PA_SUBSCRIPTION_MASK_SINK_INPUT
+from ..pulselib.pulselib import PulseMissingLibError
 
 SKIP_LOOP_ITERATIONS = 30
 
