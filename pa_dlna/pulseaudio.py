@@ -81,6 +81,15 @@ class Pulse:
         await self.pulse_lib.pa_context_unload_module(
                                                 nullsink.sink.owner_module)
 
+    async def get_sink_input(self, renderer):
+        assert renderer.nullsink is not None
+        sink_inputs = (await
+                       self.pulse_lib.pa_context_get_sink_input_info_list())
+        for sink_input in sink_inputs:
+            if sink_input.sink == renderer.nullsink.sink.index:
+                return sink_input
+        return None
+
     def find_previous_renderer(self, event):
         """Find the renderer that was last connected to this sink-input."""
 

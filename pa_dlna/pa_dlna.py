@@ -99,6 +99,17 @@ class Renderer:
             self.closing = True
             logger.info(f'Close {self.name} renderer')
 
+            # Handle the race condition where the Renderer.run() task
+            # has been created but not yet started.
+            if self.nullsink is not None:
+                for task in self.control_point.cp_tasks:
+                    if task.get_name() == self.nullsink.sink.name:
+                        while True:
+                            if self.curtask is not None:
+                                break
+                            await asyncio.sleep(0.1)
+                        break
+
             if (self.curtask is not None and
                     asyncio.current_task() != self.curtask):
                 self.curtask.cancel()
@@ -432,6 +443,17 @@ class Renderer:
             logger.info(f'New {self.name} renderer with {self.encoder}'
                         f" handling '{self.mime_type}'"
                         f'{NL_INDENT}URL: {self.current_uri}')
+
+            sink_input = await self.control_point.pulse.get_sink_input(self)
+            if sink_input is not None:
+                logger.info(f"Streaming '{sink_input.name}' on {self.name}")
+                self.nullsink.sink_input = sink_input
+                cur_metadata = self.sink_input_meta(sink_input)
+                if not cur_metadata.title:
+                    cur_metadata = cur_metadata._replace(
+                                            title=cur_metadata.publisher)
+                # Trigger 'SetAVTransportURI' and 'Play' soap actions.
+                await self.handle_action(cur_metadata)
 
             # If running as a test of test_pa_dlna.py, break from the loop
             # when the 'test_end' asyncio future is done. Otherwise run for

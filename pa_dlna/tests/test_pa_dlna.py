@@ -15,7 +15,9 @@ from . import load_ordered_tests as load_tests
 from . import find_in_logs, search_in_logs
 from .streams import set_control_point as _set_control_point
 from .pulselib import use_pulselib_stubs, PulseLib
+from .pulselib import SinkInput as PulseLibSinkInput
 from ..init import ControlPointAbortError
+from ..encoders import Encoder
 from ..upnp.upnp import (UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint,
                          UPnPSoapFaultError)
 from ..upnp.tests import min_python_version
@@ -28,7 +30,7 @@ with use_pulselib_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
 
 AVControlPoint = pa_dlna.AVControlPoint
 Renderer = pa_dlna.Renderer
-PROPLIST = { 'application.name': 'Clementine',
+PROPLIST = { 'application.name': 'Strawberry',
              'media.artist': 'Ziggy Stardust',
              'media.title': 'Amarok',
             }
@@ -48,6 +50,18 @@ async def wait_for(awaitable, timeout=2):
         raise asyncio.TimeoutError('*** asyncio.wait_for() BUG:'
                                 ' failed to raise TimeoutError')
     return res
+
+def get_control_point(sink_inputs):
+    upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
+    control_point = AVControlPoint(nics=['lo'], port=8080)
+    control_point.upnp_control_point = upnp_control_point
+
+    # PulseLib must be instantiated after the call to the
+    # add_sink_inputs() class method.
+    PulseLib.add_sink_inputs(sink_inputs)
+    control_point.pulse = pulseaudio.Pulse(control_point)
+    control_point.pulse.pulse_lib = PulseLib('pa-dlna')
+    return upnp_control_point, control_point
 
 def set_control_point(control_point):
     _set_control_point(control_point)
@@ -248,16 +262,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
     """Test cases using patch_get_notification()."""
 
     def setUp(self):
-        self.upnp_control_point = UPnPControlPoint(nics=[],
-                                                   msearch_interval=60)
-        self.control_point = AVControlPoint(nics=['lo'], port=8080)
-        self.control_point.upnp_control_point = self.upnp_control_point
-
-        # PulseLib must be instantiated after the call to the
-        # add_sink_inputs() class method.
-        PulseLib.add_sink_inputs([])
-        self.control_point.pulse = pulseaudio.Pulse(self.control_point)
-        self.control_point.pulse.pulse_lib = PulseLib('pa-dlna')
+        self.upnp_control_point, self.control_point = get_control_point([])
 
     async def patch_get_notification(self, notifications=[], alive_count=0):
         async def handle_pulse_event(renderer):
@@ -562,3 +567,33 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             re.compile('change.* event .* prev/new state: running/idle')))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
             re.compile("'Pause' ignored UPnP action")))
+
+    async def test_start_streaming(self):
+        # Test that streaming starts when pa-dlna is started while the track
+        # is already playing.
+        sink_input_name = 'Orcas Ibericas'
+        sink_input = PulseLibSinkInput(sink_input_name, [])
+        sink_input.proplist = PROPLIST
+        upnp_control_point, control_point = get_control_point([sink_input])
+        set_control_point(control_point)
+
+        # Ensure that Renderer.run() does not run the loop over calls to
+        # handle_pulse_event().
+        control_point.test_end.set_result(True)
+
+        root_device = RootDevice(upnp_control_point)
+        renderer = Renderer(control_point, root_device)
+        renderer.encoder = Encoder()
+
+        with mock.patch.object(Renderer, 'handle_action') as handle_action,\
+                mock.patch.object(Renderer,
+                                  'select_encoder') as select_encoder,\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            select_encoder.return_value = True
+            await renderer.pulse_register()
+            await renderer.run()
+            handle_action.assert_called_once_with(
+                                        renderer.sink_input_meta(sink_input))
+
+        self.assertTrue(search_in_logs(m_logs.output, 'pa-dlna',
+                                re.compile(f"Streaming '{sink_input_name}'")))

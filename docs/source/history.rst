@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.6
+  - Fix no sound when pa-dlna is started while the track is already playing.
   - Use the built-in pulselib package that uses ctypes to interface with the
     pulseaudio library and remove the dependency to ``pulsectl_asyncio``.
   - Wait for the http server to be ready before starting the renderer task. This
