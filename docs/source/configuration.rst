@@ -1,16 +1,80 @@
+.. _configuration:
+
 Configuration
 =============
+
+The configuration is defined by the :ref:`default_config` [#]_ overriden by the
+:ref:`user_configuration` file if it exists. It is used in the following two
+stages of the ``pa-dlna`` process:
+
+    - The selection of the encoder and audio mime-type.
+    - The forwarding of an audio stream.
+
+Encoder selection
+-----------------
+
+``pa-dlna`` fetches the DLNA device supported mime-types using the
+``GetProtocolInfo`` UPnP command [#]_ and selects the first encoder/mime-type in
+the configured ``selection`` option that matches an item of the list returned by
+``GetProtocolInfo``.
+
+If not already existing, an HTTP server is then started that answers requests on
+the local IP address where the DLNA device has been discovered.
+
+Streaming
+---------
+
+When PulseAudio notifies ``pa-dlna`` of the existence of a new stream from a
+source to the DLNA sink, it sends a ``SetAVTransportURI`` or
+``SetNextAVTransportURI`` [#]_ UPnP command to the device. This command holds:
+
+    - The stream metadata.
+    - The selected mime-type.
+    - The URL to be used by the device to fetch the stream by initiating an HTTP
+      GET for this URL.
+
+Upon responding to the HTTP GET request ``pa-dlna`` forks the Pulseaudio
+``parec`` process and the selected encoder process [#]_ using the configured
+options. The output of the ``parec`` process is piped to the encoder process,
+the output of the encoder process is written to the HTTP socket.
+
+It is possible to test an encoder configuration without using a DLNA
+device with the help of the ffplay program from the ffmpeg suite and a tool that
+retrieves HTTP files such as curl or wget. Here is an example with the
+``L16Encoder``:
+
+    - Set the L16Encoder at the highest priority in the pa-dlna.conf file.
+    - Run pa-dlna with the ``test-devices`` command line option [#]_::
+
+        $ pa-dlna ---test-devices audio/L16\;rate=44100\;channels=2
+    - Start a music player application and play some track.
+    - Associate this source with the ``DLNATest_L16 - 0ab65`` DLNA sink in
+      pavucontrol.
+    - Fetch the stream with curl as a file named ``output`` using the URL
+      printed by the logs [#]_::
+
+        $ curl http://127.0.0.1:8080/audio-content/uuid:e7fa8886-6d97-a009-b6b6-6b1171b0ab65 -o output
+
+    - Play the ``output`` file with the command::
+
+        $ ffplay -f s16be -ac 2 -ar 44100 output
 
 Encoders Configuration
 ----------------------
 
-The encoders configuration is based on the :ref:`default_config` that may be
-customized by the user's ``pa-dlna.conf`` file. The :ref:`default_config` [#]_ is
-printed on stdout with the ``--dump-default`` option of the ``pa-dlna``
-program. This output is structured as an `INI file`_, more precisely as text
-that could be parsed by the `configparser`_ Python module. The user's configuration
-file is also an INI file and obeys the same rules as the default configuration
-ones:
+The encoders configuration is defined by the :ref:`default_config` that may be
+overriden by the user's ``pa-dlna.conf`` file.
+
+The ``pa-dlna.conf`` file also allows the specification of the encoder and its
+options for a given DLNA device with a section named [EncoderName.UDN]. In this
+case the selection of the encoder using the ``selection`` option is by-passed
+and EncoderName is the selected encoder. UDN is the udn [#]_ of the device as
+printed by the logs or by the ``upnp-cmd`` command line tool.
+
+The default configuration is structured as an `INI file`_, more precisely as
+text that may be parsed by the `configparser`_ Python module. The user's
+configuration file is also an INI file and obeys the same rules as the default
+configuration:
 
     * A section is either [DEFAULT], [EncoderName] or [EncoderName.UDN]. The
       options defined in the [DEFAULT] section apply to all the other sections
@@ -24,13 +88,10 @@ ones:
       specific [EncoderName.UDN] configuration for the given device.
     * The options defined in the user's ``pa-dlna.conf`` file override the
       options of the default configuration.
-    * The ``pa-dlna.conf`` file also allows the specification of the encoder for
-      a given DLNA device with a section named [EncoderName.UDN]. In this case
-      the selection of the encoder using the ``selection`` option is by-passed
-      and EncoderName is the selected encoder. UDN is the udn of the device as
-      printed by the logs or by the ``upnp-cmd`` program.
     * Section names and options are case sensitive.
     * Boolean values are resticted to ``yes`` or ``no``.
+
+.. _user_configuration:
 
 User Configuration
 ------------------
@@ -75,7 +136,7 @@ In this example:
       track_metadata option is not set.
     * If a DLNA device does not support the mp3 or the flac mime types, then it
       cannot be used even though the device would support one of the other mime
-      types defined in the default configuration.
+      types defined in the overriden default configuration.
 
 One can verify what is the actual configuration used by ``pa-dlna`` by running
 the program with the ``--dump-internal`` command line option. A Python
@@ -86,8 +147,7 @@ the ``selection`` option.
 PulseAudio options
 ------------------
 
-These options are used by the pulseaudio ``parec`` program and the encoder
-programs:
+Options used by the Pulseaudio ``parec`` program and the encoder program:
 
   *sample_format*
     The default value is ``s16le``.
@@ -96,10 +156,10 @@ programs:
     audio data as defined by `RFC 2586`_) have this option set to ``s16be`` as
     specified by the RFC and it cannot be modified by the user.
 
-    See the pulseaudio supported `sample formats`_.
+    See the Pulseaudio supported `sample formats`_.
 
   *rate*
-    The pulseaudio sample rate (default: 44100).
+    The Pulseaudio sample rate (default: 44100).
 
   *channels*
     The number of audio channels (default: 2).
@@ -110,16 +170,19 @@ Other common options
 The other common options to all encoders are:
 
   *args*
-    The ``args`` option is the encoder program's command line. It is built from
-    the pulseaudio options and the encoder's specific options.
+    The ``args`` option is the encoder program's command line. When the ``args``
+    option is None, the encoder command line is built from the Pulseaudio
+    options and the encoder's specific options.
 
     As all the other options (except ``sample_rate`` in some cases, see above)
-    it may be customized by the user.
+    it may be overriden by the user.
 
   *track_metadata*
     * When ``yes``, each track is streamed in its own HTTP session allowing the
-      DLNA device to get the track meta data as described in the :ref:`meta
-      data` section. This is the default.
+      DLNA device to get each track meta data as described in the :ref:`meta
+      data` section.
+
+      This is the default.
     * When ``no``, there is only one HTTP session for all the tracks. Set this
       option to ``no`` when the logs show ERROR entries upon tracks changes.
 
@@ -128,21 +191,27 @@ Encoder specific options:
 
 Encoder specific options (for example ``bitrate``) are listed in
 :ref:`default_config` with their default value. They are used to build the
-``args`` command line.
-
-There is usually a web link in the comments following the encoder's section name that
-provides information upon these options and their allowed values.
+encoder command line when ``args`` is None.
 
 .. _INI file: https://en.wikipedia.org/wiki/INI_file
 .. _configparser:
         https://docs.python.org/3/library/configparser.html#supported-ini-file-structure
+.. _RFC 2586:
+    https://datatracker.ietf.org/doc/html/rfc2586
+.. _sample formats:
+    https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/SupportedAudioFormats/
 
 .. rubric:: Footnotes
 
-.. [#] This text is generated from Python classes in the ``pa-dlna`` source
-       code.
-
-.. _sample formats:
-    https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/SupportedAudioFormats/
-.. _RFC 2586:
-    https://datatracker.ietf.org/doc/html/rfc2586
+.. [#] The default configuration is printed by the command: ```$ pa-dlna
+       --dump-default```
+.. [#] The ``GetProtocolInfo`` command in the ``ConnectionManager`` service menu
+       of the ``upnp-cmd`` command line tool prints this same list.
+.. [#] The ``SetNextAVTransportURI`` is used when the ``track_metadata`` option
+       is set.
+.. [#] Except when the audio/L16 mime type is selected.
+.. [#] Note that the ``;`` character must be escaped on the command line or the
+       value of the ``--test-devices`` option must be quoted.
+.. [#] DLNATest device sink names and URLs are built using the sha1 of the audio
+       mime type and therefore are consistent across ``pa-dlna`` sessions.
+.. [#] UDN: Unique Device Name. Universally-unique identifier of an UPnP device.

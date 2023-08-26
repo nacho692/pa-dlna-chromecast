@@ -11,6 +11,9 @@ Design
 Meta Data
 """""""""
 
+This feature is enabled on a per encoder or per device basis with the
+``track_metadata`` option set to ``yes``. It is enabled by default.
+
 When ``pa-dlna`` receives a ``change`` event from pulseaudio and this event is
 related to a change to the meta data as for example when a new track starts with
 a new song, the following sequence of events occurs:
@@ -20,7 +23,7 @@ a new song, the following sequence of events occurs:
    + Writes the last chunk to the HTTP socket (see `Chunked Transfer Coding`_)
      and sends a ``SetNextAVTransportURI`` SOAP action with the new meta data.
    + Upon receiving the HTTP GET request from the device, instantiates a new
-     Track and starts its task to run the pulseaudio stream.
+     Track and starts a task to run the pulseaudio stream.
 
  * The DLNA device:
 
@@ -35,9 +38,6 @@ a new song, the following sequence of events occurs:
 This way, the last part of the current track is not truncated by the amount of
 latency introduced by the device's read buffer and the delay introduced by
 filling the read buffer of the next track is minimized.
-
-This feature is enabled on a per encoder or per device basis with the
-``track_metadata`` option. It is enabled by default.
 
 Asyncio Tasks
 """""""""""""
@@ -108,11 +108,11 @@ device.
 DLNA Device Registration
 """"""""""""""""""""""""
 
-For a new DLNA device to be registered, ``pa-dlna`` must establish the network
-address to be used in the URL that must be  advertised to the DLNA device in the
-``SetAVTransportURI`` SOAP action, so that the DLNA device may initiate the HTTP
-session and start the streaming. This depends on which event triggered this
-registration:
+For a new DLNA device to be registered, ``pa-dlna`` must establish the **local**
+network address to be used in the URL that must be  advertised to the DLNA
+device in the ``SetAVTransportURI`` and ``SetNextAVTransportURI`` SOAP actions,
+so that the DLNA device may initiate the HTTP session and start the
+streaming. This depends on which event triggered this registration:
 
   Reception of the  unicast response to an UPnP MSEARCH SSDP.
     The destination address of the SSDP response is the address that is being
@@ -167,18 +167,19 @@ Documentation:
 Documentation
 """""""""""""
 
-To build locally the documentation and:
+To build locally the documentation follow these steps:
 
-  - Generate the ``default-config.rst`` file.
-  - Fetch the GitLab test coverage badge.
-  - Build the html documentation and the man pages.
+  - Generate the ``default-config.rst`` file::
 
-Run the following commands::
+      $ python -m tools.gendoc_default_config
 
-    $ python -m tools.gendoc_default_config
-    $ curl -o docs/source/_static/coverage.svg\
-    "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=90"
-    $ make -C docs clean html man
+  - Fetch the GitLab test coverage badge::
+
+      $ curl -o docs/source/_static/coverage.svg "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=90"
+
+  - Build the html documentation and the man pages::
+
+      $ make -C docs clean html man
 
 Updating development version
 """"""""""""""""""""""""""""
@@ -205,10 +206,8 @@ Releasing
     $ coverage report -m
 
 * Update ``__version__`` in pa_dlna/__init__.py.
-* Update docs/source/history.rst.
-* Build locally the documentation and possibly create a new version of
-  ``default-config.rst`` or create a new GitLab test coverage badge (see
-  above).
+* Update docs/source/history.rst if needed.
+* Build locally the documentation, see one of the previous sections.
 * Commit the changes::
 
     $ git commit -m 'Version 0.n'

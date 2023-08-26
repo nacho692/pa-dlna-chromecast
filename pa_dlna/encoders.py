@@ -189,25 +189,7 @@ class L16Encoder(L16Mixin, StandAloneEncoder):
     """Lossless PCM L16 encoder without a container.
 
     This encoder does not use an external program for streaming. It only uses
-    the pulseaudio parec program.
-
-    To check this encoder without using a DLNA device, use the ffplay
-    program from the ffmpeg suite.
-    Follow these steps:
-        - Set L16Encoder at the highest priority in the pa-dlna.conf file.
-        - Run pa-dlna with the command line option:
-
-            '--test-devices audio/L16\;rate=44100\;channels=2'
-
-        - Get the result with curl or wget as a file named 'output' using the
-          URL printed by the logs.
-        - Chek the result with the command:
-
-            $ ffplay -f s16be -ac 2 -ar 44100 output
-
-    Note that the ';' character must be escaped on the command line or the
-    value of the '--test-devices' option must be quoted.
-
+    the Pulseaudio parec program.
     See also https://datatracker.ietf.org/doc/html/rfc2586.
     """
 
