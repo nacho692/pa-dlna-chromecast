@@ -272,8 +272,6 @@ class Renderer:
         if self.nullsink is None:
             # The Renderer instance is now temporarily disabled.
             return
-        assert (self.nullsink.sink_input is not None or
-                sink_input is not None)
 
         prev_state, new_state = self.pulse_states(sink)
         self.log_pulse_event(event, prev_state, new_state, sink_input)

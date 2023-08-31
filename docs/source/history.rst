@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.6
+  - Fix assertion error upon ``exit`` pulseaudio event.
   - Support PipeWire. No change is needed to support PipeWire. The test suite
     runs successfully on PipeWire.
   - Fix no sound when pa-dlna is started while the track is already playing.
