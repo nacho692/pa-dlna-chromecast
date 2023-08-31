@@ -12,6 +12,7 @@ A clear and concise description of what the bug is.
 - Network type (wired, wifi, ...):
 - Selected encoder:
 - pa-dlna version:
+- Pulseaudio or Pipewire:
 
 ### Relevant logs or configuration
 
