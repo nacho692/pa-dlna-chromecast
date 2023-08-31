@@ -39,7 +39,7 @@ Pulseaudio remembers the association between a source and a sink across
 different sessions. A thorough description of this feature is given in
 "PulseAudio under the hood" at `Automatic setup and routing`_.
 
-Use ``pavucontrol``, ``pacmd`` or ``pactl`` to establish this association
+Use ``pavucontrol``, ``pacmd`` or ``pactl`` [#]_ to establish this association
 between a source and a DLNA device. Establishing this association is needed only
 once.
 
@@ -142,6 +142,7 @@ UPnP eventing is not supported.
 .. [#] The list of the IP addresses where UPnP discovery is currently activated
        can be listed on ``upnp-cmd`` by printing the value of the
        ``ip_monitored`` variable in the main menu.
+.. [#] ``pacmd`` is not supported by PipeWire, use ``pactl`` instead.
 .. [#] A source is called a sink-input by Pulseaudio.
 .. [#] An UPnP device implements the `UPnP Device Architecture`_ specification.
 .. [#] A DLNA device is an UPnP device and implements the `MediaRenderer

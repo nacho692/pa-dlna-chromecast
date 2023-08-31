@@ -2,9 +2,11 @@ Release history
 ===============
 
 Version 0.6
+  - Support PipeWire. No change is needed to support PipeWire. The test suite
+    runs successfully on PipeWire.
   - Fix no sound when pa-dlna is started while the track is already playing.
   - Use the built-in pulselib package that uses ctypes to interface with the
-    pulseaudio library and remove the dependency to ``pulsectl_asyncio``.
+    libpulse library and remove the dependency to ``pulsectl_asyncio``.
   - Wait for the http server to be ready before starting the renderer task. This
     also fixes the test_None_nullsink and test_no_path_in_request tests on
     GitLab CI/CD.
@@ -47,7 +49,7 @@ Version 0.3
   - Failure to set SSDP multicast membership is reported only once.
 
 Version 0.2
-  - Test coverage of the UPnP library is 94%.
+  - Test coverage of the UPnP package is 94%.
   - Fix unknown UPnPXMLFatalError exception.
   - The ``description`` commands of ``upnp-cmd`` don't prefix tags with a
     namespace.
