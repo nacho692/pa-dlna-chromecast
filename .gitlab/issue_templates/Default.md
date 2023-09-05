@@ -1,25 +1,25 @@
-#### Bug report
-
-A clear and concise description of what the bug is.
-
-### Your environment
+#### Bug report.
 
 <!--
-    Include as many relevant details as possible about the environment.
+    A clear and concise description of what the bug is.
 -->
 
-- DLNA device name:
-- Network type (wired, wifi, ...):
-- Selected encoder:
-- pa-dlna version:
-- Pulseaudio or Pipewire:
+### Your environment.
 
-### Relevant logs or configuration
+- Sound server (Pulseaudio, Pipewire, both):
+- pa-dlna version:
+- DLNA device name:
+- Selected encoder:
+- Network type (wired, wifi):
+
+### Steps to reproduce.
+
+### Relevant logs or configuration.
 
 <!--
     Please use code blocks (```) to paste logs, code or pa-dlna.conf as it's
     tough to read otherwise.
-    When this is possible, please try to paste only the relevant part of the logs.
+    Please try to paste only the relevant part of the logs.
 -->
 
 <!--

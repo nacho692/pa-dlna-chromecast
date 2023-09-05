@@ -180,11 +180,15 @@ class Renderer:
         else:
             sink_state = f'prev/new state: {prev_state}/{new_state}'
 
+        sink_input_index = 'unknown'
         if sink_input is None:
             sink_input = self.nullsink.sink_input
+        if sink_input is not None:
+            sink_input_index = sink_input.index
 
-        logger.debug(f"'{event}' pulseaudio event [{self.name} "
-                     f'sink: idx {sink_input.index}, {sink_state}]')
+        logger.debug(f"'{event}' pulse event [{self.name} "
+                     f'sink-input: idx {sink_input_index}, {sink_state}]')
+
         for state in (prev_state, new_state):
             if state not in (None, 'idle', 'running'):
                 logger.info(f"Expecting 'idle' or 'running' state"

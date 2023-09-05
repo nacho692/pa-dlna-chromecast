@@ -459,7 +459,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(len(result), 0)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile("'remove' pulseaudio event .*previous state: running")))
+            re.compile("'remove' pulse event .*previous state: running")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
             re.compile(
                 "'Closing-Stop' UPnP action .* device prev state: PLAYING")))
