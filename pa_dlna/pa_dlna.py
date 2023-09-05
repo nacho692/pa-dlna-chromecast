@@ -81,6 +81,7 @@ class Renderer:
         self.protocol_info = None
         self.current_uri = None
         self.new_pulse_session = False
+        self.suspended_state = False
         self.stream_sessions = StreamSessions(self)
         self.pulse_queue = asyncio.Queue()
 
@@ -189,10 +190,19 @@ class Renderer:
         logger.debug(f"'{event}' pulse event [{self.name} "
                      f'sink-input: idx {sink_input_index}, {sink_state}]')
 
+        if new_state == 'suspended' and not self.suspended_state:
+            self.suspended_state = True
+            logger.warning(f"'{event}' pulse event {self.name} sink-input: "
+                           f"{sink_input_index}, entering 'suspended' state")
+        elif new_state != 'suspended' and self.suspended_state:
+            self.suspended_state = False
+            logger.info(f"'{event}' pulse event {self.name} sink-input: "
+                        f"{sink_input_index}, leaving 'suspended' state")
+
         for state in (prev_state, new_state):
-            if state not in (None, 'idle', 'running'):
-                logger.info(f"Expecting 'idle' or 'running' state"
-                            f" but found '{state}'")
+            if state not in (None, 'idle', 'running', 'suspended'):
+                logger.info(f"Expecting 'idle', 'running' or 'suspended'"
+                            f" state but found '{state}'")
 
     def sink_input_meta(self, sink_input):
         if sink_input is None:
@@ -307,11 +317,10 @@ class Renderer:
 
         # A new pulse session.
         if (self.nullsink.sink_input is None or
+                prev_state == 'suspended' or
                 (event == 'new' and new_state == 'idle')):
             self.new_pulse_session = True
 
-        # This will trigger 'SetAVTransportURI' and 'Play' soap
-        # actions if the device is in the appropriate state.
         if self.new_pulse_session:
             if new_state == 'running':
                 # So that the device may display at least some useful info.
@@ -321,12 +330,11 @@ class Renderer:
                 self.new_pulse_session = False
                 await self.handle_action(cur_metadata)
 
-        # This will trigger a 'SetNextAVTransportURI' soap action if the
-        # device is in the appropriate state.
         elif (cur_metadata.title != '' and
                 (prev_state, new_state) == ('running', 'running')):
             prev_metadata = self.sink_input_meta(self.nullsink.sink_input)
-            if cur_metadata is not None and cur_metadata != prev_metadata:
+            if (prev_metadata is not None and
+                    cur_metadata.title != prev_metadata.title):
                 await self.handle_action(cur_metadata)
 
         elif (prev_state, new_state) == ('running', 'idle'):
@@ -335,6 +343,7 @@ class Renderer:
         if self.nullsink is None:
             # The Renderer instance is now temporarily disabled.
             return
+
         self.nullsink.sink = sink
         self.nullsink.sink_input = sink_input
 

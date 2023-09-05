@@ -597,3 +597,33 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
 
         self.assertTrue(search_in_logs(m_logs.output, 'pa-dlna',
                                 re.compile(f"Streaming '{sink_input_name}'")))
+
+    async def test_in_suspended_state(self):
+        ctx = PulseEventContext(sink_state='suspended', sink_input_index=0)
+        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
+
+        result, logs = await self.patch_soap_action('change', ctx,
+                                                    transport_state='STOPPED')
+
+        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
+        self.assertEqual(result, [])
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                                    re.compile("entering 'suspended' state")))
+
+    async def test_out_suspended_state(self):
+        ctx = PulseEventContext(prev_sink_state='suspended',
+                                sink_state='running', sink_input_index=0)
+        ctx.renderer.suspended_state = 'suspended'
+        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
+
+        result, logs = await self.patch_soap_action('change', ctx,
+                                                    transport_state='STOPPED')
+
+        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0][1], 'SetAVTransportURI')
+        self.assertEqual(result[1][1], 'Play')
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                                    re.compile("leaving 'suspended' state")))
