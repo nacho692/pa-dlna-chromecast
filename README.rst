@@ -1,7 +1,9 @@
-The `pa-dlna`_ Python project forwards Pulseaudio streams to DLNA devices. It is
-based on `asyncio`_, uses `ctypes`_ to interface with the ``libpulse`` library
-[#]_ and supports both Pulseaudio and PipeWire (with the `pipewire-pulse`_
-daemon).
+The `pa-dlna`_ Python project forwards Pulseaudio streams to DLNA devices.
+
+It is based on `asyncio`_, uses `ctypes`_ to interface with the ``libpulse``
+library [#]_ and supports both Pulseaudio and PipeWire by running the same
+source code (see note [#]_ about a minor problem that seems to be a Wireplumber
+bug).
 
 `pa-dlna`_ is composed of the following components:
 
@@ -54,8 +56,8 @@ See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
 
 .. _pa-dlna: https://gitlab.com/xdegaye/pa-dlna
 .. _asyncio: https://docs.python.org/3/library/asyncio.html
-.. _pipewire-pulse: https://docs.pipewire.org/page_man_pipewire_pulse_1.html
 .. _ctypes: https://docs.python.org/3/library/ctypes.html
+.. _pa-dlna issue 15: https://gitlab.com/xdegaye/pa-dlna/-/issues/15
 .. _documentation: https://pa-dlna.readthedocs.io/en/stable/
 .. _psutil: https://pypi.org/project/psutil/
 .. _ConnectionManager:3 Service:
@@ -64,9 +66,15 @@ See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
 .. _flac: https://xiph.org/flac/
 .. _lame: https://lame.sourceforge.io/
 .. _configuration: https://pa-dlna.readthedocs.io/en/stable/configuration.html
+.. _pipewire-pulse: https://docs.pipewire.org/page_man_pipewire_pulse_1.html
 
 .. [#] The libpulse library is usually installed by the distributions as a
-       dependency of PulseAudio and pipewire-pulse.
+       dependency of PulseAudio and PipeWire (`pipewire-pulse`_ more
+       precisely).
+.. [#] When using PipeWire with the Wireplumber session manager, ``pa-dlna``
+       must be started before the audio streams that are routed to DLNA
+       devices. If not, as a work around, re-start those audio  streams to fix
+       the problem. See `pa-dlna issue 15`_.
 .. [#] The ``pa-dlna`` and ``upnp-cmd`` programs can be run simultaneously.
 .. [#] DLNA devices must support the HTTP GET transfer protocol and must support
        HTTP 1.1 as specified by Annex A.1 of the `ConnectionManager:3 Service`_
