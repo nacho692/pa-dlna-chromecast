@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.6
+  - Fix the ``args`` option in the [EncoderName.UDN] section of the user
+    configuration is always None.
   - Log a warning when the sink-input enters the ``suspended`` state.
   - Fix assertion error upon ``exit`` pulseaudio event.
   - Support PipeWire. No change is needed to support PipeWire. The test suite

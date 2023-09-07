@@ -290,6 +290,34 @@ class UserConfigTests(BaseTestCase):
         self.assertIn(f"{{'{UDN}': {{'_encoder': 'TestEncoder'",
                       output.getvalue())
 
+    def test_update_args_option(self):
+        pa_dlna_conf = """
+        [DEFAULT]
+        selection =
+            FFMpegMp3Encoder,
+
+        [FFMpegMp3Encoder]
+        bitrate = 320
+        """
+
+        with mock.patch('builtins.open', mock.mock_open(
+                                                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        self.assertIn('-b:a 320k', cfg.encoders['FFMpegMp3Encoder'].args)
+
+    def test_udn_update_args_option(self):
+        pa_dlna_conf = f"""
+        [FFMpegMp3Encoder.{UDN}]
+        bitrate = 320
+        """
+
+        with mock.patch('builtins.open', mock.mock_open(
+                                                    read_data=pa_dlna_conf)):
+            cfg = UserConfig()
+
+        self.assertIn('-b:a 320k', cfg.udns[UDN].args)
+
 @requires_resources('os.devnull')
 class Encoders(BaseTestCase):
     """Encoders tests."""

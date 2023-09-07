@@ -37,6 +37,11 @@ def user_config_pathname():
         base_path = os.path.expanduser('~/.config')
     return os.path.join(base_path, 'pa-dlna', 'pa-dlna.conf')
 
+def set_args_in_parser(encoder, section, parser):
+    encoder.set_args()
+    if encoder.args:
+        parser.set(section, 'args', encoder.args)
+
 class DefaultConfig:
     """The default built-in configuration as a dict."""
 
@@ -106,9 +111,7 @@ class DefaultConfig:
                         self.write_empty_comment(section)
                     self.parser.set(section, attr, val)
 
-            encoder.set_args()
-            if encoder.args:
-                self.parser.set(section, 'args', encoder.args)
+            set_args_in_parser(encoder, section, self.parser)
 
     def get_value(self, section, encoder, option, new_val):
         old_val = getattr(encoder, option)
@@ -224,6 +227,8 @@ class UserConfig(DefaultConfig):
             if encoder_name not in self.leaves:
                 raise ParsingError(f"'{section}' encoder does not exist")
             encoder = self.leaves[encoder_name]()
+            if udn:
+                set_args_in_parser(encoder, section, self.parser)
             self.override_options(encoder, section, defaults)
 
             if udn == '':
