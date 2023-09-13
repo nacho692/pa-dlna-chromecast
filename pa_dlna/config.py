@@ -119,7 +119,10 @@ class DefaultConfig:
             for t in (int, float):
                 if isinstance(old_val, t):
                     try:
-                        return t(new_val)
+                        new_val = t(new_val)
+                        if new_val < 0:
+                            raise ParsingError(
+                                f'{section}.{option}: {new_val} is negative')
                     except ValueError as e:
                         raise ParsingError(f'{section}.{option}: {e}')
         try:

@@ -44,9 +44,9 @@ async def wait_for(awaitable, timeout=2):
 
     bug = sys.version_info > (3, 8)
     if bug:
-        start = time.time()
+        start = time.monotonic()
     res = await asyncio.wait_for(awaitable, timeout=timeout)
-    if bug and time.time() - start >= timeout - 0.1:
+    if bug and time.monotonic() - start >= timeout - 0.1:
         raise asyncio.TimeoutError('*** asyncio.wait_for() BUG:'
                                 ' failed to raise TimeoutError')
     return res
@@ -422,7 +422,8 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
     """Test cases using patch_soap_action()."""
 
     async def patch_soap_action(self, event, ctx, transport_state='PLAYING',
-                                track_metadata=True):
+                                track_metadata=True,
+                                soap_minimum_interval=None):
         async def soap_action(renderer, serviceId, action, args={}):
             if action == 'GetProtocolInfo':
                 return {'Source': None,
@@ -440,6 +441,9 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             # to read the Renderer.encoder.track_metadata attribute.
             await ctx.renderer.select_encoder(ctx.renderer.root_device.udn)
             ctx.renderer.encoder.track_metadata = track_metadata
+            if soap_minimum_interval is not None:
+                ctx.renderer.soap_spacer.next_soap_at = (time.monotonic() +
+                                                         soap_minimum_interval)
 
             ctx.renderer.pulse_queue.put_nowait((event, ctx.sink,
                                                  ctx.sink_input))
@@ -492,6 +496,14 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
                 re.compile('new.* event .* prev/new state: idle/running')))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile("MetaData\(.* artist='Ziggy Stardust'")))
+
+    async def test_soap_minimum_interval(self):
+        ctx = PulseEventContext(sink_state='running', sink_input_index=0)
+
+        with mock.patch.object(asyncio, 'sleep') as sleep:
+            result, logs = await self.patch_soap_action('new', ctx,
+                        transport_state='STOPPED', soap_minimum_interval=5)
+        sleep.assert_called_once()
 
     async def test_next_track(self):
         proplist = PROPLIST.copy()

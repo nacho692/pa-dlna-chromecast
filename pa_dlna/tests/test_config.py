@@ -86,6 +86,23 @@ class UserConfigTests(BaseTestCase):
         self.assertRegex(cm.exception.args[0],
                          f"TestEncoder.option: invalid .*'{value}'")
 
+    def test_option_negative_value(self):
+        value = -1
+        pa_dlna_conf = f"""
+        [TestEncoder]
+          option = {value}
+        """
+
+        with mock.patch('pa_dlna.config.encoders_module',
+                        new=encoders_module()),\
+                mock.patch('builtins.open', mock.mock_open(
+                    read_data=pa_dlna_conf)),\
+                self.assertRaises(ParsingError) as cm:
+            UserConfig()
+
+        self.assertRegex(cm.exception.args[0],
+                         f'TestEncoder.option: {value} is negative')
+
     def test_invalid_option(self):
         pa_dlna_conf = """
         [TestEncoder]

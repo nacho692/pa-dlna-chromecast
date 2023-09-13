@@ -42,6 +42,7 @@ As printed by the command ``pa-dlna --dump-default``.
  rate = 44100
  channels = 2
  track_metadata = yes
+ soap_minimum_interval = 5
  args = None
 
  [FFMpegAacEncoder]

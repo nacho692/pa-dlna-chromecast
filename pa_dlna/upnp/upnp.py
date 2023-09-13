@@ -772,7 +772,7 @@ class UPnPControlPoint:
             last_time = -1
             while True:
                 do_msearch = False
-                cur_time = time.time()
+                cur_time = time.monotonic()
                 if (last_time == -1 or
                         cur_time - last_time >= self.msearch_interval):
                     do_msearch = True

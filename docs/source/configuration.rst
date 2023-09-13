@@ -186,6 +186,14 @@ The other common options to all encoders are:
     * When ``no``, there is only one HTTP session for all the tracks. Set this
       option to ``no`` when the logs show ERROR entries upon tracks changes.
 
+  *soap_minimum_interval*
+    UPnP SOAP actions [#]_ that start/stop a stream are spread out at
+    ``soap_minimum_interval`` seconds to avoid the problem described at `issue
+    #16`_. This applies only to the SOAP actions that initiate or stop a stream:
+    SetAVTransportURI, SetNextAVTransportURI and Stop.
+
+    The default is 5 seconds.
+
 Encoder specific options:
 -------------------------
 
@@ -200,6 +208,7 @@ encoder command line when ``args`` is None.
     https://datatracker.ietf.org/doc/html/rfc2586
 .. _sample formats:
     https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/SupportedAudioFormats/
+.. _issue #16: https://gitlab.com/xdegaye/pa-dlna/-/issues/16
 
 .. rubric:: Footnotes
 
@@ -215,3 +224,5 @@ encoder command line when ``args`` is None.
 .. [#] DLNATest device sink names and URLs are built using the sha1 of the audio
        mime type and therefore are consistent across ``pa-dlna`` sessions.
 .. [#] UDN: Unique Device Name. Universally-unique identifier of an UPnP device.
+.. [#] Simple Object Access Protocol. A remote-procedure call mechanism based on
+       XML that sends commands and receives values over HTTP.

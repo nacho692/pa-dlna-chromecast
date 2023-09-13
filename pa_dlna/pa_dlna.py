@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import hashlib
+import time
 from signal import SIGINT, SIGTERM
 from collections import namedtuple
 
@@ -55,6 +56,22 @@ def log_action(name, action, state, ignored=False, msg=None):
 class MetaData(namedtuple('MetaData', ['publisher', 'artist', 'title'])):
     def __str__(self):
         return shorten(repr(self), head_len=40, tail_len=40)
+
+class SoapSpacer:
+    """Space out SOAP actions."""
+
+    def __init__(self, soap_minimum_interval):
+        self.soap_minimum_interval = soap_minimum_interval
+        self.next_soap_at = None
+
+    async def wait(self):
+        now = time.monotonic()
+        if self.next_soap_at is not None:
+            interval = self.next_soap_at - now
+            if interval > 0:
+                await asyncio.sleep(interval)
+                now = time.monotonic()
+        self.next_soap_at = now + self.soap_minimum_interval
 
 class Renderer:
     """A DLNA MediaRenderer.
@@ -234,6 +251,10 @@ class Renderer:
         # Get the stream state.
         state = await self.get_transport_state()
 
+        # Space out SOAP actions that start or stop a stream.
+        if action != 'Pause' and self.encoder.soap_minimum_interval != 0:
+            await self.soap_spacer.wait()
+
         # Run an AVTransport action if needed.
         try:
             if state not in ('STOPPED', 'NO_MEDIA_PRESENT'):
@@ -371,6 +392,7 @@ class Renderer:
             await self.disable_root_device()
             return False
         self.encoder, self.mime_type, self.protocol_info = res
+        self.soap_spacer = SoapSpacer(self.encoder.soap_minimum_interval)
         return True
 
     def didl_lite_metadata(self, metadata):

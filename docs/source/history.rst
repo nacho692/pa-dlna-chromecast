@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.6
+  - Spread out UPnP SOAP actions that start/stop a stream (issue #16).
   - Fix the ``args`` option in the [EncoderName.UDN] section of the user
     configuration is always None.
   - Log a warning when the sink-input enters the ``suspended`` state.

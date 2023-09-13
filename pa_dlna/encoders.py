@@ -89,6 +89,7 @@ class Encoder:
         self.rate = 44100
         self.channels = 2
         self.track_metadata = True
+        self.soap_minimum_interval = 5
         self.args = None
 
     @property
