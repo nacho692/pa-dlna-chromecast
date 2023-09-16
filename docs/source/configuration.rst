@@ -21,22 +21,25 @@ the configured ``selection`` option that matches an item of the list returned by
 If not already existing, an HTTP server is then started that answers requests on
 the local IP address where the DLNA device has been discovered.
 
+.. _`streaming`:
+
 Streaming
 ---------
 
-When PulseAudio notifies ``pa-dlna`` of the existence of a new stream from a
-source to the DLNA sink, it sends a ``SetAVTransportURI`` or
-``SetNextAVTransportURI`` [#]_ UPnP command to the device. This command holds:
+When PulseAudio (actually libpulse) notifies ``pa-dlna`` of the existence of a
+new stream from a source to the DLNA sink, it sends a ``SetAVTransportURI`` or
+``SetNextAVTransportURI`` [#]_ UPnP SOAP [#]_ action to the device. This command
+holds:
 
     - The stream metadata.
     - The selected mime-type.
     - The URL to be used by the device to fetch the stream by initiating an HTTP
       GET for this URL.
 
-Upon responding to the HTTP GET request ``pa-dlna`` forks the Pulseaudio
-``parec`` process and the selected encoder process [#]_ using the configured
-options. The output of the ``parec`` process is piped to the encoder process,
-the output of the encoder process is written to the HTTP socket.
+Upon responding to the HTTP GET request ``pa-dlna`` forks the ``parec`` process
+and the selected encoder process [#]_ using the configured options. The output
+of the ``parec`` process is piped to the encoder process, the output of the
+encoder process is written to the HTTP socket.
 
 It is possible to test an encoder configuration without using a DLNA
 device with the help of the ffplay program from the ffmpeg suite and a tool that
@@ -147,7 +150,8 @@ the ``selection`` option.
 PulseAudio options
 ------------------
 
-Options used by the Pulseaudio ``parec`` program and the encoder program:
+Options used by the ``parec`` and encoder programs (see how those programs are
+used in the :ref:`streaming` section):
 
   *sample_format*
     The default value is ``s16le``.
@@ -164,10 +168,8 @@ Options used by the Pulseaudio ``parec`` program and the encoder program:
   *channels*
     The number of audio channels (default: 2).
 
-Other common options
---------------------
-
-The other common options to all encoders are:
+Common options
+--------------
 
   *args*
     The ``args`` option is the encoder program's command line. When the ``args``
@@ -187,7 +189,7 @@ The other common options to all encoders are:
       option to ``no`` when the logs show ERROR entries upon tracks changes.
 
   *soap_minimum_interval*
-    UPnP SOAP actions [#]_ that start/stop a stream are spread out at
+    UPnP SOAP actions that start/stop a stream are spread out at
     ``soap_minimum_interval`` seconds to avoid the problem described at `issue
     #16`_. This applies only to the SOAP actions that initiate or stop a stream:
     SetAVTransportURI, SetNextAVTransportURI and Stop.
@@ -218,11 +220,11 @@ encoder command line when ``args`` is None.
        of the ``upnp-cmd`` command line tool prints this same list.
 .. [#] The ``SetNextAVTransportURI`` is used when the ``track_metadata`` option
        is set.
+.. [#] Simple Object Access Protocol. A remote-procedure call mechanism based on
+       XML that sends commands and receives values over HTTP.
 .. [#] Except when the audio/L16 mime type is selected.
 .. [#] Note that the ``;`` character must be escaped on the command line or the
        value of the ``--test-devices`` option must be quoted.
 .. [#] DLNATest device sink names and URLs are built using the sha1 of the audio
        mime type and therefore are consistent across ``pa-dlna`` sessions.
 .. [#] UDN: Unique Device Name. Universally-unique identifier of an UPnP device.
-.. [#] Simple Object Access Protocol. A remote-procedure call mechanism based on
-       XML that sends commands and receives values over HTTP.

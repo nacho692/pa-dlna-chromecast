@@ -2,8 +2,7 @@ The `pa-dlna`_ Python project forwards Pulseaudio streams to DLNA devices.
 
 It is based on `asyncio`_, uses `ctypes`_ to interface with the ``libpulse``
 library [#]_ and supports both Pulseaudio and PipeWire by running the same
-source code (see note [#]_ about a minor problem that seems to be a Wireplumber
-bug).
+source code (see note [#]_ about a minor problem with Wireplumber).
 
 `pa-dlna`_ is composed of the following components:
 
@@ -27,9 +26,9 @@ Requirements
 
 Python version 3.8 or more recent.
 
-The built-in UPnP Python package  and therefore the ``upnp-cmd`` and ``pa-dlna``
-commands depend on the `psutil`_ Python package. No other other dependency is
-required when the DLNA devices support raw PCM L16 (:rfc:`2586`) [#]_.
+The built-in UPnP package  and therefore the ``upnp-cmd`` and ``pa-dlna``
+commands depend on the `psutil`_ Python package. No other dependency is required
+by `pa-dlna`_ when the DLNA devices support raw PCM L16 (:rfc:`2586`) [#]_.
 
 Optionally, encoders compatible with the audio mime types supported by the
 devices may be used. ``pa-dlna`` currently supports the `ffmpeg`_ (mp3, wav,
@@ -38,6 +37,9 @@ list of supported encoders, whether they are available on this host and their
 options, is printed by the command that prints the default configuration::
 
   $ pa-dlna --dump-default
+
+Optionally, one may install the ``pavucontrol`` package for easier management of
+associations between sound sources and DLNA devices.
 
 Configuration
 -------------
