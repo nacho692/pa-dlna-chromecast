@@ -6,35 +6,37 @@ Version 0.6
   - Fix the ``args`` option in the [EncoderName.UDN] section of the user
     configuration is always None.
   - Log a warning when the sink-input enters the ``suspended`` state.
-  - Fix assertion error upon ``exit`` pulseaudio event.
+  - Fix assertion error upon ``exit`` pulseaudio event (issue #14).
   - Support PipeWire. No change is needed to support PipeWire. The test suite
     runs successfully on PipeWire.
-  - Fix no sound when pa-dlna is started while the track is already playing.
+  - Fix no sound when pa-dlna is started while the track is already playing
+    (issue #13).
   - Use the built-in pulselib package that uses ctypes to interface with the
     libpulse library and remove the dependency to ``pulsectl_asyncio``.
   - Wait for the http server to be ready before starting the renderer task. This
     also fixes the test_None_nullsink and test_no_path_in_request tests on
-    GitLab CI/CD.
+    GitLab CI/CD (issue #12).
   - Support Python 3.11.
 
 Version 0.5
-  - Log a warning upon an empty body in the HTTP response from a DLNA device.
-  - UPnP discovery is triggered by NICs [#]_ state changes.
-  - Add the ``--ip-addresses``, ``-a`` command line argument.
-  - Fix changing the ``args`` encoder option is ignored.
+  - Log a warning upon an empty body in the HTTP response from a DLNA device
+    (issue #11).
+  - UPnP discovery is triggered by NICs [#]_ state changes (issue #10).
+  - Add the ``--ip-addresses``, ``-a`` command line argument (issue #9).
+  - Fix changing the ``args`` encoder option is ignored (issue #8).
 
 Version 0.4
-  - ``sample_format`` is a new encoder configuration option.
+  - ``sample_format`` is a new encoder configuration option (issue #3).
   - The encoders sample format is ``s16le`` except for the ``audio/l16``
-    encoder.
+    encoder (issue #7).
   - The encoder command line is now updated with ``pa-dlna.conf`` user
-    configuration.
+    configuration (issue #6).
   - Fix the parec command line length keeps increasing at each new track when
-    the encoder is set to track metadata.
+    the encoder is set to track metadata (issue #5).
   - Fix failing to start a new stream session while the device is still playing
-    when the encoder is set to not track metadata.
+    when the encoder is set to not track metadata (issue #4).
   - Fix ``pa-dlna`` hangs when one types <Control-S> in the terminal where the
-    program has been started.
+    program has been started (issue #2).
 
 Version 0.3
   - The test coverage of ``pa-dlna`` is 95%.
