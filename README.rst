@@ -1,16 +1,17 @@
-The `pa-dlna`_ Python project forwards Pulseaudio streams to DLNA devices.
+`pa-dlna`_ forwards audio streams to DLNA devices.
 
-It is based on `asyncio`_, uses `ctypes`_ to interface with the ``libpulse``
-library [#]_ and supports both Pulseaudio and PipeWire by running the same
-source code (see note [#]_ about a minor problem with Wireplumber).
+A Python project based on `asyncio`_, that uses `ctypes`_ to interface with the
+``libpulse`` library [#]_ and supports the PulseAudio and PipeWire [#]_ sound
+servers.
 
 `pa-dlna`_ is composed of the following components:
 
  * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices.
  * The ``upnp-cmd`` is an interactive command line tool for introspection and
    control of UPnP devices [#]_.
- * The UPnP Python package used by both commands.
- * The pulselib Python package, a ctypes interface to the ``libpulse`` library.
+ * The UPnP Python package is used by both commands.
+ * The pulselib Python package is a ctypes interface to the ``libpulse``
+   library.
 
 See the **pa-dlna** `documentation`_.
 
@@ -51,7 +52,7 @@ may be used to:
  * Configure encoder options.
  * Set an encoder for a given device and configure the options for this device.
  * Configure the *sample_format*, *rate* and *channels* parameters of the
-   ``parec`` program used to forward Pulseaudio streams, for a specific device,
+   ``parec`` program used to forward PulseAudio streams, for a specific device,
    for an encoder type or for all devices.
 
 See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
@@ -60,6 +61,8 @@ See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
 .. _asyncio: https://docs.python.org/3/library/asyncio.html
 .. _ctypes: https://docs.python.org/3/library/ctypes.html
 .. _pa-dlna issue 15: https://gitlab.com/xdegaye/pa-dlna/-/issues/15
+.. _Wireplumber issue 511:
+        https://gitlab.freedesktop.org/pipewire/wireplumber/-/issues/511
 .. _documentation: https://pa-dlna.readthedocs.io/en/stable/
 .. _psutil: https://pypi.org/project/psutil/
 .. _ConnectionManager:3 Service:
@@ -71,12 +74,12 @@ See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
 .. _pipewire-pulse: https://docs.pipewire.org/page_man_pipewire_pulse_1.html
 
 .. [#] The libpulse library is usually installed by the distributions as a
-       dependency of PulseAudio and PipeWire (`pipewire-pulse`_ more
-       precisely).
+       dependency of PulseAudio or PipeWire when installed with the
+       `pipewire-pulse`_ PulseAudio-compatible daemon.
 .. [#] When using PipeWire with the Wireplumber session manager, ``pa-dlna``
        must be started before the audio streams that are routed to DLNA
-       devices. If not, as a work around, re-start those audio  streams to fix
-       the problem. See `pa-dlna issue 15`_.
+       devices. Re-starting those audio  streams fixes the problem. See `pa-dlna
+       issue 15`_ and `Wireplumber issue 511`_.
 .. [#] The ``pa-dlna`` and ``upnp-cmd`` programs can be run simultaneously.
 .. [#] DLNA devices must support the HTTP GET transfer protocol and must support
        HTTP 1.1 as specified by Annex A.1 of the `ConnectionManager:3 Service`_
