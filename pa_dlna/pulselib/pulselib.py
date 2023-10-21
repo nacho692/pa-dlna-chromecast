@@ -274,8 +274,7 @@ class Sink(PulseStructure):
 
     def __init__(self, c_struct):
         super().__init__(c_struct, PA_SINK_INFO)
-        if hasattr(self, 'state'):
-            self.state = SINK_STATES[self.state]
+        self.state = SINK_STATES[self.state]
 
 class SinkInput(PulseStructure):
     """A pulseaudio sink input.
@@ -287,8 +286,6 @@ class SinkInput(PulseStructure):
 
     def __init__(self, c_struct):
         super().__init__(c_struct, PA_SINK_INPUT_INFO)
-        if hasattr(self, 'state'):
-            self.state = SINK_STATES[self.state]
 
 class ServerInfo(PulseStructure):
     def __init__(self, c_struct):
@@ -399,14 +396,13 @@ class PulseLib:
                         argument.encode(), c_context_index_callback, None)
 
         errmsg = f"Cannot load '{name}' module with '{argument}' argument"
-        result = await PulseLib._handle_operation(c_operation, notification,
-                                                  errmsg)
-        if result:
-            index = notification.result()
-            if index == PA_INVALID_INDEX:
-                raise PulseOperationError(errmsg)
-            logger.debug(f"Load '{name}'({index}) {argument}")
-            return index
+        await PulseLib._handle_operation(c_operation, notification, errmsg)
+
+        index = notification.result()
+        if index == PA_INVALID_INDEX:
+            raise PulseOperationError(errmsg)
+        logger.debug(f"Load '{name}'({index}) {argument}")
+        return index
 
     @run_in_task
     async def pa_context_unload_module(self, index):
@@ -458,8 +454,9 @@ class PulseLib:
         c_operation = pa_context_get_sink_info_by_name(self.c_context,
                                     name.encode(), c_sink_info_callback, None)
         errmsg = 'Error at pa_context_get_sink_info_by_name()'
-        eol  = await PulseLib._handle_operation(c_operation, notification,
-                                                errmsg)
+        await PulseLib._handle_operation(c_operation, notification, errmsg)
+
+        eol = notification.result()
         if eol < 0:
             raise PulseOperationError(errmsg)
         return sink_infos[0]
@@ -482,13 +479,12 @@ class PulseLib:
         c_operation = pa_context_get_server_info(self.c_context,
                                                 c_server_info_callback, None)
         errmsg = 'Error at pa_context_get_server_info()'
-        result = await PulseLib._handle_operation(c_operation, notification,
-                                                errmsg)
-        if result:
-            server_info = notification.result()
-            if server_info is None:
-                raise PulseOperationError(errmsg)
-            return server_info
+        await PulseLib._handle_operation(c_operation, notification, errmsg)
+
+        server_info = notification.result()
+        if server_info is None:
+            raise PulseOperationError(errmsg)
+        return server_info
 
     async def log_server_info(self):
         if self.state[0] != 'PA_CONTEXT_READY':
@@ -539,8 +535,9 @@ class PulseLib:
         c_info_callback = callback_func_ptr(callback_name, info_callback)
         c_operation = operation(self.c_context, c_info_callback, None)
         errmsg = f'Error in getting infos on the list of {cls.__name__}s'
-        eol = await PulseLib._handle_operation(c_operation, notification,
-                                               errmsg)
+        await PulseLib._handle_operation(c_operation, notification, errmsg)
+
+        eol = notification.result()
         if eol < 0:
             raise PulseOperationError(errmsg)
         return infos
@@ -555,10 +552,9 @@ class PulseLib:
 
         try:
             await future
-            return True
         except asyncio.CancelledError:
             pa_operation_cancel(c_operation)
-            return False
+            raise
         finally:
             pa_operation_unref(c_operation)
 
