@@ -174,8 +174,9 @@ class Pulse:
     async def run(self):
         try:
             async with PulseLib('pa-dlna') as self.pulse_lib:
-                logger.info('Connected to pulseaudio server')
+                await self.pulse_lib.log_server_info()
 
+                # Start the iteration on sink-input events.
                 await self.pulse_lib.pa_context_subscribe(
                                     PA_SUBSCRIPTION_MASK_SINK_INPUT)
                 iterator = self.pulse_lib.get_events()

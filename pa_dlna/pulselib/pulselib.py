@@ -9,7 +9,7 @@ from .pulseaudio_h import *
 from .mainloop import MainLoop, get_ctype, CALLBACK_TYPES, callback_func_ptr
 from .prototypes import PROTOTYPES
 from .structures import (PA_SAMPLE_SPEC, PA_CHANNEL_MAP, PA_CVOLUME,
-                         PA_SINK_INFO, PA_SINK_INPUT_INFO)
+                         PA_SINK_INFO, PA_SINK_INPUT_INFO, PA_SERVER_INFO)
 
 logger = logging.getLogger('pulslib')
 
@@ -290,6 +290,10 @@ class SinkInput(PulseStructure):
         if hasattr(self, 'state'):
             self.state = SINK_STATES[self.state]
 
+class ServerInfo(PulseStructure):
+    def __init__(self, c_struct):
+        super().__init__(c_struct, PA_SERVER_INFO)
+
 class PulseLib:
     """Interface to pulselib library as an asynchronous context manager."""
 
@@ -460,6 +464,49 @@ class PulseLib:
             raise PulseOperationError(errmsg)
         return sink_infos[0]
 
+    @run_in_task
+    async def pa_context_get_server_info(self):
+        """Get the server name and the environment it's running on."""
+
+        def server_info_callback(c_context, c_server_info, c_userdata):
+            if not bool(c_server_info):
+                server_info = None
+            else:
+                server_info = ServerInfo(c_server_info.contents)
+            if not notification.done():
+                notification.set_result(server_info)
+
+        notification  = self.loop.create_future()
+        c_server_info_callback = callback_func_ptr('pa_server_info_cb_t',
+                                                server_info_callback)
+        c_operation = pa_context_get_server_info(self.c_context,
+                                                c_server_info_callback, None)
+        errmsg = 'Error at pa_context_get_server_info()'
+        result = await PulseLib._handle_operation(c_operation, notification,
+                                                errmsg)
+        if result:
+            server_info = notification.result()
+            if server_info is None:
+                raise PulseOperationError(errmsg)
+            return server_info
+
+    async def log_server_info(self):
+        if self.state[0] != 'PA_CONTEXT_READY':
+            raise PulseStateError(self.state)
+
+        version = pa_context_get_protocol_version(self.c_context)
+        server_ver = pa_context_get_server_protocol_version(self.c_context)
+        logger.debug(f'libpulse library/server versions: '
+                     f'{version}/{server_ver}')
+
+        server_info = await self.pa_context_get_server_info()
+        logger.info(f'Server version: {server_info.server_version}')
+
+        # 'server' is the name of the socket libpulse is connected to.
+        server_name = server_info.server_name
+        server = pa_context_get_server(self.c_context)
+        logger.info(f"Connected to '{server_name}' at '{server.decode()}'")
+
 
     # Private methods.
     @staticmethod
@@ -558,14 +605,6 @@ class PulseLib:
 
         if self.state[0] != 'PA_CONTEXT_READY':
             raise PulseStateError(self.state)
-
-        version = pa_context_get_protocol_version(self.c_context)
-        server_version = pa_context_get_server_protocol_version(
-            self.c_context)
-        server_name = pa_context_get_server(self.c_context)
-        logger.info(f'Connected to pulseaudio at {server_name.decode()}\n' +
-                    16 * ' ' +
-                    f'library/server versions: {version}/{server_version}')
 
     @staticmethod
     def _context_subscribe_callback(c_context, event_type, index, c_userdata):

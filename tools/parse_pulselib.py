@@ -41,6 +41,7 @@ def callback_regexps():
         r'pa_context_index_cb_t',
         r'pa_context_subscribe_cb_t',
         r'pa_context_success_cb_t',
+        r'pa_server_info_cb_t',
 
         # mainloop API.
         r'io_\w+',
@@ -66,7 +67,7 @@ def function_regexps():
         r'pa_context_\w*ref',
         r'pa_context_\w*connect',
         r'pa_context_\w+module',
-        r'pa_context_get_server',
+        r'pa_context_get_server\w*',
         r'pa_context_get_sink_info_by_name',
         r'pa_context_get_sink_\w*info_list',
         r'pa_context_get_state',

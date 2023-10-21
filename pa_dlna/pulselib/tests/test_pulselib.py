@@ -52,6 +52,14 @@ class LoadModule:
 
 @requires_resources('pulseaudio')
 class PulseLibTestCase(IsolatedAsyncioTestCase):
+    async def test_log_server_info(self):
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            async with PulseLib('pulselib-test') as pulse_lib:
+                await pulse_lib.log_server_info()
+
+        self.assertTrue(search_in_logs(m_logs.output, 'pulslib',
+                    re.compile(f'Connected to .* at')))
+
     async def test_load_module(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             async with PulseLib('pulselib-test') as pulse_lib:
@@ -133,6 +141,7 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                                    PulseClosedIteratorError))
 
     async def test_excep_ctx_mgr(self):
+        pulselib_module.build_pulselib_prototypes()
         with mock.patch.object(pulselib_module,
                                'pa_context_connect') as connect,\
                 self.assertRaises(PulseStateError):
@@ -141,6 +150,7 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                 pass
 
     async def test_cancel_ctx_mgr(self):
+        pulselib_module.build_pulselib_prototypes()
         with mock.patch.object(pulselib_module,
                                'pa_context_connect') as connect,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
@@ -193,10 +203,16 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
         # This test assumes that the pulselib library calls
         # _context_state_callback() at least twice when connecting to the
         # library.
+        pulselib_module.build_pulselib_prototypes()
         with mock.patch.object(pulselib_module,
                                'pa_context_get_state') as connect,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
-            connect.side_effect = [PA_CONTEXT_READY, PA_CONTEXT_FAILED]
+            connect.side_effect = [
+                PA_CONTEXT_READY,   # connected
+                PA_CONTEXT_READY,   # ignored state
+                PA_CONTEXT_READY,   # idem
+                PA_CONTEXT_FAILED,  # connection failure
+            ]
             async with PulseLib('pulselib-test') as pulse_lib:
                 wait_forever = pulse_lib.loop.create_future()
                 try:
@@ -212,6 +228,7 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
 
     async def test_missing_lib(self):
         # Force the reloading of the library.
+        pulselib_module.build_pulselib_prototypes()
         if hasattr(pulselib_module, 'pa_context_new'):
             del pulselib_module.pa_context_new
 

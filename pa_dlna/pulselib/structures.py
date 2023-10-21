@@ -85,3 +85,17 @@ class PA_SINK_INPUT_INFO(ct.Structure):
         ('volume_writable', ct.c_int),      # int volume_writable;
         ('format', ct.c_void_p),            # pa_format_info *format;
     ]
+
+class PA_SERVER_INFO(ct.Structure):
+    _fields_ = [
+        ('user_name', ct.c_char_p),         # User name of the daemon process
+        ('host_name', ct.c_char_p),         # Host name the daemon is running on
+        ('server_version', ct.c_char_p),    # Version string of the daemon
+        ('server_name', ct.c_char_p),       # Server package name
+        ('sample_spec', PA_SAMPLE_SPEC),    # Default sample specification
+        ('default_sink_name', ct.c_char_p), # Name of default sink.
+        ('default_source_name', ct.c_char_p),# Name of default source.
+        ('cookie', ct.c_uint32),            # A random cookie for identifying
+                                            # this instance of PulseAudio.
+        ('channel_map', PA_CHANNEL_MAP),    # Default channel map.
+    ]

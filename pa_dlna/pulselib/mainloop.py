@@ -11,7 +11,8 @@ import ctypes as ct
 from .pulseaudio_h import (PA_ENUM_LIST, PA_IO_EVENT_NULL, PA_IO_EVENT_INPUT,
                            PA_IO_EVENT_OUTPUT)
 from .prototypes import CALLBACKS
-from .structures import PA_SINK_INFO, PA_SINK_INPUT_INFO, TIMEVAL
+from .structures import (PA_SINK_INFO, PA_SINK_INPUT_INFO, TIMEVAL,
+                         PA_SERVER_INFO)
 
 logger = logging.getLogger('pulslib')
 
@@ -29,6 +30,7 @@ def known_ctypes():
             'struct timeval *':             ct.POINTER(TIMEVAL),
             'pa_sink_info *':               ct.POINTER(PA_SINK_INFO),
             'pa_sink_input_info *':         ct.POINTER(PA_SINK_INPUT_INFO),
+            'pa_server_info *':             ct.POINTER(PA_SERVER_INFO),
            }
     for enum_name in PA_ENUM_LIST:
         map[enum_name] = ct.c_int

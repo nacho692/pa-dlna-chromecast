@@ -186,6 +186,9 @@ class PulseLib():
     async def pa_context_subscribe(self, mask):
         assert mask == PA_SUBSCRIPTION_MASK_SINK_INPUT
 
+    async def log_server_info(self):
+        return
+
     def get_events(self):
         return EventIterator(self)
 
