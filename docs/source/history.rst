@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.7
+  - Update the README with package requirements for linux distributions.
   - The ``psutil`` Python package must be installed now separately as this
     package is included by many distributions (debian, archlinux, fedora, ...).
   - Log the sound server name and version.
