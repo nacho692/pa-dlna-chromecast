@@ -36,8 +36,8 @@ def requires_resources(resources):
                 subprocess.run(['curl', '--version'],
                                stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, check=True)
-            elif res == 'pulseaudio':
-                # Check that pulseaudio is running.
+            elif res == 'libpulse':
+                # Check that pulseaudio or pipewire-pulse is running.
                 subprocess.run(['pactl', 'info'], stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, check=True)
             else:

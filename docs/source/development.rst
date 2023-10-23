@@ -146,8 +146,10 @@ Development:
         $ python -m tools.parse_pulselib
 
     * `curl`_ is used to run the full test suite. When missing, the tests
-      using curl are skipped. It is needed when releasing a new version to fetch
-      the GitLab test coverage badge.
+      using curl are skipped. It is also needed when releasing a new version to
+      fetch the GitLab test coverage badge.
+    * `pactl`_ is needed to run the tests that connect to the pulseaudio or
+      pipewire sound server. When missing, those tests are skipped.
     * `coverage`_ is used to get the test suite coverage.
     * `flit`_ is used to install pa-dlna or to publish it to PyPi.
 
@@ -230,6 +232,7 @@ Releasing
     https://docs.readthedocs.io/en/stable/faq.html#i-want-to-use-the-read-the-docs-theme-locally
 .. _Sphinx: https://www.sphinx-doc.org/
 .. _curl: https://curl.se/
+.. _pactl: https://linux.die.net/man/1/pactl
 .. _`coverage`: https://pypi.org/project/coverage/
 .. _flit: https://pypi.org/project/flit/
 .. _unittest command line options:

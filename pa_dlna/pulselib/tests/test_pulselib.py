@@ -50,7 +50,7 @@ class LoadModule:
         if self.module_index != PA_INVALID_INDEX:
             await self.pulse_lib.pa_context_unload_module(self.module_index)
 
-@requires_resources('pulseaudio')
+@requires_resources('libpulse')
 class PulseLibTestCase(IsolatedAsyncioTestCase):
     async def test_log_server_info(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
@@ -100,8 +100,8 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                                   MODULE_ARG) as loaded_module:
                 sink = (await
                     pulse_lib.pa_context_get_sink_info_by_name(SINK_NAME))
-                self.assertEqual(sink.proplist['device.description'],
-                                 f'{SINK_NAME} description')
+                self.assertTrue(re.match(fr'{SINK_NAME}\\? description',
+                                sink.proplist['device.description']))
 
     async def test_events(self):
         async with PulseLib('pulselib-test') as pulse_lib:
