@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+#
+# Docker file to run the test suite with *pipewire*.
+# Note that these steps must be repeated after each change in pa-dlna
+# source code.
+#
+# Build an image, run the following command at the root of the repository:
+#   $ sudo /usr/bin/docker build --file=Dockerfile.pipewire --tag=pa-dlna-pipewire .
+#
+# And start a container to run the test suite:
+#   $ sudo /usr/bin/docker run -it pa-dlna-pipewire
+# Or:
+#   $ sudo /usr/bin/docker run -p 4000:80 pa-dlna-pipewire
+
+FROM debian:latest
+
+RUN apt-get update -yq && apt-get install -yq python3-psutil procps
+RUN apt-get update -yq && apt-get install -yq curl ffmpeg
+RUN apt-get update -yq && apt-get install -yq pulseaudio-utils
+RUN apt-get update -yq && apt-get install -yq xvfb
+RUN apt-get update -yq && apt-get install -yq pipewire wireplumber pipewire-pulse
+
+COPY . /root
+WORKDIR /root
+ENTRYPOINT [ "/bin/bash", "tools/docker-pipewire.sh" ]

@@ -50,7 +50,7 @@ device.
 
     ================      ======================================================
     *coroutines*          Coroutines are wrapped in a task that is cancelled
-                          when the |br| pulselib connection state becomes
+                          when the |br| libpulse connection state becomes
                           PA_CONTEXT_FAILED.
     ================      ======================================================
 
@@ -136,10 +136,10 @@ Requirements
 """"""""""""
 
 Development:
-    * ``gcc`` is used to parse pulselib's pulseaudio.h and to create
+    * ``gcc`` is used to parse libpulse's pulseaudio.h and to create
       pulseaudio_h.py and prototypes.py. It should not be needed after the
       creation of both these Python modules as pulseaudio enforces the ABI
-      compatibility of pulselib across its different versions.
+      compatibility of libpulse across its different versions.
 
       pulseaudio_h.py and prototypes.py are created by running the command::
 
@@ -150,6 +150,9 @@ Development:
       fetch the GitLab test coverage badge.
     * `pactl`_ is needed to run the tests that connect to the pulseaudio or
       pipewire sound server. When missing, those tests are skipped.
+    * `docker`_ may be used to run the test suite in a pulseaudio or pipewire
+      debian container. Follow the instructions written as comments in each of
+      the ``Dockerfile.pulse`` and ``Dockerfile.pipewire`` Docker files.
     * `coverage`_ is used to get the test suite coverage.
     * `flit`_ is used to install pa-dlna or to publish it to PyPi.
 
@@ -233,6 +236,7 @@ Releasing
 .. _Sphinx: https://www.sphinx-doc.org/
 .. _curl: https://curl.se/
 .. _pactl: https://linux.die.net/man/1/pactl
+.. _docker: https://docs.docker.com/build/guide/intro/
 .. _`coverage`: https://pypi.org/project/coverage/
 .. _flit: https://pypi.org/project/flit/
 .. _unittest command line options:

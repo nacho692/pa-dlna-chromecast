@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.7
+  - Add Docker files to allow running the test suite in pulseaudio and pipewire
+    debian containers.
   - Update the README with package requirements for linux distributions.
   - The ``psutil`` Python package must be installed now separately as this
     package is included by many distributions (debian, archlinux, fedora, ...).
