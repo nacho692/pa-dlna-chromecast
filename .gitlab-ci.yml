@@ -11,10 +11,24 @@ default:
             - .cache/pip
 
     before_script:
-        - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio
-        - pulseaudio --verbose --daemonize=yes
+        - apt-get update -yq && apt-get install -yq curl ffmpeg
         - python --version    # For debugging.
         - python -m pip install psutil
+
+.pulseaudio: &pulseaudio
+    - apt-get update -yq && apt-get install -yq pulseaudio
+    - pulseaudio --verbose --daemonize=yes
+
+.pipewire: &pipewire
+    - apt-get update -yq && apt-get install -yq pulseaudio-utils xvfb
+      pipewire wireplumber pipewire-pulse
+    - |
+      export 'XDG_RUNTIME_DIR=/tmp'
+      export 'DISPLAY=:0.0'
+      Xvfb -screen $DISPLAY 1920x1080x24 &
+      pipewire &
+      pipewire-pulse &
+      wireplumber &
 
 .unittest-scripts: &unittest-scripts
     - python -m unittest --verbose --failfast
@@ -24,28 +38,41 @@ default:
     - python -m coverage run -m unittest
     - python -m coverage report --show-missing
 
+pipwire-tests:
+    image: python:3.11
+    stage: test
+    script:
+        - *pipewire
+        - sleep 1
+        - pactl info
+        - *unittest-scripts
+
 py38:
     image: python:3.8
     stage: test
     script:
+        - *pulseaudio
         - *unittest-scripts
 
 py39:
     image: python:3.9
     stage: test
     script:
+        - *pulseaudio
         - *unittest-scripts
 
 py310:
     image: python:3.10
     stage: test
     script:
+        - *pulseaudio
         - *unittest-scripts
 
 py311:
     image: python:3.11
     stage: test
     script:
+        - *pulseaudio
         - *unittest-scripts
         - *coverage-scripts
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'
