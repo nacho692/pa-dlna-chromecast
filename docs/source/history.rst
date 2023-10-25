@@ -2,7 +2,8 @@ Release history
 ===============
 
 Version 0.7
-  - Add Docker files to allow running the test suite in pulseaudio and pipewire
+  - Tests are run in GitLab CI/CD with Pulseaudio and with Pipewire.
+  - Add Docker files to allow running the test suite in Pulseaudio and Pipewire
     debian containers.
   - Update the README with package requirements for linux distributions.
   - The ``psutil`` Python package must be installed now separately as this
@@ -14,7 +15,7 @@ Version 0.6
   - Fix the ``args`` option in the [EncoderName.UDN] section of the user
     configuration is always None.
   - Log a warning when the sink-input enters the ``suspended`` state.
-  - Fix assertion error upon ``exit`` pulseaudio event (issue #14).
+  - Fix assertion error upon ``exit`` Pulseaudio event (issue #14).
   - Support PipeWire. No change is needed to support PipeWire. The test suite
     runs successfully on PipeWire.
   - Fix no sound when pa-dlna is started while the track is already playing
