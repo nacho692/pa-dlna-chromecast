@@ -11,7 +11,7 @@ default:
             - .cache/pip
 
     before_script:
-        - apt-get update -yq && apt-get install -yq curl ffmpeg python-psutil
+        - apt-get update -yq && apt-get install -yq curl ffmpeg python3-psutil
         - python --version
 
 .pulseaudio: &pulseaudio
