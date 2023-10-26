@@ -25,8 +25,8 @@ Options
 
 .. option:: --ip-addresses IP_ADDRESSES, -a IP_ADDRESSES
 
-   IP_ADDRESSES is a comma separated list of the IPv4 addresses of the networks
-   where UPnP devices may be discovered (default: ``''``).
+   IP_ADDRESSES is a comma separated list of the local IPv4 addresses of the
+   networks where UPnP devices may be discovered (default: ``''``).
 
 .. option:: --nics NICS, -n NICS
 
@@ -37,7 +37,13 @@ Options
 .. option::  --msearch-interval MSEARCH_INTERVAL, -m MSEARCH_INTERVAL
 
    Set the time interval in seconds between the sending of the MSEARCH datagrams
-   used for device discovery (default: 60)
+   used for UPnP device discovery (default: 60).
+
+.. option::  --msearch-port MSEARCH_PORT, -p MSEARCH_PORT
+
+   Set the local UDP port for receiving MSEARCH response messages from UPnP
+   devices, a value of ``0`` means letting the operating system choose an
+   ephemeral port (default: 0).
 
 .. option::  --ttl TTL
 
