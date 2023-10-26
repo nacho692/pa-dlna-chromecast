@@ -156,7 +156,7 @@ async def msearch(ip, protocol, msearch_count=MSEARCH_COUNT,
 
     return  protocol.get_result()
 
-async def send_mcast(ip, port=None, ttl=2, coro=msearch):
+async def send_mcast(ip, port, ttl=2, coro=msearch):
     """Send multicast datagrams.
 
     'coro' is a coroutine *function* and when invoked, the coroutine is
@@ -173,9 +173,6 @@ async def send_mcast(ip, port=None, ttl=2, coro=msearch):
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
 
         try:
-            # Let the operating system choose the port.
-            if port is None:
-                port = 0
             sock.bind((ip, port))
         except OSError as e:
             # Just log the exception, the associated network interface may

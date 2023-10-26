@@ -504,6 +504,9 @@ class UPnPControlPoint:
       msearch_interval
                     The time interval in seconds between the sending of the
                     MSEARCH datagrams used for device discovery.
+      msearch_port  The local UDP port for receiving MSEARCH response messages
+                    from UPnP devices, a value of '0' means letting the
+                    operating system choose an ephemeral port.
       ttl           The IP packets time to live.
 
     Methods:
@@ -519,10 +522,12 @@ class UPnPControlPoint:
       __close__
     """
 
-    def __init__(self, ip_addresses=[], nics=[], msearch_interval=60, ttl=2):
+    def __init__(self, ip_addresses=[], nics=[], msearch_interval=60,
+                 msearch_port=0, ttl=2):
         self.ip_configured = ip_addresses
         self.nics = nics
         self.msearch_interval = msearch_interval
+        self.msearch_port = msearch_port
         self.ttl = ttl
 
         # Get the list of active IPv4 addresses used for UPnP discovery.
@@ -736,7 +741,7 @@ class UPnPControlPoint:
                 logger.warning(f"Unknown NTS field '{nts}' in SSDP notify"
                                ' from {peer_ipaddress}')
 
-    async def msearch_once(self, coro, port=None, do_msearch=True):
+    async def msearch_once(self, coro, port, do_msearch=True):
         new_ips, stale_ips = self._update_ip_addresses()
 
         for ip in stale_ips:
@@ -754,7 +759,7 @@ class UPnPControlPoint:
 
         for ip_addr in self.ip_monitored:
             # 'coro' is a coroutine *function*.
-            result = await send_mcast(ip_addr, port=port, ttl=self.ttl,
+            result = await send_mcast(ip_addr, port, ttl=self.ttl,
                                       coro=coro)
             if result:
                 for (data, peer_addr, local_addr) in result:
@@ -777,7 +782,8 @@ class UPnPControlPoint:
                         cur_time - last_time >= self.msearch_interval):
                     do_msearch = True
                     last_time = cur_time
-                await self.msearch_once(coro, do_msearch=do_msearch)
+                await self.msearch_once(coro, self.msearch_port,
+                                        do_msearch=do_msearch)
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
             pass

@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.7
+  - Add the ``--msearch-port`` command line option.
   - Tests are run in GitLab CI/CD with Pulseaudio and with Pipewire.
   - Add Docker files to allow running the test suite in Pulseaudio and Pipewire
     debian containers.

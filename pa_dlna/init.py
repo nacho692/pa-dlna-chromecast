@@ -129,8 +129,8 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
     parser.add_argument('--ip-addresses', '-a', default='',
                         type=ipv4_addresses,
                         help='IP_ADDRESSES is a comma separated list of the'
-                        ' IPv4 addresses of the networks where UPnP devices'
-                        " may be discovered (default: '%(default)s')")
+                        ' local IPv4 addresses of the networks where UPnP'
+                        " devices may be discovered (default: '%(default)s')")
     parser.add_argument('--nics', '-n', default='',
                         help='NICS is a comma separated list of the names of'
                         ' network interface controllers where UPnP devices'
@@ -138,8 +138,13 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
                         " example (default: '%(default)s')")
     parser.add_argument('--msearch-interval', '-m', type=int, default=60,
                         help='set the time interval in seconds between the'
-                        ' sending of the MSEARCH datagrams used for device'
-                        ' discovery (default: %(default)s)')
+                        ' sending of the MSEARCH datagrams used for UPnP'
+                        ' device discovery (default: %(default)s)')
+    parser.add_argument('--msearch-port', '-p', type=int, default=0,
+                        help='set the local UDP port for receiving MSEARCH'
+                        ' response messages from UPnP devices, a value of'
+                        " '0' means letting the operating system choose an"
+                        ' ephemeral port (default: %(default)s)')
     parser.add_argument('--ttl', type=pack_B, default=b'\x02',
                         help='set the IP packets time to live to TTL'
                         ' (default: 2)')

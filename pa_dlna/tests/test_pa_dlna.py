@@ -125,6 +125,7 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
 
             control_point = AVControlPoint(ip_addresses=[], nics='lo',
                                         port=8080, ttl=2, msearch_interval=60,
+                                        msearch_port=0,
                                         test_devices=test_devices)
             set_control_point(control_point)
             PulseLib.add_sink_inputs([])

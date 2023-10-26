@@ -300,7 +300,7 @@ class SSDP_msearch(IsolatedAsyncioTestCase):
 
     async def test_invalid_ip(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await send_mcast('256.0.0.0', None)
+            await send_mcast('256.0.0.0', 0)
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                                 re.compile('Cannot bind.*256\.0\.0\.0')))

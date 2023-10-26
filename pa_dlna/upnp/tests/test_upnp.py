@@ -309,7 +309,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
                     await asyncio.sleep(0)
 
                 self.assertTrue(UDN in control_point._devices)
-                await control_point.msearch_once(None, do_msearch=False)
+                await control_point.msearch_once(None, 0, do_msearch=False)
                 self.assertTrue(UDN not in control_point._devices)
 
 @bind_mcast_address()

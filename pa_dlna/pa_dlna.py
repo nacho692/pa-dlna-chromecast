@@ -728,7 +728,7 @@ class AVControlPoint(UPnPApplication):
             # Run the UPnP control point.
             with UPnPControlPoint(
                     self.ip_addresses, self.nics, self.msearch_interval,
-                    self.ttl) as self.upnp_control_point:
+                    self.msearch_port, self.ttl) as self.upnp_control_point:
                 # Create the Pulse task.
                 self.pulse = Pulse(self)
                 self.cp_tasks.create_task(self.pulse.run(), name='pulse')

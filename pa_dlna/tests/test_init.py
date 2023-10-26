@@ -107,6 +107,7 @@ class Argv(BaseTestCase):
                                    'logfile': None,
                                    'loglevel': 'info',
                                    'msearch_interval': 60,
+                                   'msearch_port': 0,
                                    'nics': [],
                                    'nolog_upnp': False,
                                    'port': 8080,
