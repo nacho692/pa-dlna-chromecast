@@ -4,11 +4,65 @@ Usage
 :ref:`pa-dlna` usage
 --------------------
 
-The association between an application as a Pulseaudio source (music player,
-firefox, etc...) and a DLNA device must be explicitly configured. See the
-:ref:`source-sink` section below.
+In this section:
 
-The :ref:`pa-dlna` section lists the command line options.
+    - A short description of :ref:`networking` relevant to ``pa-dlna``, the list
+      of the UDP/TCP ports being used and what may be done when a firewall is in
+      use.
+    - Events triggering :ref:`discovery` and what happens then.
+    - Configuration of a :ref:`source-sink` between an application as a
+      Pulseaudio source (music player, firefox, etc...) and a DLNA device.
+
+The :ref:`pa-dlna` section lists the pa-dlna command line options.
+
+.. _networking:
+
+DLNA Networking
+"""""""""""""""
+
+UPnP device discovery (and therefore DLNA device discovery) is implemented by two
+protocols that run independently:
+
+    1. To search for devices, an UPnP control point such as pa-dlna:
+
+       - Send MSEARCH UDP multicast datagrams to ``239.255.255.250:1900`` and
+         possibly send also MSEARCH UDP unicast datagrams to the IP address of
+         known devices on this same port.
+       - Listen to the source IP address and **source UDP port** that is used
+         to sent the MSEARCH request for the responses that are sent by the
+         devices.
+    2. To be notified of UPnP device advertisements, an UPnP control point
+       listens on UDP port ``1900`` to receive NOTIFY UDP multicast datagrams
+       broadcasted by the devices.
+
+When pa-dlna is ready to forward a Pulseaudio stream to a DLNA device, it starts
+an HTTP server, if not already running, that listens on TCP port 8080 (the
+default) at the local IP address of the network that has been used to discover
+the DLNA device. This HTTP server only accepts connection requests from the
+IP addresses of DLNA devices that have been learnt or are known by pa-dlna. The
+HTTP session is used to forward the Pulseaudio stream.
+
+Ports that must be enabled on a network interface by a firewall:
+
+    - MSEARCH UDP port:
+        This is the UDP port specified by the ``--msearch-port`` command line
+        option of ``pa-dlna``. This option may be used to set the specific
+        **source UDP port** [#]_ of MSEARCH UDP datagrams so that this port may
+        be enabled by a firewall. Otherwise if this option is not used or set to
+        0 the source port is chosen randomly by the operating system and it is
+        necessary to configure the firewall to enable all UDP ports on the
+        network interface.
+
+    - NOTIFY UDP port:
+        The port value is set by the UPnP specifications as ``1900``. When
+        blocked by a firewall, UPnP device advertisements are not received but
+        UPnP devices are still discovered with MSEARCH.
+
+    - HTTP server's TCP port:
+        This is the TCP port specified by the ``--port`` command line
+        option of ``pa-dlna``. The default is port ``8080``.
+
+.. _discovery:
 
 DLNA device discovery
 """""""""""""""""""""
@@ -72,7 +126,7 @@ devices`_.
 An interactive command line tool for introspection and control of UPnP
 devices.
 
-The :ref:`upnp-cmd` section lists the command line options.
+The :ref:`upnp-cmd` section lists the upnp-cmd command line options.
 
 Some examples:
 
@@ -138,6 +192,7 @@ UPnP eventing is not supported.
 
 .. rubric:: Footnotes
 
+.. [#] Prefer choosing a port in the range 49152–65535.
 .. [#] Network Interface Controller.
 .. [#] The list of the IP addresses where UPnP discovery is currently activated
        can be listed on ``upnp-cmd`` by printing the value of the
