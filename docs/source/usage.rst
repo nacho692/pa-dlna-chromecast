@@ -39,8 +39,8 @@ When pa-dlna is ready to forward a Pulseaudio stream to a DLNA device, it starts
 an HTTP server, if not already running, that listens on TCP port 8080 (the
 default) at the local IP address of the network that has been used to discover
 the DLNA device. This HTTP server only accepts connection requests from the
-IP addresses of DLNA devices that have been learnt or are known by pa-dlna. The
-HTTP session is used to forward the Pulseaudio stream.
+IP addresses of DLNA devices that have been learnt by pa-dlna or are known to
+pa-dlna. The HTTP session is used to forward the Pulseaudio stream.
 
 Ports that must be enabled on a network interface by a firewall:
 
@@ -82,7 +82,7 @@ device and selects an encoder (see the :ref:`configuration` section for how the
 encoder is selected).
 
 The sink appears in the ``Output Devices`` tab of the ``pavucontrol`` graphical
-tool and is listed by the ``pacmd`` and by the ``pactl`` Pulseaudio commands.
+tool and is listed by the ``pactl`` Pulseaudio commands.
 
 .. _source-sink:
 
@@ -93,27 +93,28 @@ Pulseaudio remembers the association between a source and a sink across
 different sessions. A thorough description of this feature is given in
 "PulseAudio under the hood" at `Automatic setup and routing`_.
 
-Use ``pavucontrol``, ``pacmd`` or ``pactl`` [#]_ to establish this association
-between a source and a DLNA device. Establishing this association is needed only
-once.
+Use ``pavucontrol`` or ``pactl`` to establish this association between a source
+and a DLNA device while the source is playing and the DLNA device has been
+registered with Pulseaudio. Establishing this association is needed only once.
 
   With ``pavucontrol``:
     In the ``Playback`` tab, use the drop-down list of the source to select the
     DLNA sink registered by ``pa-dlna``.
 
-  With ``pacmd``:
+  With ``pactl``:
     Get the list of sinks and find the index of the registered DLNA sink::
 
-      $ pacmd list-sinks | grep -e 'name:' -e 'index'
+      $ pactl list sinks | grep -e 'Sink' -e 'Name'
 
-    Get the list of sources and find the index of the source [#]_::
+    Get the list of sources and find the index of the source [#]_; the source
+    must be playing::
 
-      $ pacmd list-sink-inputs | grep -e 'binary' -e 'index'
+      $ pactl list sink-inputs | grep -e 'Sink Input' -e 'binary'
 
     Using both indexes create the association between the sink input and the
     DLNA sink registered by ``pa-dlna``::
 
-      $ pacmd move-sink-input <sink-input index> <sink index>
+      $ pactl move-sink-input <sink-input index> <sink index>
 
 When the DLNA device is not registered (``pa-dlna`` is not running or the DLNA
 device is turned off) Pulseaudio temporarily uses the default sink as the sink
@@ -194,10 +195,9 @@ UPnP eventing is not supported.
 
 .. [#] Prefer choosing a port in the range 49152–65535.
 .. [#] Network Interface Controller.
-.. [#] The list of the IP addresses where UPnP discovery is currently activated
-       can be listed on ``upnp-cmd`` by printing the value of the
-       ``ip_monitored`` variable in the main menu.
-.. [#] ``pacmd`` is not supported by PipeWire, use ``pactl`` instead.
+.. [#] The list of the IP addresses learnt by pa-dlna through UPnP discovery or
+       known to pa-dlna may be listed with ``upnp-cmd`` by printing the value of
+       the ``ip_monitored`` variable in the main menu.
 .. [#] A source is called a sink-input by Pulseaudio.
 .. [#] An UPnP device implements the `UPnP Device Architecture`_ specification.
 .. [#] A DLNA device is an UPnP device and implements the `MediaRenderer
