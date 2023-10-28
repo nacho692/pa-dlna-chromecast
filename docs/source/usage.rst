@@ -25,11 +25,9 @@ protocols that run independently:
 
     1. To search for devices, an UPnP control point such as pa-dlna:
 
-       - Send MSEARCH UDP multicast datagrams to ``239.255.255.250:1900`` and
-         possibly send also MSEARCH UDP unicast datagrams to the IP address of
-         known devices on this same port.
+       - Send MSEARCH UDP multicast datagrams to ``239.255.255.250:1900``.
        - Listen to the source IP address and **source UDP port** that is used
-         to sent the MSEARCH request for the responses that are sent by the
+         to send the MSEARCH request for the responses that are sent by the
          devices.
     2. To be notified of UPnP device advertisements, an UPnP control point
        listens on UDP port ``1900`` to receive NOTIFY UDP multicast datagrams
@@ -38,9 +36,9 @@ protocols that run independently:
 When pa-dlna is ready to forward a Pulseaudio stream to a DLNA device, it starts
 an HTTP server, if not already running, that listens on TCP port 8080 (the
 default) at the local IP address of the network that has been used to discover
-the DLNA device. This HTTP server only accepts connection requests from the
-IP addresses of DLNA devices that have been learnt by pa-dlna or are known to
-pa-dlna. The HTTP session is used to forward the Pulseaudio stream.
+the DLNA device. This HTTP server only accepts connection requests from the IP
+addresses of DLNA devices that have been learnt by pa-dlna. The HTTP session is
+used to forward the Pulseaudio stream.
 
 Ports that must be enabled on a network interface by a firewall:
 
@@ -195,9 +193,9 @@ UPnP eventing is not supported.
 
 .. [#] Prefer choosing a port in the range 49152–65535.
 .. [#] Network Interface Controller.
-.. [#] The list of the IP addresses learnt by pa-dlna through UPnP discovery or
-       known to pa-dlna may be listed with ``upnp-cmd`` by printing the value of
-       the ``ip_monitored`` variable in the main menu.
+.. [#] The list of the IP addresses learnt by pa-dlna through UPnP discovery may
+       be listed with ``upnp-cmd`` by printing the value of the ``ip_monitored``
+       variable in the main menu.
 .. [#] A source is called a sink-input by Pulseaudio.
 .. [#] An UPnP device implements the `UPnP Device Architecture`_ specification.
 .. [#] A DLNA device is an UPnP device and implements the `MediaRenderer
