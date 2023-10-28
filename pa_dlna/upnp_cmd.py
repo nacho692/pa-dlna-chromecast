@@ -605,7 +605,7 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
             # Run the UPnP control point.
             with UPnPControlPoint(
                     self.ip_addresses, self.nics, self.msearch_interval,
-                    self.ttl) as self.control_point:
+                    self.msearch_port, self.ttl) as self.control_point:
                 event.set()
                 while True:
                     notif, root_device = (await
