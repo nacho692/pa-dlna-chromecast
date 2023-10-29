@@ -10,7 +10,7 @@ import tempfile
 import contextlib
 from unittest import mock
 
-from .pulselib import use_pulselib_stubs
+from .libpulse import use_libpulse_stubs
 from ..http_server import HTTPServer
 from ..encoders import select_encoder, Encoder
 from ..config import UserConfig
@@ -23,9 +23,9 @@ ENCODER_PATH_ENV = 'PA_DLNA_ENCODER_PATH'
 STDIN_FILENO = 0
 STDOUT_FILENO = 1
 
-# Use the patched pulseaudio and pa_dlna modules to avoid importing pulselib
+# Use the patched pulseaudio and pa_dlna modules to avoid importing libpulse
 # that is not required for running the test.
-with use_pulselib_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
+with use_libpulse_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
     pulseaudio, pa_dlna = modules
 
 @contextlib.contextmanager

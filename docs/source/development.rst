@@ -46,7 +46,7 @@ Task names in **bold** characters indicate that there is one such task for each
 DLNA device, when in *italics* that there may be such tasks for each DLNA
 device.
 
-  PulseLib tasks:
+  LibPulse tasks:
 
     ================      ======================================================
     *coroutines*          Coroutines are wrapped in a task that is cancelled
@@ -143,7 +143,7 @@ Development:
 
       pulseaudio_h.py and prototypes.py are created by running the command::
 
-        $ python -m tools.parse_pulselib
+        $ python -m tools.parse_libpulse
 
     * `curl`_ is used to run the full test suite. When missing, the tests
       using curl are skipped. It is also needed when releasing a new version to

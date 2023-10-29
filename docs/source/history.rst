@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.7
+  - Name ``libpulse`` the Python package, interface to the ``libpulse``
+    library.
   - Document which TCP/UDP ports may not be blocked by a firewall.
   - Add the ``--msearch-port`` command line option.
   - Tests are run in GitLab CI/CD with Pulseaudio and with Pipewire.
@@ -22,7 +24,7 @@ Version 0.6
     runs successfully on PipeWire.
   - Fix no sound when pa-dlna is started while the track is already playing
     (issue #13).
-  - Use the built-in pulselib package that uses ctypes to interface with the
+  - Use the built-in libpulse package that uses ctypes to interface with the
     libpulse library and remove the dependency to ``pulsectl_asyncio``.
   - Wait for the http server to be ready before starting the renderer task. This
     also fixes the test_None_nullsink and test_no_path_in_request tests on

@@ -10,7 +10,7 @@ servers.
  * The ``upnp-cmd`` is an interactive command line tool for introspection and
    control of UPnP devices [#]_.
  * The UPnP Python package is used by both commands.
- * The pulselib Python package is a ctypes interface to the ``libpulse``
+ * The libpulse Python package is a ctypes interface to the ``libpulse``
    library.
 
 See the **pa-dlna** `documentation`_.

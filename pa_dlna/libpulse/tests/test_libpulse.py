@@ -1,4 +1,4 @@
-"""Pulselib test cases."""
+"""libPulse test cases."""
 
 import re
 import asyncio
@@ -8,8 +8,8 @@ from unittest import IsolatedAsyncioTestCase, mock
 # Load the tests in the order they are declared.
 from ...upnp.tests import load_ordered_tests
 
-import pa_dlna.pulselib.pulselib as pulselib_module
-from ..pulselib import *
+import pa_dlna.libpulse.libpulse as libpulse_module
+from ..libpulse import *
 from ...tests import requires_resources
 from ...upnp.tests import search_in_logs
 
@@ -17,10 +17,10 @@ SINK_NAME= 'foo'
 MODULE_ARG = (f'sink_name="{SINK_NAME}" sink_properties=device.description='
               f'"{SINK_NAME}\ description"')
 
-async def get_event(facility, type, pulse_lib, ready):
+async def get_event(facility, type, lib_pulse, ready):
     try:
-        await pulse_lib.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
-        iterator = pulse_lib.get_events()
+        await lib_pulse.pa_context_subscribe(PA_SUBSCRIPTION_MASK_ALL)
+        iterator = lib_pulse.get_events()
         ready.set_result(True)
 
         index = None
@@ -31,55 +31,55 @@ async def get_event(facility, type, pulse_lib, ready):
         return index
     except asyncio.CancelledError:
         print('get_event(): CancelledError')
-    except PulseLibError as e:
+    except LibPulseError as e:
         return e
 
 class LoadModule:
-    def __init__(self, pulse_lib, name, argument):
-        self.pulse_lib = pulse_lib
+    def __init__(self, lib_pulse, name, argument):
+        self.lib_pulse = lib_pulse
         self.name = name
         self.argument = argument
         self.module_index = PA_INVALID_INDEX
 
     async def __aenter__(self):
-        self.module_index = await self.pulse_lib.pa_context_load_module(
+        self.module_index = await self.lib_pulse.pa_context_load_module(
                                                 self.name, self.argument)
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         if self.module_index != PA_INVALID_INDEX:
-            await self.pulse_lib.pa_context_unload_module(self.module_index)
+            await self.lib_pulse.pa_context_unload_module(self.module_index)
 
 @requires_resources('libpulse')
-class PulseLibTestCase(IsolatedAsyncioTestCase):
+class LibPulseTestCase(IsolatedAsyncioTestCase):
     async def test_log_server_info(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            async with PulseLib('pulselib-test') as pulse_lib:
-                await pulse_lib.log_server_info()
+            async with LibPulse('libpulse-test') as lib_pulse:
+                await lib_pulse.log_server_info()
 
-        self.assertTrue(search_in_logs(m_logs.output, 'pulslib',
+        self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
                     re.compile(f'Connected to .* at')))
 
     async def test_load_module(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            async with PulseLib('pulselib-test') as pulse_lib:
-                async with LoadModule(pulse_lib, 'module-null-sink',
+            async with LibPulse('libpulse-test') as lib_pulse:
+                async with LoadModule(lib_pulse, 'module-null-sink',
                                       MODULE_ARG) as loaded_module:
                     pass
 
-        self.assertTrue(search_in_logs(m_logs.output, 'pulslib',
+        self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
                     re.compile(f"Load 'module-null-sink'.*{SINK_NAME}.*"
                                f'description')))
-        self.assertTrue(search_in_logs(m_logs.output, 'pulslib',
+        self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
                     re.compile(f'Unload module at index'
                                f' {loaded_module.module_index}')))
 
     async def test_list_sinks(self):
-        async with PulseLib('pulselib-test') as pulse_lib:
-            async with LoadModule(pulse_lib, 'module-null-sink',
+        async with LibPulse('libpulse-test') as lib_pulse:
+            async with LoadModule(lib_pulse, 'module-null-sink',
                                   MODULE_ARG) as loaded_module:
                 for sink in \
-                        await pulse_lib.pa_context_get_sink_info_list():
+                        await lib_pulse.pa_context_get_sink_info_list():
                     if sink.name == SINK_NAME:
                         break
                 else:
@@ -87,30 +87,30 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                               f' list')
 
     async def test_sink_by_name(self):
-        async with PulseLib('pulselib-test') as pulse_lib:
-            async with LoadModule(pulse_lib, 'module-null-sink',
+        async with LibPulse('libpulse-test') as lib_pulse:
+            async with LoadModule(lib_pulse, 'module-null-sink',
                                   MODULE_ARG) as loaded_module:
                 sink = (await
-                    pulse_lib.pa_context_get_sink_info_by_name(SINK_NAME))
+                    lib_pulse.pa_context_get_sink_info_by_name(SINK_NAME))
                 self.assertEqual(sink.name, SINK_NAME)
 
     async def test_sink_proplist(self):
-        async with PulseLib('pulselib-test') as pulse_lib:
-            async with LoadModule(pulse_lib, 'module-null-sink',
+        async with LibPulse('libpulse-test') as lib_pulse:
+            async with LoadModule(lib_pulse, 'module-null-sink',
                                   MODULE_ARG) as loaded_module:
                 sink = (await
-                    pulse_lib.pa_context_get_sink_info_by_name(SINK_NAME))
+                    lib_pulse.pa_context_get_sink_info_by_name(SINK_NAME))
                 self.assertTrue(re.match(fr'{SINK_NAME}\\? description',
                                 sink.proplist['device.description']))
 
     async def test_events(self):
-        async with PulseLib('pulselib-test') as pulse_lib:
-            ready = pulse_lib.loop.create_future()
+        async with LibPulse('libpulse-test') as lib_pulse:
+            ready = lib_pulse.loop.create_future()
             evt_task = asyncio.create_task(get_event('module', 'new',
-                                                     pulse_lib, ready))
+                                                     lib_pulse, ready))
             await ready
 
-            async with LoadModule(pulse_lib, 'module-null-sink',
+            async with LoadModule(lib_pulse, 'module-null-sink',
                                   MODULE_ARG) as loaded_module:
                 await asyncio.wait_for(evt_task, 1)
                 self.assertEqual(evt_task.result(),
@@ -119,14 +119,14 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
     async def test_abort_iterator(self):
         async def main():
             try:
-                async with PulseLib('pulselib-test') as pulse_lib:
+                async with LibPulse('libpulse-test') as lib_pulse:
                     # Run the asynchronous iterator loop until it is aborted
                     # or cancelled.
-                    ready = pulse_lib.loop.create_future()
+                    ready = lib_pulse.loop.create_future()
                     evt_task = asyncio.create_task(get_event('invalid', 'new',
-                                                            pulse_lib, ready))
+                                                            lib_pulse, ready))
                     await ready
-                    # Raise an exception to force the closing of the PulseLib
+                    # Raise an exception to force the closing of the LibPulse
                     # instance and the iterator abort.
                     1/0
             except Exception as e:
@@ -141,22 +141,22 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                                    PulseClosedIteratorError))
 
     async def test_excep_ctx_mgr(self):
-        pulselib_module.build_pulselib_prototypes()
-        with mock.patch.object(pulselib_module,
+        libpulse_module.build_libpulse_prototypes()
+        with mock.patch.object(libpulse_module,
                                'pa_context_connect') as connect,\
                 self.assertRaises(PulseStateError):
             connect.side_effect = PulseStateError()
-            async with PulseLib('pulselib-test') as pulse_lib:
+            async with LibPulse('libpulse-test') as lib_pulse:
                 pass
 
     async def test_cancel_ctx_mgr(self):
-        pulselib_module.build_pulselib_prototypes()
-        with mock.patch.object(pulselib_module,
+        libpulse_module.build_libpulse_prototypes()
+        with mock.patch.object(libpulse_module,
                                'pa_context_connect') as connect,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             connect.side_effect = asyncio.CancelledError()
             try:
-                async with PulseLib('pulselib-test') as pulse_lib:
+                async with LibPulse('libpulse-test') as lib_pulse:
                     pass
             except PulseStateError as e:
                 self.assertEqual(e.args[0], ('PA_CONTEXT_UNCONNECTED', 'PA_OK'))
@@ -166,13 +166,13 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
     async def test_cancel_main(self):
         async def main(main_ready):
             try:
-                async with PulseLib('pulselib-test') as pulse_lib:
+                async with LibPulse('libpulse-test') as lib_pulse:
                     main_ready.set_result(True)
-                    ready = pulse_lib.loop.create_future()
+                    ready = lib_pulse.loop.create_future()
                     try:
                         await ready
                     except asyncio.CancelledError:
-                        pulse_lib.state = error_state
+                        lib_pulse.state = error_state
                         raise
             except PulseStateError as e:
                 return e
@@ -193,18 +193,18 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
     async def test_fail_instance(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs,\
                 self.assertRaises(PulseClosedError):
-            async with PulseLib('pulselib-test') as pulse_lib:
-                PulseLib.ASYNCIO_LOOPS = dict()
-                async with LoadModule(pulse_lib, 'module-null-sink',
+            async with LibPulse('libpulse-test') as lib_pulse:
+                LibPulse.ASYNCIO_LOOPS = dict()
+                async with LoadModule(lib_pulse, 'module-null-sink',
                                       MODULE_ARG):
                     pass
 
     async def test_fail_connect(self):
-        # This test assumes that the pulselib library calls
+        # This test assumes that the libpulse library calls
         # _context_state_callback() at least twice when connecting to the
         # library.
-        pulselib_module.build_pulselib_prototypes()
-        with mock.patch.object(pulselib_module,
+        libpulse_module.build_libpulse_prototypes()
+        with mock.patch.object(libpulse_module,
                                'pa_context_get_state') as connect,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             connect.side_effect = [
@@ -213,28 +213,28 @@ class PulseLibTestCase(IsolatedAsyncioTestCase):
                 PA_CONTEXT_READY,   # idem
                 PA_CONTEXT_FAILED,  # connection failure
             ]
-            async with PulseLib('pulselib-test') as pulse_lib:
-                wait_forever = pulse_lib.loop.create_future()
+            async with LibPulse('libpulse-test') as lib_pulse:
+                wait_forever = lib_pulse.loop.create_future()
                 try:
                     await wait_forever
                 except asyncio.CancelledError:
-                    # Ensure that pulse_lib._close() does call
+                    # Ensure that lib_pulse._close() does call
                     # pa_context_disconnect().
-                    pulse_lib.state = ('PA_CONTEXT_READY', 'PA_OK')
+                    lib_pulse.state = ('PA_CONTEXT_READY', 'PA_OK')
                 else:
                     self.fail('wait_forever has not been cancelled as expected')
-            self.assertTrue(search_in_logs(m_logs.output, 'pulslib',
-                    re.compile('PulseLib instance .* aborted:.*PA_CONTEXT_FAILED')))
+            self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
+                    re.compile('LibPulse instance .* aborted:.*PA_CONTEXT_FAILED')))
 
     async def test_missing_lib(self):
         # Force the reloading of the library.
-        pulselib_module.build_pulselib_prototypes()
-        if hasattr(pulselib_module, 'pa_context_new'):
-            del pulselib_module.pa_context_new
+        libpulse_module.build_libpulse_prototypes()
+        if hasattr(libpulse_module, 'pa_context_new'):
+            del libpulse_module.pa_context_new
 
-        with mock.patch.object(pulselib_module,
+        with mock.patch.object(libpulse_module,
                                'find_library') as find_library,\
                 self.assertRaises(PulseMissingLibError):
             find_library.return_value = None
-            async with PulseLib('pulselib-test') as pulse_lib:
+            async with LibPulse('libpulse-test') as lib_pulse:
                 pass

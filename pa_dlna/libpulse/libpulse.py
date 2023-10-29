@@ -1,4 +1,4 @@
-"""The ctypes interface to the pulselib library."""
+"""The ctypes interface to the libpulse library."""
 
 import asyncio
 import logging
@@ -11,7 +11,7 @@ from .prototypes import PROTOTYPES
 from .structures import (PA_SAMPLE_SPEC, PA_CHANNEL_MAP, PA_CVOLUME,
                          PA_SINK_INFO, PA_SINK_INPUT_INFO, PA_SERVER_INFO)
 
-logger = logging.getLogger('pulslib')
+logger = logging.getLogger('libpuls')
 
 # Map some of the values defined in pulseaudio_h to their name.
 ERROR_CODES = dict((eval(var), var) for var in globals() if
@@ -44,27 +44,27 @@ def event_codes_to_names():
     event_types.update(build_events_dict(PA_SUBSCRIPTION_EVENT_TYPE_MASK))
     return facilities, event_types
 
-# Dictionaries mapping pulselib events values to their names.
+# Dictionaries mapping libpulse events values to their names.
 EVENT_FACILITIES, EVENT_TYPES = event_codes_to_names()
 
 def run_in_task(coro):
     """Decorator to wrap a coroutine in a task of AsyncioTasks instance."""
 
     async def wrapper(*args, **kwargs):
-        pulse_lib = PulseLib.get_instance()
-        if pulse_lib is None:
+        lib_pulse = LibPulse.get_instance()
+        if lib_pulse is None:
             raise PulseClosedError
 
         try:
-            return await pulse_lib.pulselib_tasks.create_task(
+            return await lib_pulse.libpulse_tasks.create_task(
                                                     coro(*args, **kwargs))
         except asyncio.CancelledError:
             logger.error(f'{coro.__qualname__}() has been cancelled')
             raise
     return wrapper
 
-def setup_prototype(func_name, pulselib):
-    """Set the restype and argtypes of a pulselib function name."""
+def setup_prototype(func_name, libpulse):
+    """Set the restype and argtypes of a libpulse function name."""
 
     # Ctypes does not allow None as a NULL callback function pointer.
     # Overriding _CFuncPtr.from_param() allows it. This is a hack as _CFuncPtr
@@ -76,7 +76,7 @@ def setup_prototype(func_name, pulselib):
             return None     # Return a NULL pointer.
         return ct._CFuncPtr.from_param(obj)
 
-    func = getattr(pulselib, func_name)
+    func = getattr(libpulse, func_name)
     val = PROTOTYPES[func_name]
     func.restype = get_ctype(val[0])        # The return type.
 
@@ -93,8 +93,8 @@ def setup_prototype(func_name, pulselib):
     func.argtypes = argtypes
     return func
 
-def build_pulselib_prototypes(debug=False):
-    """Add the ctypes pulselib functions to the current module namespace."""
+def build_libpulse_prototypes(debug=False):
+    """Add the ctypes libpulse functions to the current module namespace."""
 
     _globals = globals()
     # The current module namespace has already been set up.
@@ -103,21 +103,21 @@ def build_pulselib_prototypes(debug=False):
 
     path = find_library('pulse')
     if path is None:
-        raise PulseMissingLibError('Cannot find the pulselib library')
-    pulselib = ct.CDLL(path)
+        raise PulseMissingLibError('Cannot find the libpulse library')
+    libpulse = ct.CDLL(path)
     for func_name in PROTOTYPES:
-        func = setup_prototype(func_name, pulselib)
+        func = setup_prototype(func_name, libpulse)
         _globals[func_name] = func
 
         if debug:
             logger.debug(f'{func.__name__}: ({func.restype}, {func.argtypes})')
 
-class PulseLibError(Exception): pass
-class PulseMissingLibError(PulseLibError): pass
-class PulseClosedError(PulseLibError): pass
-class PulseStateError(PulseLibError): pass
-class PulseOperationError(PulseLibError): pass
-class PulseClosedIteratorError(PulseLibError): pass
+class LibPulseError(Exception): pass
+class PulseMissingLibError(LibPulseError): pass
+class PulseClosedError(LibPulseError): pass
+class PulseStateError(LibPulseError): pass
+class PulseOperationError(LibPulseError): pass
+class PulseClosedIteratorError(LibPulseError): pass
 
 class EventIterator:
     """Pulse events asynchronous iterator."""
@@ -180,10 +180,10 @@ class AsyncioTasks:
             yield t
 
 class PulseEvent:
-    """A pulselib event.
+    """A libpulse event.
 
     Use the event_facilities() and event_types() static methods to get all the
-    values currently defined by the pulselib library for 'facility' and
+    values currently defined by the libpulse library for 'facility' and
     'type'. They correspond to some of the variables defined in the
     pulseaudio_h module under the pa_subscription_event_type_t Enum.
 
@@ -291,16 +291,16 @@ class ServerInfo(PulseStructure):
     def __init__(self, c_struct):
         super().__init__(c_struct, PA_SERVER_INFO)
 
-class PulseLib:
-    """Interface to pulselib library as an asynchronous context manager."""
+class LibPulse:
+    """Interface to libpulse library as an asynchronous context manager."""
 
-    ASYNCIO_LOOPS = dict()              # {asyncio loop: PulseLib instance}
+    ASYNCIO_LOOPS = dict()              # {asyncio loop: LibPulse instance}
 
     # Public methods.
     def __init__(self, name):
         """'name' is the name of the application."""
 
-        build_pulselib_prototypes()
+        build_libpulse_prototypes()
 
         assert isinstance(name, str)
         self.c_context = pa_context_new(MainLoop.C_MAINLOOP_API,
@@ -308,28 +308,28 @@ class PulseLib:
         # From the ctypes documentation: "NULL pointers have a False
         # boolean value".
         if not bool(self.c_context):
-            raise RuntimeError('Cannot get context from pulselib library')
+            raise RuntimeError('Cannot get context from libpulse library')
 
         self.closed = False
         self.state = ('PA_CONTEXT_UNCONNECTED', 'PA_OK')
         self.loop = asyncio.get_running_loop()
         self.main_task = asyncio.current_task(self.loop)
-        self.pulselib_tasks = AsyncioTasks()
+        self.libpulse_tasks = AsyncioTasks()
         self.state_notification = self.loop.create_future()
         self.event_iterator = None
         self.ASYNCIO_LOOPS[self.loop] = self
 
         # Keep a reference to prevent garbage collection.
         self.c_context_state_callback = callback_func_ptr(
-            'pa_context_notify_cb_t', PulseLib._context_state_callback)
+            'pa_context_notify_cb_t', LibPulse._context_state_callback)
         self.c_context_subscribe_callback = callback_func_ptr(
-            'pa_context_subscribe_cb_t', PulseLib._context_subscribe_callback)
+            'pa_context_subscribe_cb_t', LibPulse._context_subscribe_callback)
 
     @staticmethod
     def get_instance():
         loop = asyncio.get_running_loop()
         try:
-            return PulseLib.ASYNCIO_LOOPS[loop]
+            return LibPulse.ASYNCIO_LOOPS[loop]
         except KeyError:
             return None
 
@@ -342,11 +342,11 @@ class PulseLib:
 
         This method may be invoked at any time to change the subscription
         masks currently set, even from within the async for loop that iterates
-        over the reception of pulselib events.
+        over the reception of libpulse events.
         """
 
         def context_success_callback(c_context, success, c_userdata):
-            PulseLib._success_callback('pa_context_subscribe', notification,
+            LibPulse._success_callback('pa_context_subscribe', notification,
                                        success)
 
         notification  = self.loop.create_future()
@@ -356,10 +356,10 @@ class PulseLib:
                                            c_context_success_callback, None)
 
         errmsg = f'Cannot subscribe events with {subscription_masks} mask'
-        await PulseLib._handle_operation(c_operation, notification, errmsg)
+        await LibPulse._handle_operation(c_operation, notification, errmsg)
 
     def get_events(self):
-        """Return an Asynchronous Iterator of pulselib events.
+        """Return an Asynchronous Iterator of libpulse events.
 
         The iterator is used to run an async for loop over the PulseEvent
         instances. The async for loop can be terminated by invoking the
@@ -367,10 +367,10 @@ class PulseLib:
         task.
         """
         if self.closed:
-            raise PulseOperationError('The PulseLib instance is closed')
+            raise PulseOperationError('The LibPulse instance is closed')
 
         if self.event_iterator is not None and not self.event_iterator.closed:
-            raise PulseLibError('Not allowed: the current Asynchronous'
+            raise LibPulseError('Not allowed: the current Asynchronous'
                                 ' Iterator must be closed first')
         self.event_iterator = EventIterator()
         return self.event_iterator
@@ -396,7 +396,7 @@ class PulseLib:
                         argument.encode(), c_context_index_callback, None)
 
         errmsg = f"Cannot load '{name}' module with '{argument}' argument"
-        await PulseLib._handle_operation(c_operation, notification, errmsg)
+        await LibPulse._handle_operation(c_operation, notification, errmsg)
 
         index = notification.result()
         if index == PA_INVALID_INDEX:
@@ -410,11 +410,11 @@ class PulseLib:
 
         Note that this operation fails only if the 'index' argument is
         PA_INVALID_INDEX !
-        See command_kill() in pulselib instrospect.c.
+        See command_kill() in libpulse instrospect.c.
         """
 
         def context_success_callback(c_context, success, c_userdata):
-            PulseLib._success_callback('pa_context_unload_module',
+            LibPulse._success_callback('pa_context_unload_module',
                                        notification, success)
 
         notification  = self.loop.create_future()
@@ -424,7 +424,7 @@ class PulseLib:
                                             c_context_success_callback, None)
 
         errmsg = f'Cannot unload module at {index} index'
-        await PulseLib._handle_operation(c_operation, notification, errmsg)
+        await LibPulse._handle_operation(c_operation, notification, errmsg)
         logger.debug(f'Unload module at index {index}')
 
     @run_in_task
@@ -444,7 +444,7 @@ class PulseLib:
         """Return the Sink instance whose name is 'name'."""
 
         def sink_info_callback(c_context, c_sink_info, eol, c_userdata):
-            PulseLib._list_callback(notification, sink_infos, Sink,
+            LibPulse._list_callback(notification, sink_infos, Sink,
                                     c_sink_info, eol)
 
         sink_infos = []
@@ -454,7 +454,7 @@ class PulseLib:
         c_operation = pa_context_get_sink_info_by_name(self.c_context,
                                     name.encode(), c_sink_info_callback, None)
         errmsg = 'Error at pa_context_get_sink_info_by_name()'
-        await PulseLib._handle_operation(c_operation, notification, errmsg)
+        await LibPulse._handle_operation(c_operation, notification, errmsg)
 
         eol = notification.result()
         if eol < 0:
@@ -479,7 +479,7 @@ class PulseLib:
         c_operation = pa_context_get_server_info(self.c_context,
                                                 c_server_info_callback, None)
         errmsg = 'Error at pa_context_get_server_info()'
-        await PulseLib._handle_operation(c_operation, notification, errmsg)
+        await LibPulse._handle_operation(c_operation, notification, errmsg)
 
         server_info = notification.result()
         if server_info is None:
@@ -510,7 +510,7 @@ class PulseLib:
         # 'success' may be PA_OPERATION_DONE or PA_OPERATION_CANCELLED.
         # PA_OPERATION_CANCELLED occurs "as a result of the context getting
         # disconnected while the operation is pending". We just log this event as
-        # the PulseLib instance will be aborted following this disconnection.
+        # the LibPulse instance will be aborted following this disconnection.
         if success == PA_OPERATION_CANCELLED:
             logger.debug(f'Got PA_OPERATION_CANCELLED for {func_name}')
         elif not future.done():
@@ -528,14 +528,14 @@ class PulseLib:
 
     async def _get_info_list(self, cls, callback_name, operation):
         def info_callback(c_context, c_info, eol, c_userdata):
-            PulseLib._list_callback(notification, infos, cls, c_info, eol)
+            LibPulse._list_callback(notification, infos, cls, c_info, eol)
 
         infos = []
         notification = self.loop.create_future()
         c_info_callback = callback_func_ptr(callback_name, info_callback)
         c_operation = operation(self.c_context, c_info_callback, None)
         errmsg = f'Error in getting infos on the list of {cls.__name__}s'
-        await PulseLib._handle_operation(c_operation, notification, errmsg)
+        await LibPulse._handle_operation(c_operation, notification, errmsg)
 
         eol = notification.result()
         if eol < 0:
@@ -562,8 +562,8 @@ class PulseLib:
     def _context_state_callback(c_context, c_userdata):
         """Call back that monitors the connection state."""
 
-        pulse_lib = PulseLib.get_instance()
-        if pulse_lib is None:
+        lib_pulse = LibPulse.get_instance()
+        if lib_pulse is None:
             return
 
         st = pa_context_get_state(c_context)
@@ -574,18 +574,18 @@ class PulseLib:
             error = ERROR_CODES[error]
 
             state = (st, error)
-            logger.info(f'PulseLib connection: {state}')
+            logger.info(f'LibPulse connection: {state}')
 
-            state_notification = pulse_lib.state_notification
+            state_notification = lib_pulse.state_notification
             if not state_notification.done():
                 state_notification.set_result(state)
-            elif not pulse_lib.closed and st != 'PA_CONTEXT_READY':
+            elif not lib_pulse.closed and st != 'PA_CONTEXT_READY':
                 # A task is used here instead of calling directly _abort() so
                 # that _pa_context_connect() has the time to handle a
                 # previous PA_CONTEXT_READY state.
-                asyncio.create_task(pulse_lib._abort(state))
+                asyncio.create_task(lib_pulse._abort(state))
         else:
-            logger.debug(f'PulseLib connection: {st}')
+            logger.debug(f'LibPulse connection: {st}')
 
     @run_in_task
     async def _pa_context_connect(self):
@@ -606,17 +606,17 @@ class PulseLib:
     def _context_subscribe_callback(c_context, event_type, index, c_userdata):
         """Call back to handle pulseaudio events."""
 
-        pulse_lib = PulseLib.get_instance()
-        if pulse_lib is None:
+        lib_pulse = LibPulse.get_instance()
+        if lib_pulse is None:
             return
 
-        if pulse_lib.event_iterator is not None:
-            pulse_lib.event_iterator._put_nowait(PulseEvent(event_type,
+        if lib_pulse.event_iterator is not None:
+            lib_pulse.event_iterator._put_nowait(PulseEvent(event_type,
                                                             index))
 
     async def _abort(self, state):
-        # Cancelling the main task does close the PulseLib context manager.
-        logger.error(f'The PulseLib instance has been aborted: {state}')
+        # Cancelling the main task does close the LibPulse context manager.
+        logger.error(f'The LibPulse instance has been aborted: {state}')
         self.main_task.cancel()
 
     def _close(self):
@@ -625,7 +625,7 @@ class PulseLib:
         self.closed = True
 
         try:
-            for task in self.pulselib_tasks:
+            for task in self.libpulse_tasks:
                 task.cancel()
             if self.event_iterator is not None:
                 self.event_iterator._abort()
@@ -635,19 +635,19 @@ class PulseLib:
 
             if self.state[0] == 'PA_CONTEXT_READY':
                 pa_context_disconnect(self.c_context)
-                logger.info('Disconnected from pulselib context')
+                logger.info('Disconnected from libpulse context')
         finally:
             pa_context_unref(self.c_context)
 
-            for loop, pulse_lib in list(self.ASYNCIO_LOOPS.items()):
-                if pulse_lib is self:
+            for loop, lib_pulse in list(self.ASYNCIO_LOOPS.items()):
+                if lib_pulse is self:
                     del self.ASYNCIO_LOOPS[loop]
                     break
             else:
-                logger.error('Cannot remove PulseLib instance upon closing')
+                logger.error('Cannot remove LibPulse instance upon closing')
 
             MainLoop.close()
-            logger.debug('PulseLib instance closed')
+            logger.debug('LibPulse instance closed')
 
     async def __aenter__(self):
         try:

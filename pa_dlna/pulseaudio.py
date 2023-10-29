@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from .pulselib import (PulseLib, PA_SUBSCRIPTION_MASK_SINK_INPUT,
+from .libpulse import (LibPulse, PA_SUBSCRIPTION_MASK_SINK_INPUT,
                        PulseMissingLibError, PulseStateError)
 from .upnp.util import NL_INDENT, log_exception
 
@@ -17,8 +17,8 @@ class NullSink:
     """
 
     def __init__(self, sink):
-        self.sink = sink        # pulselib Sink instance
-        self.sink_input = None  # pulselib SinkInput instance
+        self.sink = sink        # libpulse Sink instance
+        self.sink_input = None  # libpulse SinkInput instance
 
 class Pulse:
     """Pulse monitors pulseaudio sink-input events."""
@@ -26,7 +26,7 @@ class Pulse:
     def __init__(self, av_control_point):
         self.av_control_point = av_control_point
         self.closing = False
-        self.pulse_lib = None
+        self.lib_pulse = None
 
     async def close(self):
         if not self.closing:
@@ -37,20 +37,20 @@ class Pulse:
     async def register(self, renderer):
         """Load a null-sink module."""
 
-        if self.pulse_lib is None:
+        if self.lib_pulse is None:
             return
 
         root_device = renderer.root_device
         module_name = f'{root_device.modelName}-{root_device.udn}'
         _description = renderer.description.replace(' ', r'\ ')
 
-        module_index = await self.pulse_lib.pa_context_load_module(
+        module_index = await self.lib_pulse.pa_context_load_module(
             'module-null-sink',
             f'sink_name="{module_name}" '
             f'sink_properties=device.description=' f'"{_description}"')
 
         # Return the NullSink instance.
-        for sink in await self.pulse_lib.pa_context_get_sink_info_list():
+        for sink in await self.lib_pulse.pa_context_get_sink_info_list():
             if sink.owner_module == module_index:
                 logger.info(f'Load null-sink module {sink.name}'
                         f"{NL_INDENT}description='{renderer.description}'")
@@ -62,29 +62,29 @@ class Pulse:
                 if len(module_name) != len(sink.name):
                     # Pulseaudio has added a '.n' suffix because there exists
                     # another null-sink with the same name.
-                    await self.pulse_lib.pa_context_unload_module(module_index)
+                    await self.lib_pulse.pa_context_unload_module(module_index)
                     renderer.control_point.abort(
                         f'Two DLNA devices registered with the same name:'
                         f'{NL_INDENT}{module_name}')
 
                 return NullSink(sink)
 
-        await self.pulse_lib.pa_context_unload_module(module_index)
+        await self.lib_pulse.pa_context_unload_module(module_index)
         logger.error(
             f'Failed loading {module_name} pulseaudio module')
         return None
 
     async def unregister(self, nullsink):
-        if self.pulse_lib is None:
+        if self.lib_pulse is None:
             return
         logger.info(f'Unload null-sink module {nullsink.sink.name}')
-        await self.pulse_lib.pa_context_unload_module(
+        await self.lib_pulse.pa_context_unload_module(
                                                 nullsink.sink.owner_module)
 
     async def get_sink_input(self, renderer):
         assert renderer.nullsink is not None
         sink_inputs = (await
-                       self.pulse_lib.pa_context_get_sink_input_info_list())
+                       self.lib_pulse.pa_context_get_sink_input_info_list())
         for sink_input in sink_inputs:
             if sink_input.sink == renderer.nullsink.sink.index:
                 return sink_input
@@ -109,7 +109,7 @@ class Pulse:
         # other changes. In other words, there may be inconsistencies between
         # the event and the sink_input and sink lists.
         sink_inputs = (await
-                       self.pulse_lib.pa_context_get_sink_input_info_list())
+                       self.lib_pulse.pa_context_get_sink_input_info_list())
         for sink_input in sink_inputs:
             if sink_input.index == event.index:
                 # Ignore 'pulsesink probe' - seems to be used to query sink
@@ -156,7 +156,7 @@ class Pulse:
         if renderer is not None:
             # 'renderer.nullsink.sink' is the stale sink from the previous
             # event, we need to fetch the 'sink' correponding to this event.
-            sink = await self.pulse_lib.pa_context_get_sink_info_by_name(
+            sink = await self.lib_pulse.pa_context_get_sink_info_by_name(
                                                 renderer.nullsink.sink.name)
             if sink is not None:
                 renderer.pulse_queue.put_nowait((evt_type, sink, sink_input))
@@ -173,13 +173,13 @@ class Pulse:
     @log_exception(logger)
     async def run(self):
         try:
-            async with PulseLib('pa-dlna') as self.pulse_lib:
-                await self.pulse_lib.log_server_info()
+            async with LibPulse('pa-dlna') as self.lib_pulse:
+                await self.lib_pulse.log_server_info()
 
                 # Start the iteration on sink-input events.
-                await self.pulse_lib.pa_context_subscribe(
+                await self.lib_pulse.pa_context_subscribe(
                                     PA_SUBSCRIPTION_MASK_SINK_INPUT)
-                iterator = self.pulse_lib.get_events()
+                iterator = self.lib_pulse.get_events()
                 self.av_control_point.start_event.set()
                 async for event in iterator:
                     await self.dispatch_event(event)
@@ -194,5 +194,5 @@ class Pulse:
         except Exception as e:
             logger.exception(f'{e!r}')
         finally:
-            self.pulse_lib = None
+            self.lib_pulse = None
             await self.close()

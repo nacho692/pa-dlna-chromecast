@@ -14,8 +14,8 @@ from . import load_ordered_tests as load_tests
 
 from . import find_in_logs, search_in_logs
 from .streams import set_control_point as _set_control_point
-from .pulselib import use_pulselib_stubs, PulseLib
-from .pulselib import SinkInput as PulseLibSinkInput
+from .libpulse import use_libpulse_stubs, LibPulse
+from .libpulse import SinkInput as LibPulseSinkInput
 from ..init import ControlPointAbortError
 from ..encoders import Encoder
 from ..upnp.upnp import (UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint,
@@ -23,9 +23,9 @@ from ..upnp.upnp import (UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint,
 from ..upnp.tests import min_python_version
 from ..upnp.xml import SoapFault
 
-# Use the patched pulseaudio and pa_dlna modules to avoid importing pulselib
+# Use the patched pulseaudio and pa_dlna modules to avoid importing libpulse
 # that is not required for running the test.
-with use_pulselib_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
+with use_libpulse_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
     pulseaudio, pa_dlna = modules
 
 AVControlPoint = pa_dlna.AVControlPoint
@@ -56,11 +56,11 @@ def get_control_point(sink_inputs):
     control_point = AVControlPoint(nics=['lo'], port=8080)
     control_point.upnp_control_point = upnp_control_point
 
-    # PulseLib must be instantiated after the call to the
+    # LibPulse must be instantiated after the call to the
     # add_sink_inputs() class method.
-    PulseLib.add_sink_inputs(sink_inputs)
+    LibPulse.add_sink_inputs(sink_inputs)
     control_point.pulse = pulseaudio.Pulse(control_point)
-    control_point.pulse.pulse_lib = PulseLib('pa-dlna')
+    control_point.pulse.lib_pulse = LibPulse('pa-dlna')
     return upnp_control_point, control_point
 
 def set_control_point(control_point):
@@ -128,7 +128,7 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
                                         msearch_port=0,
                                         test_devices=test_devices)
             set_control_point(control_point)
-            PulseLib.add_sink_inputs([])
+            LibPulse.add_sink_inputs([])
 
             try:
                 return_code = await wait_for(
@@ -585,7 +585,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         # Test that streaming starts when pa-dlna is started while the track
         # is already playing.
         sink_input_name = 'Orcas Ibericas'
-        sink_input = PulseLibSinkInput(sink_input_name, [])
+        sink_input = LibPulseSinkInput(sink_input_name, [])
         sink_input.proplist = PROPLIST
         upnp_control_point, control_point = get_control_point([sink_input])
         set_control_point(control_point)

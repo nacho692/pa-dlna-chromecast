@@ -1,4 +1,4 @@
-"""An implementation of the pulselib Main Loop based on asyncio."""
+"""An implementation of the libpulse Main Loop based on asyncio."""
 
 import asyncio
 import logging
@@ -14,7 +14,7 @@ from .prototypes import CALLBACKS
 from .structures import (PA_SINK_INFO, PA_SINK_INPUT_INFO, TIMEVAL,
                          PA_SERVER_INFO)
 
-logger = logging.getLogger('pulslib')
+logger = logging.getLogger('libpuls')
 
 def python_object(ctypes_object, cls=None):
     obj = ct.cast(ctypes_object, ct.POINTER(ct.py_object)).contents.value
@@ -313,7 +313,7 @@ def quit(c_mainloop_api, retval):
 _mainloop_api = build_mainloop_api()
 
 class MainLoop:
-    """An implementation of the pulselib Main Loop based on asyncio."""
+    """An implementation of the libpulse Main Loop based on asyncio."""
 
     ASYNCIO_LOOPS = dict()              # {asyncio loop: MainLoop instance}
     C_MAINLOOP_API = ct.cast(ct.pointer(_mainloop_api), ct.c_void_p)
@@ -343,4 +343,4 @@ class MainLoop:
                 break
         else:
             assert False, 'Cannot remove MainLoop instance upon closing'
-        logger.info('PulseLib main loop closed')
+        logger.info('LibPulse main loop closed')

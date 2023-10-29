@@ -7,13 +7,13 @@ import collections.abc
 from unittest import mock
 
 from . import skip_loop_iterations
-from ..pulselib.pulseaudio_h import PA_SUBSCRIPTION_MASK_SINK_INPUT
-from ..pulselib.pulselib import PulseMissingLibError
+from ..libpulse.pulseaudio_h import PA_SUBSCRIPTION_MASK_SINK_INPUT
+from ..libpulse.libpulse import PulseMissingLibError
 
 SKIP_LOOP_ITERATIONS = 30
 
 @contextlib.contextmanager
-def use_pulselib_stubs(modules):
+def use_libpulse_stubs(modules):
     """Patch 'modules' with stubs defined in this module.
 
     The first module in 'modules' is patched first.
@@ -31,14 +31,14 @@ def use_pulselib_stubs(modules):
     for module in modules:
         if module in sys.modules:
             del sys.modules[module]
-    for module in ('pa_dlna.pulselib', 'pa_dlna.pulselib.pulselib'):
+    for module in ('pa_dlna.libpulse', 'pa_dlna.libpulse.libpulse'):
         if module in sys.modules:
             del sys.modules[module]
     importlib.invalidate_caches()
 
     with mock.patch.dict('sys.modules',
-                         {'pa_dlna.pulselib': sys.modules[__name__],
-                          'pa_dlna.pulselib.pulselib': sys.modules[__name__]
+                         {'pa_dlna.libpulse': sys.modules[__name__],
+                          'pa_dlna.libpulse.libpulse': sys.modules[__name__]
                           }):
         yield tuple(reversed(recurse_import(modules.copy())))
 
@@ -46,9 +46,9 @@ def use_pulselib_stubs(modules):
         assert module not in sys.modules
 
 
-class PulseLibError(Exception): pass
-class PulseClosedError(PulseLibError): pass
-class PulseStateError(PulseLibError): pass
+class LibPulseError(Exception): pass
+class PulseClosedError(LibPulseError): pass
+class PulseStateError(LibPulseError): pass
 
 class Event:
     def __init__(self, event, proplist=None):
@@ -60,8 +60,8 @@ class Event:
 class EventIterator:
     """Pulse events asynchronous iterator."""
 
-    def __init__(self, pulse_lib):
-        self.pulse_lib = pulse_lib
+    def __init__(self, lib_pulse):
+        self.lib_pulse = lib_pulse
 
     def __aiter__(self):
         return self
@@ -69,7 +69,7 @@ class EventIterator:
     async def __anext__(self):
         while True:
             has_event = False
-            for sink_input in self.pulse_lib.sink_inputs:
+            for sink_input in self.lib_pulse.sink_inputs:
                 event = sink_input.get_event()
                 if event is not None:
                     has_event = True
@@ -111,8 +111,8 @@ class Sink:
     def __str__(self):
         return self.name
 
-class PulseLib():
-    """PulseLib stub."""
+class LibPulse():
+    """LibPulse stub."""
 
     sink_inputs = None
     sink_input_index = 0
@@ -120,7 +120,7 @@ class PulseLib():
 
     def __init__(self, name):
         assert self.sink_inputs is not None, ('missing call to'
-                                              ' PulseLib.add_sink_inputs()')
+                                              ' LibPulse.add_sink_inputs()')
 
         self.raise_once()
         Sink.index = 0
@@ -134,9 +134,9 @@ class PulseLib():
         """Extend the list of sink_inputs.
 
         This class method MUST be called BEFORE the instantiation of
-        PulseLib.
+        LibPulse.
         The first sink_input in the list (if any) is associated with the sink
-        loaded by the following call to PulseLib.pa_context_load_module().
+        loaded by the following call to LibPulse.pa_context_load_module().
         """
 
         cls.sink_inputs = sink_inputs
@@ -159,8 +159,8 @@ class PulseLib():
         sink = Sink(sink_name, owner_module=index)
 
         # Link this sink to the first sink_input.
-        if len(PulseLib.sink_inputs):
-            PulseLib.sink_inputs[0].sink = sink.index
+        if len(LibPulse.sink_inputs):
+            LibPulse.sink_inputs[0].sink = sink.index
 
         self.sinks.append(sink)
         self.module_index += 1
@@ -176,7 +176,7 @@ class PulseLib():
         return list(sink for sink in self.sinks)
 
     async def pa_context_get_sink_input_info_list(self):
-        return list(sink_input for sink_input in PulseLib.sink_inputs)
+        return list(sink_input for sink_input in LibPulse.sink_inputs)
 
     async def pa_context_get_sink_info_by_name(self, name):
         for sink in self.sinks:
@@ -194,13 +194,13 @@ class PulseLib():
 
     def raise_once(self):
         if self.do_raise_once:
-            PulseLib.do_raise_once = False
-            raise PulseLibError
+            LibPulse.do_raise_once = False
+            raise LibPulseError
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
-        PulseLib.sink_inputs = None
-        PulseLib.sink_input_index = 0
-        PulseLib.do_raise_once = False
+        LibPulse.sink_inputs = None
+        LibPulse.sink_input_index = 0
+        LibPulse.do_raise_once = False
