@@ -349,12 +349,19 @@ class RootDevice(IsolatedAsyncioTestCase):
 
     async def test_age_device(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
+            # A max_age value of 0 means no aging. Set this value of 0.1 to
+            # pass the test.
+            max_age = 0.1
+            self.root_device = UPnPRootDevice(self.control_point, UDN, HOST,
+                                              HOST, URL, max_age)
             await start_http_server()
-            self.root_device._set_valid_until(0)
             await self.root_device._run()
 
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                         f'Aging expired on UPnPRootDevice {shorten(UDN)}'))
+        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+                        f'UPnPRootDevice {shorten(UDN)} has been created'
+                        f' with max-age={max_age}'))
 
     async def test_soap_action(self):
         response = soap_response(

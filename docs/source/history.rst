@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 0.8
+  - Do not age an UPnP root device upon receiving a ``CACHE-CONTROL`` header
+    with a value set to ``max-age=0``.
+
 Version 0.7
   - Name ``libpulse`` the Python package, interface to the ``libpulse``
     library.

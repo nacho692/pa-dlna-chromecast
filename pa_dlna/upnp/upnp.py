@@ -407,6 +407,7 @@ class UPnPRootDevice(UPnPDevice):
         self.location = location
         self._curtask = None                    # UPnPRootDevice._run() task
         self._set_valid_until(max_age)
+        self._max_age = max_age
         self._closed = False
 
     def close(self, exc=None):
@@ -422,7 +423,7 @@ class UPnPRootDevice(UPnPDevice):
         # The '_valid_until' attribute is the monotonic date when the root
         # device and its services and embedded devices become disabled.
         # '_valid_until' None means no aging is performed.
-        if max_age is not None:
+        if max_age:
             self._valid_until = time.monotonic() + max_age
         else:
             self._valid_until = None
@@ -438,7 +439,7 @@ class UPnPRootDevice(UPnPDevice):
             timeleft = self._get_timeleft()
             # Missing or invalid 'CACHE-CONTROL' field in SSDP.
             # Wait for a change in _valid_until.
-            if timeleft is None:
+            if not timeleft:
                 await asyncio.sleep(60)
             elif timeleft > 0:
                 await asyncio.sleep(timeleft)
@@ -473,7 +474,8 @@ class UPnPRootDevice(UPnPDevice):
                 f'New {deviceType} root device at {self.peer_ipaddress}'
                 f' with UDN:' + NL_INDENT + f'{self.udn}')
             self._control_point._put_notification('alive', self)
-            logger.debug(f'{self} has been created')
+            logger.debug(f'{self} has been created'
+                         f' with max-age={self._max_age}')
 
             await self._age_root_device()
         except asyncio.CancelledError:
@@ -540,6 +542,7 @@ class UPnPControlPoint:
         self._devices = {}              # {udn: UPnPRootDevice}
         self._faulty_devices = set()    # set of the udn of root devices
                                         # permanently disabled
+        self._last_msearch = time.monotonic()
         self._msearch_task = None
         self._notify_task = None
         self._upnp_tasks = AsyncioTasks()
@@ -605,10 +608,25 @@ class UPnPControlPoint:
     def _put_notification(self, kind, root_device):
         self._upnp_queue.put_nowait((kind, root_device))
 
+    def _skip_log_max_age(self, max_age, root_device, is_msearch):
+        # Avoid cluttering the logs when the aging refresh occurs within 5
+        # seconds of the last one.
+        if not max_age:
+            if is_msearch:
+                previous = self._last_msearch
+                self._last_msearch = time.monotonic()
+            if not is_msearch or self._last_msearch - previous > 5:
+                return False
+        else:
+            timeleft = root_device._get_timeleft()
+            if timeleft is not None and max_age - timeleft > 5:
+                return False
+        return True
+
     def _create_root_device(self, header, udn, peer_ipaddress,
                             is_msearch, local_ipaddress):
         # Get the max-age.
-        # 'max_age' None means no aging.
+        # No aging if 'max_age' in (None, 0).
         max_age = None
         cache = header.get('CACHE-CONTROL')
         if cache is not None:
@@ -651,12 +669,7 @@ class UPnPControlPoint:
                 root_device.local_ipaddress = local_ipaddress
                 self._put_notification('alive', root_device)
 
-            # Avoid cluttering the logs when the aging refresh occurs within 5
-            # seconds of the last one, assuming all max ages are the same.
-            timeleft = root_device._get_timeleft()
-            if (timeleft is not None and
-                    max_age is not None and
-                    max_age - timeleft > 5):
+            if not self._skip_log_max_age(max_age, root_device, is_msearch):
                 msg = ('msearch response' if is_msearch else
                        'notify advertisement')
                 logger.debug(f'Got {msg} from {peer_ipaddress}')
