@@ -244,7 +244,7 @@ class UPnPDevice(UPnPElement):
       Their value is the value (text) of the element except for:
 
       serviceList   dict {serviceId value: UPnPService instance}
-      deviceList    dict {deviceType value: UPnPDevice instance}
+      deviceList    list of embedded devices
       iconList      list of instances of the Icon namedtuple; use 'urlbase'
                     and the (relative) 'url' attribute of the namedtuple to
                     retrieve the icon.
@@ -261,7 +261,7 @@ class UPnPDevice(UPnPElement):
             self.urlbase = root_device.urlbase
 
         self.serviceList = {}
-        self.deviceList = {}
+        self.deviceList = []
         self.iconList = []
 
     def _create_icons(self, icons, namespace):
@@ -331,9 +331,17 @@ class UPnPDevice(UPnPElement):
                 raise UPnPXMLError("Missing 'deviceType' element")
 
             description = build_etree(element)
-            self.deviceList[d['deviceType']] = await (
-                  UPnPDevice(self, self.root_device)._parse_description(
-                                                                description))
+            embedded = await (UPnPDevice(self,
+                            self.root_device)._parse_description(description))
+            self.deviceList.append(embedded)
+
+    @staticmethod
+    def embedded_devices_generator(device):
+        """Recursive generator yielding the embedded devices."""
+
+        yield device
+        for dev in device.deviceList:
+            yield from self.device_generator(dev)
 
     async def _parse_description(self, description):
         """Parse the xml 'description'.

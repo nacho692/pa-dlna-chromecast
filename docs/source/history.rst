@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.8
+  - The ``deviceList`` attribute of UPnPDevice is now a list instead of a
+    dictionary.
   - Do not age an UPnP root device upon receiving a ``CACHE-CONTROL`` header
     with a value set to ``max-age=0``.
 

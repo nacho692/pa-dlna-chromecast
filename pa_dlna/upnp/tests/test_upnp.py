@@ -503,9 +503,7 @@ class RootDevice(IsolatedAsyncioTestCase):
             await start_http_server(devices=devices)
             await self.root_device._run()
 
-        embedded_devices = self.root_device.deviceList
-        first_device = list(embedded_devices)[0]
-        self.assertEqual(embedded_devices[first_device].friendlyName,
+        self.assertEqual(self.root_device.deviceList[0].friendlyName,
                          device_name)
 
     def tearDown(self):

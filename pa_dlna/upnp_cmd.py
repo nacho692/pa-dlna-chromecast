@@ -379,7 +379,7 @@ class UPnPServiceCmd(_Cmd):
         return self.quit
 
 class UPnPDeviceCmd(_Cmd):
-    """Use the 'device' or 'service' command to select an embedded device or
+    """Use the 'embedded' or 'service' command to select an embedded device or
     service. Use the 'previous' command to return to the previous device or to
     the control point.
 
@@ -404,8 +404,7 @@ class UPnPDeviceCmd(_Cmd):
 
     def do_embedded_list(self, unused):
         """List the embedded UPnP devices"""
-        print([device_name(dev) for dev in
-               self.upnp_device.deviceList.values()])
+        print([device_name(dev) for dev in self.upnp_device.deviceList])
 
     def help_embedded(self):
         print(_dedent(f"""Select an embedded device.
@@ -417,10 +416,9 @@ class UPnPDeviceCmd(_Cmd):
         """))
 
     def do_embedded(self, idx):
-        dev_list = list(self.upnp_device.deviceList.values())
-        selected = self.select_device(dev_list, idx)
+        selected = self.select_device(self.upnp_device.deviceList, idx)
         if selected is not None:
-            interpreter = UPnPDeviceCmd(selected)
+            interpreter = UPnPDeviceCmd(selected, self.loop)
             if interpreter.cmdloop():
                 return self.do_quit(None)
 
