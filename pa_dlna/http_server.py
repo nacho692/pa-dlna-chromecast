@@ -487,7 +487,7 @@ class HTTPServer:
             # 'iso-8859-1' encoded, now unquote the uri path.
             uri_path = urllib.parse.unquote(handler.path)
 
-            for renderer in self.control_point.renderers:
+            for renderer in self.control_point.renderers():
                 if not renderer.match(uri_path):
                     continue
 

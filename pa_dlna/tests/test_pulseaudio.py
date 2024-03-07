@@ -29,10 +29,10 @@ class Renderer(pa_dlna.DLNATestDevice):
                 self.nullsink.sink = sink
                 self.nullsink.sink_input = sink_input
 
-class ControlPoint:
+class ControlPoint(pa_dlna.AVControlPoint):
     def __init__(self):
         self.start_event = asyncio.Event()
-        self.renderers = set()
+        self.root_devices = {}
 
     def abort(self, msg):
         pass
@@ -52,7 +52,6 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         renderer = Renderer(self.control_point, f'audio/{mime_type}',
                             results)
         asyncio.create_task(renderer.run())
-        self.control_point.renderers.add(renderer)
         return renderer
 
     async def test_run_pulse(self):

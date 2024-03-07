@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.8
+  - Support multiple embedded MediaRenderers.
   - The ``deviceList`` attribute of UPnPDevice is now a list instead of a
     dictionary.
   - Do not age an UPnP root device upon receiving a ``CACHE-CONTROL`` header

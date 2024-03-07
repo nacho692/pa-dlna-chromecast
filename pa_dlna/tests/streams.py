@@ -82,7 +82,8 @@ async def play_track(mime_type, transactions, wait_for_completion=True,
 
         # Start the http server.
         control_point = renderer.control_point
-        http_server = _HTTPServer(control_point, renderer.local_ipaddress,
+        http_server = _HTTPServer(control_point,
+                                  renderer.root_device.local_ipaddress,
                                   control_point.port)
         http_server.allow_from(renderer.root_device.peer_ipaddress)
         http_server_t = asyncio.create_task(http_server.run(),
@@ -215,9 +216,7 @@ class Renderer(pa_dlna.DLNATestDevice):
     def __init__(self, control_point, mime_type):
         super().__init__(control_point, mime_type)
         self.nullsink = NullSink()
-
         self.set_current_uri()
-        control_point.renderers.add(self)
 
     async def setup(self):
         await self.select_encoder(self.root_device.udn)
@@ -231,10 +230,10 @@ class Renderer(pa_dlna.DLNATestDevice):
     async def disable_root_device(self):
         pass
 
-class ControlPoint:
+class ControlPoint(pa_dlna.AVControlPoint):
     def __init__(self):
         self.port = 8080
-        self.renderers = set()
+        self.root_devices = {}
         set_control_point(self)
 
     def abort(self, msg):
@@ -242,7 +241,6 @@ class ControlPoint:
 
     async def close(self, msg=None):
         pass
-
 
 ### The parec_py and encoder_py functions. ###
 def get_blk():

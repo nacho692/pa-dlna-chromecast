@@ -40,8 +40,8 @@ class Pulse:
         if self.lib_pulse is None:
             return
 
-        root_device = renderer.root_device
-        module_name = f'{root_device.modelName}-{root_device.udn}'
+        upnp_device = renderer.upnp_device
+        module_name = f'{upnp_device.modelName}-{upnp_device.udn}'
         _description = renderer.description.replace(' ', r'\ ')
 
         module_index = await self.lib_pulse.pa_context_load_module(
@@ -93,7 +93,7 @@ class Pulse:
     def find_previous_renderer(self, event):
         """Find the renderer that was last connected to this sink-input."""
 
-        for renderer in self.av_control_point.renderers:
+        for renderer in self.av_control_point.renderers():
             if (renderer.nullsink is not None and
                     renderer.nullsink.sink_input is not None and
                     renderer.nullsink.sink_input.index == event.index):
@@ -119,7 +119,7 @@ class Pulse:
 
                 # Find the corresponding sink when it is the null-sink of a
                 # Renderer.
-                for renderer in self.av_control_point.renderers:
+                for renderer in self.av_control_point.renderers():
                     if (renderer.nullsink is not None and
                             renderer.nullsink.sink.index == sink_input.sink):
                         return renderer, sink_input

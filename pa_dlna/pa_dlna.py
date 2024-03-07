@@ -8,13 +8,13 @@ import re
 import hashlib
 import time
 from signal import SIGINT, SIGTERM
-from collections import namedtuple
+from collections import namedtuple, UserList
 
 from .init import padlna_main, UPnPApplication, ControlPointAbortError
 from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
-from .upnp import (UPnPControlPoint, UPnPClosedDeviceError,
+from .upnp import (UPnPControlPoint, UPnPDevice, UPnPClosedDeviceError,
                    UPnPSoapFaultError, NL_INDENT, shorten,
                    log_exception, AsyncioTasks, QUEUE_CLOSED)
 
@@ -82,13 +82,17 @@ class Renderer:
       'ConnectionManager:3 Service'
     """
 
-    def __init__(self, control_point, root_device):
+    def __init__(self, control_point, upnp_device, renderers_list):
         self.control_point = control_point
-        self.local_ipaddress = root_device.local_ipaddress
-        self.root_device = root_device
-        udn_tail = root_device.udn[-5:]
-        self.name = f'{root_device.modelName}-{udn_tail}'
-        self.description = f'{root_device.friendlyName} - {udn_tail}'
+        self.upnp_device = upnp_device
+        self.renderers_list = renderers_list
+        self.root_device = renderers_list.root_device
+
+        udn_tail = upnp_device.udn[-5:]
+        self.name = f'{self.getattr("modelName")}-{udn_tail}'
+        self.description = f'{self.getattr("friendlyName")} - {udn_tail}'
+        self.root_device_name = (f'{self.root_device.modelName}-'
+                                 f'{self.root_device.udn[-5:]}')
         self.curtask = None             # Renderer.run() task
         self.closing = False
         self.nullsink = None            # NullSink instance
@@ -103,19 +107,12 @@ class Renderer:
         self.pulse_queue = asyncio.Queue()
 
     async def close(self):
-        if self.root_device.closed:
-            renderers = self.control_point.renderers
-            if self in renderers:
-                renderers.remove(self)
-        else:
-            # Closing the root device will trigger a 'byebye' notification
-            # and the renderer will be removed from
-            # self.control_point.renderers.
-            self.root_device.close()
-
         if not self.closing:
             self.closing = True
             logger.info(f'Close {self.name} renderer')
+
+            # Close the root device and all of its renderers.
+            await self.renderers_list.close()
 
             # Handle the race condition where the Renderer.run() task
             # has been created but not yet started.
@@ -133,6 +130,13 @@ class Renderer:
                 self.curtask.cancel()
             await self.pulse_unregister()
             await self.stream_sessions.close_session()
+
+    def getattr(self, name):
+        """Falling back to root device when upn_device attribute missing."""
+        try:
+            return getattr(self.upnp_device, name)
+        except AttributeError:
+            return getattr(self.root_device, name)
 
     async def disable_for(self, *, period):
         """Disable the renderer for 'period' seconds."""
@@ -159,7 +163,7 @@ class Renderer:
 
         await self.close()
         self.control_point.disable_root_device(self.root_device,
-                                               name=self.name)
+                                               name=self.root_device_name)
 
     async def pulse_unregister(self):
         if self.nullsink is not None:
@@ -175,7 +179,7 @@ class Renderer:
             return False
 
     def match(self, uri_path):
-        return uri_path == f'{AUDIO_URI_PREFIX}/{self.root_device.udn}'
+        return uri_path == f'{AUDIO_URI_PREFIX}/{self.upnp_device.udn}'
 
     async def start_track(self, writer):
         await self.stream_sessions.start_track(writer)
@@ -376,7 +380,7 @@ class Renderer:
         field names in ('errorCode', 'errorDescription').
         """
 
-        service = self.root_device.serviceList[serviceId]
+        service = self.upnp_device.serviceList[serviceId]
         return await service.soap_action(action, args, log_debug=False)
 
     async def select_encoder(self, udn):
@@ -460,9 +464,9 @@ class Renderer:
         await self.soap_action(AVTRANSPORT, 'Stop', args)
 
     def set_current_uri(self):
-        self.current_uri = (f'http://{self.local_ipaddress}'
+        self.current_uri = (f'http://{self.root_device.local_ipaddress}'
                             f':{self.control_point.port}'
-                            f'{AUDIO_URI_PREFIX}/{self.root_device.udn}')
+                            f'{AUDIO_URI_PREFIX}/{self.upnp_device.udn}')
 
     @log_exception(logger)
     async def run(self):
@@ -470,7 +474,7 @@ class Renderer:
 
         self.curtask = asyncio.current_task()
         try:
-            if not await self.select_encoder(self.root_device.udn):
+            if not await self.select_encoder(self.upnp_device.udn):
                 return
             self.set_current_uri()
             logger.info(f'New {self.name} renderer with {self.encoder}'
@@ -514,9 +518,9 @@ class DLNATestDevice(Renderer):
 
         LOOPBACK = '127.0.0.1'
 
-        def __init__(self, renderer, mime_type, control_point):
+        def __init__(self, mime_type, control_point):
             self.control_point = control_point
-            self.renderer = renderer
+            # Needed by soap_action() in the test suite.
             self.mime_type = mime_type
             self.closed = True
             self.peer_ipaddress = self.LOOPBACK
@@ -529,8 +533,12 @@ class DLNATestDevice(Renderer):
             self.udn = get_udn(name.encode())
 
     def __init__(self, control_point, mime_type):
-        root_device = self.RootDevice(self, mime_type, control_point)
-        super().__init__(control_point, root_device)
+        root_device = self.RootDevice(mime_type, control_point)
+        renderers_list = RenderersList(control_point, root_device)
+        renderers_list.append(self)
+
+        super().__init__(control_point, root_device, renderers_list)
+        control_point.root_devices[root_device] = renderers_list
         self.mime_type = mime_type
 
     async def play(self, speed=1):
@@ -549,6 +557,38 @@ class DLNATestDevice(Renderer):
                      'STOPPED')
             return {'CurrentTransportState': state}
 
+class RenderersList(UserList):
+    """The list of all Renderers of a root device as a dict.
+
+    This includes the root device if it is a MediaRenderer and all embedded
+    devices that are MediaRenderer.
+    """
+
+    def __init__(self, control_point, root_device):
+        super().__init__()
+        self.control_point = control_point
+        self.root_device = root_device
+        self.closed = False
+
+    def build_list(self):
+        # Build the list of renderers.
+        for upnp_device in UPnPDevice.embedded_devices_generator(
+                                                            self.root_device):
+            if re.match(rf'{MEDIARENDERER}(\d+)', upnp_device.deviceType):
+                self.data.append(Renderer(self.control_point, upnp_device,
+                                          self))
+
+    async def close(self):
+        if not self.closed:
+            self.closed = True
+            if not self.root_device.closed:
+                self.root_device.close()
+
+            for renderer in self.data:
+                await renderer.close()
+            if self.root_device in self.control_point.root_devices:
+                del self.control_point.root_devices[self.root_device]
+
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
 
@@ -559,9 +599,9 @@ class AVControlPoint(UPnPApplication):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.closing = False
-        self.renderers = set()
-        self.curtask = None             # task running run_control_point()
-        self.pulse = None               # Pulse instance
+        self.root_devices = {}      # dictionary {root_device: renderers_list}
+        self.curtask = None         # task running run_control_point()
+        self.pulse = None           # Pulse instance
         self.start_event = None
         self.upnp_control_point = None
         self.http_servers = {}          # {IPv4 address: http server instance}
@@ -593,11 +633,11 @@ class AVControlPoint(UPnPApplication):
 
                 # The semaphore prevents a race condition where a new Renderer
                 # is awaiting the registration of a sink with pulseaudio while
-                # the list of renderers is being emptied here. In that case,
+                # the renderers are being closed here. In that case,
                 # this sink would never be unregistered.
                 async with self.register_sem:
-                    for renderer in list(self.renderers):
-                        await renderer.close()
+                    for renderers_list in list(self.root_devices.values()):
+                        await renderers_list.close()
 
                 if self.pulse is not None:
                     await self.pulse.close()
@@ -631,13 +671,12 @@ class AVControlPoint(UPnPApplication):
             if self.closing:
                 return
             registered = await renderer.pulse_register()
-            if registered:
-                self.renderers.add(renderer)
 
         if registered:
+            root_device = renderer.root_device
             http_server = await self.create_httpserver(
-                                                renderer.local_ipaddress)
-            http_server.allow_from(renderer.root_device.peer_ipaddress)
+                                                root_device.local_ipaddress)
+            http_server.allow_from(root_device.peer_ipaddress)
 
             # Create the renderer task.
             self.cp_tasks.create_task(renderer.run(),
@@ -653,6 +692,13 @@ class AVControlPoint(UPnPApplication):
             await http_server.startup
             self.http_servers[ip_address] = http_server
         return self.http_servers[ip_address]
+
+    def renderers(self):
+        """Generator yielding all the renderers."""
+
+        for renderers_list in self.root_devices.values():
+            for renderer in renderers_list:
+                yield renderer
 
     async def handle_upnp_notifications(self):
         while True:
@@ -670,37 +716,29 @@ class AVControlPoint(UPnPApplication):
                 self.disable_root_device(root_device)
                 continue
 
-            # Ignore non Renderer devices.
-            if re.match(rf'{MEDIARENDERER}(\d+)',
-                        root_device.deviceType) is None:
+            renderers_list = RenderersList(self, root_device)
+            renderers_list.build_list()
+            if not renderers_list:
                 logger.info(f"Ignore '{root_device.modelName}': "
-                            f'not a MediaRenderer')
+                            f'no MediaRenderer')
                 self.disable_root_device(root_device)
                 continue
 
-            # Find an existing Renderer instance.
-            for rndr in self.renderers:
-                if rndr.root_device is root_device:
-                    renderer = rndr
-                    break
-            else:
-                renderer = None
-
+            is_new_renderer_list = root_device not in self.root_devices
             if notif == 'alive':
                 if self.upnp_control_point.is_disabled(root_device):
                     logger.debug(f'Ignore disabled {root_device}')
-                    continue
-
-                if renderer is None:
+                elif is_new_renderer_list:
                     if root_device.local_ipaddress is not None:
-                        renderer = Renderer(self, root_device)
-                        await self.register(renderer)
+                        self.root_devices[root_device] = renderers_list
+                        for renderer in renderers_list:
+                            await self.register(renderer)
+            elif notif == 'byebye':
+                if not is_new_renderer_list:
+                    # Close the renderers_list.
+                    await self.root_devices[root_device].close()
             else:
-                if renderer is not None:
-                    await renderer.close()
-                else:
-                    logger.warning("Got a 'byebye' notification for no"
-                                   ' existing Renderer')
+                raise RuntimeError('Error: Unknown notification')
 
     @log_exception(logger)
     async def run_control_point(self):

@@ -327,8 +327,6 @@ class UPnPDevice(UPnPElement):
             d = findall_childless(element, namespace)
             if not d:
                 raise UPnPXMLError("Empty 'device' element")
-            if 'deviceType' not in d:
-                raise UPnPXMLError("Missing 'deviceType' element")
 
             description = build_etree(element)
             embedded = await (UPnPDevice(self,
@@ -341,7 +339,7 @@ class UPnPDevice(UPnPElement):
 
         yield device
         for dev in device.deviceList:
-            yield from self.device_generator(dev)
+            yield from UPnPDevice.embedded_devices_generator(dev)
 
     async def _parse_description(self, description):
         """Parse the xml 'description'.
@@ -361,11 +359,11 @@ class UPnPDevice(UPnPElement):
 
         if not hasattr(self, 'deviceType'):
             raise UPnPXMLError("Missing 'deviceType' element")
+        # The specification of the deviceType format is
+        # 'urn:schemas-upnp-org:device:deviceType:ver'.
+        self.device_type = self.deviceType.split(':')[-2]
         if not isinstance(self, UPnPRootDevice):
-            # The specification of the deviceType format is
-            # 'urn:schemas-upnp-org:device:deviceType:ver'.
-            deviceType = self.deviceType.split(':')[-2]
-            logger.info(f'New {deviceType} embedded device')
+            logger.info(f'New {self.device_type} embedded device')
 
         icons = device_etree.find(f'{namespace!r}iconList')
         self._create_icons(icons, namespace)
@@ -475,11 +473,8 @@ class UPnPRootDevice(UPnPDevice):
                                    ' device description')
             await self._parse_description(device_description)
 
-            # The specification of the deviceType format is
-            # 'urn:schemas-upnp-org:device:deviceType:ver'.
-            deviceType = self.deviceType.split(':')[-2]
             logger.info(
-                f'New {deviceType} root device at {self.peer_ipaddress}'
+                f'New {self.device_type} root device at {self.peer_ipaddress}'
                 f' with UDN:' + NL_INDENT + f'{self.udn}')
             self._control_point._put_notification('alive', self)
             logger.debug(f'{self} has been created'

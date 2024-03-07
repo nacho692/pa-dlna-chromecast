@@ -30,6 +30,7 @@ with use_libpulse_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
 
 AVControlPoint = pa_dlna.AVControlPoint
 Renderer = pa_dlna.Renderer
+RenderersList = pa_dlna.RenderersList
 PROPLIST = { 'application.name': 'Strawberry',
              'media.artist': 'Ziggy Stardust',
              'media.title': 'Amarok',
@@ -245,7 +246,7 @@ class DLNARenderer(PaDlnaTestCase):
 
         def disable(control_point, root_device, name=None):
             # Do not close renderers in AVControlPoint.close().
-            control_point.renderers = set()
+            control_point.root_devices = {}
             control_point.test_end.set_result(True)
 
         # Check that the 'module-null-sink' module of a renderer whose encoder
@@ -306,8 +307,8 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         logs = await self.patch_get_notification([('alive', root_device)],
                                                  alive_count=1)
 
-        self.assertEqual(len(self.control_point.renderers), 1)
-        renderer = self.control_point.renderers.pop()
+        self.assertEqual(len(self.control_point.root_devices), 1)
+        renderer = list(self.control_point.root_devices.values())[0][0]
         self.assertEqual(renderer.root_device, root_device)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile('New RootDevice_mp3.* renderer with Mp3Encoder')))
@@ -317,7 +318,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         logs = await self.patch_get_notification([('alive', root_device)],
                                                  alive_count=0)
 
-        self.assertEqual(len(self.control_point.renderers), 0)
+        self.assertEqual(len(self.control_point.root_devices), 0)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile('missing deviceType')))
         self.assertTrue(search_in_logs(logs.output, 'upnp',
@@ -328,9 +329,9 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         logs = await self.patch_get_notification([('alive', root_device)],
                                                  alive_count=0)
 
-        self.assertEqual(len(self.control_point.renderers), 0)
+        self.assertEqual(len(self.control_point.root_devices), 0)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('not a MediaRenderer')))
+                re.compile('no MediaRenderer')))
         self.assertTrue(search_in_logs(logs.output, 'upnp',
                 re.compile('Disable the UPnPRootDevice .* permanently')))
 
@@ -348,7 +349,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                                                   ],
                                                  alive_count=2)
 
-        self.assertEqual(len(self.control_point.renderers), 1)
+        self.assertEqual(len(self.control_point.root_devices), 1)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile("Got 'byebye' notification")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
@@ -371,7 +372,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                                                   ],
                                                  alive_count=1)
 
-        self.assertEqual(len(self.control_point.renderers), 1)
+        self.assertEqual(len(self.control_point.root_devices), 1)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                                 re.compile('Ignore disabled UPnPRootDevice')))
 
@@ -402,7 +403,11 @@ class PulseEventContext:
         _set_control_point(control_point)
 
         root_device = RootDevice(upnp_control_point)
-        self.renderer = Renderer(control_point, root_device)
+        renderers_list = RenderersList(control_point, root_device)
+
+        # Note that self.renderer is not appended to renderers_list as this is
+        # not needed.
+        self.renderer = Renderer(control_point, root_device, renderers_list)
         self.renderer.previous_idx = previous_idx
 
         # Set the value of Renderer.nullsink.
@@ -595,7 +600,11 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         control_point.test_end.set_result(True)
 
         root_device = RootDevice(upnp_control_point)
-        renderer = Renderer(control_point, root_device)
+        renderers_list = RenderersList(control_point, root_device)
+
+        # Note that renderer is not appended to renderers_list as this is
+        # not needed.
+        renderer = Renderer(control_point, root_device, renderers_list)
         renderer.encoder = Encoder()
 
         with mock.patch.object(Renderer, 'handle_action') as handle_action,\

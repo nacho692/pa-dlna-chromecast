@@ -16,7 +16,7 @@ from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
 from .test_network import snicaddr, snicstats
 from .device_resps import device_description, scpd, soap_response, soap_fault
 from ..util import HTTPRequestHandler, shorten
-from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPService,
+from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                     UPnPSoapFaultError, UPnPClosedDeviceError)
 from ..xml import UPnPXMLError
 
@@ -70,6 +70,8 @@ class HTTPServer:
             # Write the response.
             writer.write(self.header)
             writer.write(self.body)
+        except asyncio.CancelledError:
+            pass
         finally:
             await writer.drain()
             try:
@@ -505,6 +507,10 @@ class RootDevice(IsolatedAsyncioTestCase):
 
         self.assertEqual(self.root_device.deviceList[0].friendlyName,
                          device_name)
+        all_devices = list(
+                    UPnPDevice.embedded_devices_generator(self.root_device))
+        self.assertEqual(all_devices,
+                         [self.root_device, self.root_device.deviceList[0]])
 
     def tearDown(self):
         self.control_point.close()

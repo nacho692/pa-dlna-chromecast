@@ -19,7 +19,8 @@ async def start_http_server(allow_from=True):
 
     # Start the http server.
     control_point = renderer.control_point
-    http_server = HTTPServer(control_point, renderer.local_ipaddress,
+    http_server = HTTPServer(control_point,
+                             renderer.root_device.local_ipaddress,
                              control_point.port)
     if allow_from:
         http_server.allow_from(renderer.root_device.peer_ipaddress)
