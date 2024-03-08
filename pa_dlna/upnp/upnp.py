@@ -240,7 +240,9 @@ class UPnPDevice(UPnPElement):
 
       All the subelements of the 'device' element in the xml description are
       attributes of the UPnPDevice instance: 'deviceType', 'friendlyName',
-      'manufacturer', 'UDN', etc... (see the specification).
+      'manufacturer', 'UDN', etc... (see the specification). Note that a
+      RootDevice has both an 'UDN' attribute and an 'udn' one that hold the
+      same value.
       Their value is the value (text) of the element except for:
 
       serviceList   dict {serviceId value: UPnPService instance}
@@ -380,10 +382,7 @@ class UPnPDevice(UPnPElement):
         return self
 
     def __str__(self):
-        if hasattr(self, 'UDN'):
-            return f'{shorten(self.UDN)}'
-        else:
-            return 'Embedded device'
+        return f'{shorten(self.UDN)}'
 
 class UPnPRootDevice(UPnPDevice):
     """An UPnP root device.

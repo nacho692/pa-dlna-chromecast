@@ -88,7 +88,7 @@ class Renderer:
         self.renderers_list = renderers_list
         self.root_device = renderers_list.root_device
 
-        udn_tail = upnp_device.udn[-5:]
+        udn_tail = upnp_device.UDN[-5:]
         self.name = f'{self.getattr("modelName")}-{udn_tail}'
         self.description = f'{self.getattr("friendlyName")} - {udn_tail}'
         self.root_device_name = (f'{self.root_device.modelName}-'
@@ -179,7 +179,7 @@ class Renderer:
             return False
 
     def match(self, uri_path):
-        return uri_path == f'{AUDIO_URI_PREFIX}/{self.upnp_device.udn}'
+        return uri_path == f'{AUDIO_URI_PREFIX}/{self.upnp_device.UDN}'
 
     async def start_track(self, writer):
         await self.stream_sessions.start_track(writer)
@@ -466,7 +466,7 @@ class Renderer:
     def set_current_uri(self):
         self.current_uri = (f'http://{self.root_device.local_ipaddress}'
                             f':{self.control_point.port}'
-                            f'{AUDIO_URI_PREFIX}/{self.upnp_device.udn}')
+                            f'{AUDIO_URI_PREFIX}/{self.upnp_device.UDN}')
 
     @log_exception(logger)
     async def run(self):
@@ -474,7 +474,7 @@ class Renderer:
 
         self.curtask = asyncio.current_task()
         try:
-            if not await self.select_encoder(self.upnp_device.udn):
+            if not await self.select_encoder(self.upnp_device.UDN):
                 return
             self.set_current_uri()
             logger.info(f'New {self.name} renderer with {self.encoder}'
@@ -530,7 +530,8 @@ class DLNATestDevice(Renderer):
             name = match.group(1)
             self.modelName = f'DLNATest_{name}'
             self.friendlyName = self.modelName
-            self.udn = get_udn(name.encode())
+            self.UDN = get_udn(name.encode())
+            self.udn = self.UDN
 
     def __init__(self, control_point, mime_type):
         root_device = self.RootDevice(mime_type, control_point)

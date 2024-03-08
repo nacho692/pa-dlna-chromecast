@@ -41,7 +41,7 @@ class Pulse:
             return
 
         upnp_device = renderer.upnp_device
-        module_name = f'{upnp_device.modelName}-{upnp_device.udn}'
+        module_name = f'{renderer.getattr("modelName")}-{upnp_device.UDN}'
         _description = renderer.description.replace(' ', r'\ ')
 
         module_index = await self.lib_pulse.pa_context_load_module(

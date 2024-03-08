@@ -491,9 +491,14 @@ class RootDevice(IsolatedAsyncioTestCase):
     async def test_devices(self):
         device_type = 'urn:schemas-upnp-org:device:MediaRenderer:1'
         device_name = 'Embedded device name'
+        # Root device udn set by device_description() in the device_resps
+        # module.
+        root_device_udn = 'uuid:ffffffff-ffff-ffff-ffff-ffffffffffff'
+        udn = 'uuid:embedded-ffff-ffff-ffff-ffffffffffff'
         devices = f"""<deviceList>
                         <device>
                           <deviceType>{device_type}</deviceType>
+                          <UDN>{udn}</UDN>
                           <friendlyName>{device_name}</friendlyName>
                         </device>
                       </deviceList>"""
@@ -505,12 +510,16 @@ class RootDevice(IsolatedAsyncioTestCase):
             await start_http_server(devices=devices)
             await self.root_device._run()
 
-        self.assertEqual(self.root_device.deviceList[0].friendlyName,
-                         device_name)
+        embedded = self.root_device.deviceList[0]
+        self.assertEqual(embedded.friendlyName, device_name)
+
+        self.assertEqual(embedded.UDN, udn)
+        self.assertTrue(not hasattr(embedded, 'udn'))
+        self.assertEqual(self.root_device.UDN, root_device_udn)
+
         all_devices = list(
                     UPnPDevice.embedded_devices_generator(self.root_device))
-        self.assertEqual(all_devices,
-                         [self.root_device, self.root_device.deviceList[0]])
+        self.assertEqual(all_devices, [self.root_device, embedded])
 
     def tearDown(self):
         self.control_point.close()

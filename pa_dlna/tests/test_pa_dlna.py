@@ -82,7 +82,8 @@ class RootDevice(UPnPRootDevice):
         name = match.group(1)
         self.modelName = f'RootDevice_{name}'
         self.friendlyName = self.modelName
-        self.udn = pa_dlna.get_udn(name.encode())
+        self.UDN = pa_dlna.get_udn(name.encode())
+        self.udn = self.UDN
 
         assert device_type in (None, True, False)
         if device_type:
