@@ -154,16 +154,24 @@ Development:
       debian container. Follow the instructions written as comments in each of
       the ``Dockerfile.pulse`` and ``Dockerfile.pipewire`` Docker files.
     * `coverage`_ is used to get the test suite coverage.
-    * `flit`_ is used to install pa-dlna or to publish it to PyPi.
+    * `flit`_ is used to publish pa-dlna to PyPi and may be used to install
+      pa-dlna locally.
 
-      At the root of pa-dlna local git repository, use the following command to
+      At the root of the pa-dlna git repository, use the following command to
       install pa-dlna locally::
 
         $ flit install --symlink [--python path/to/python]
 
       This symlinks pa-dlna into site-packages rather than copying it, so that
-      you can test changes by running the ``pa-dlna`` and ``upnp-cmd`` commands
-      without reinstalling the package.
+      you can test changes by running the ``pa-dlna`` and ``upnp-cmd``
+      commands provided that the ``PATH`` environment variable holds
+      ``$HOME/.local/bin``.
+
+      Otherwise without using `flit`_, one can run those commands from the root
+      of the repository as::
+
+        $ python -m pa_dlna.pa_dlna
+        $ python -m pa_dlna.upnp_cmd
 
 Documentation:
     * `Sphinx`_ [#]_.
