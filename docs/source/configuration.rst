@@ -49,7 +49,7 @@ retrieves HTTP files such as curl or wget. Here is an example with the
     - Set the L16Encoder at the highest priority in the pa-dlna.conf file.
     - Run pa-dlna with the ``test-devices`` command line option [#]_::
 
-        $ pa-dlna ---test-devices audio/L16\;rate=44100\;channels=2
+        $ pa-dlna --test-devices audio/L16\;rate=44100\;channels=2
     - Start a music player application and play some track.
     - Associate this source with the ``DLNATest_L16 - 0ab65`` DLNA sink in
       pavucontrol.
