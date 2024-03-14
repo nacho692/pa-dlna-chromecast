@@ -522,7 +522,6 @@ class DLNATestDevice(Renderer):
             self.control_point = control_point
             # Needed by soap_action() in the test suite.
             self.mime_type = mime_type
-            self.closed = True
             self.peer_ipaddress = self.LOOPBACK
             self.local_ipaddress = self.LOOPBACK
 
@@ -532,6 +531,9 @@ class DLNATestDevice(Renderer):
             self.friendlyName = self.modelName
             self.UDN = get_udn(name.encode())
             self.udn = self.UDN
+
+        def close(self):
+            logger.info(f"Close '{self.modelName}' root device")
 
     def __init__(self, control_point, mime_type):
         root_device = self.RootDevice(mime_type, control_point)
@@ -582,13 +584,16 @@ class RenderersList(UserList):
     async def close(self):
         if not self.closed:
             self.closed = True
-            if not self.root_device.closed:
-                self.root_device.close()
-
             for renderer in self.data:
-                await renderer.close()
+                try:
+                    await renderer.close()
+                except Exception as e:
+                    logger.error(f'Got exception closing {renderer.name}:'
+                                 f' {e!r}')
+
             if self.root_device in self.control_point.root_devices:
                 del self.control_point.root_devices[self.root_device]
+            self.root_device.close()
 
 class AVControlPoint(UPnPApplication):
     """Control point with Content.

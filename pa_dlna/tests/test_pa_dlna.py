@@ -180,6 +180,28 @@ class DLNAControlPoint(PaDlnaTestCase):
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
 
+    @min_python_version((3, 9))
+    async def test_exception_renderer_close(self):
+        async def handle_pulse_event(renderer):
+            renderer.control_point.curtask.cancel('foo')
+            await asyncio.sleep(0)
+
+        async def close(self):
+            raise OSError('foo')
+
+        with mock.patch.object(Renderer, 'close', close):
+            return_code, logs = await self.run_control_point(
+                            handle_pulse_event, test_devices=['audio/mp3'])
+
+        self.assertTrue(isinstance(return_code, asyncio.CancelledError))
+        self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
+                                     "Main task got: CancelledError('foo')"))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                    re.compile("Got exception closing DLNATest_\S+"
+                               f" OSError\('foo'\)")))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                                       re.compile('Close \S+ root device')))
+
     async def test_abort(self):
         async def handle_pulse_event(renderer):
             await asyncio.sleep(0)  # Avoid infinite loop.
