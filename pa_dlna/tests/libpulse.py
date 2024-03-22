@@ -81,12 +81,16 @@ class EventIterator:
                 raise StopAsyncIteration
 
 class SinkInput:
+    index = 0
+
     def __init__(self, name, events):
         assert isinstance(events, collections.abc.Sequence)
         self.name = name
         self.events = events
         self.sink = None
-        self.index = None
+
+        self.index = SinkInput.index
+        SinkInput.index += 1
 
     def get_event(self):
         if len(self.events):
@@ -103,6 +107,7 @@ class Sink:
     def __init__(self, name, owner_module=None):
         self.name = name
         self.owner_module = owner_module
+        self.state = 'ignored'
         self.sink_input = None
 
         self.index = Sink.index

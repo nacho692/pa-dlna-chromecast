@@ -497,17 +497,6 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             re.compile(
                 "'Closing-Stop' UPnP action .* device prev state: PLAYING")))
 
-    async def test_prev_sink_input(self):
-        ctx = PulseEventContext(sink_state='idle', sink_input_index=0)
-        ctx.renderer.previous_idx = 0
-
-        result, logs = await self.patch_soap_action('new', ctx)
-
-        self.assertEqual(len(result), 0)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                            re.compile("'new' event ignored: related to "
-                                       'previous .* RootDevice_mp3')))
-
     async def test_first_track(self):
         ctx = PulseEventContext(sink_state='running', sink_input_index=0)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)

@@ -20,6 +20,18 @@ class NullSink:
         self.sink = sink        # libpulse Sink instance
         self.sink_input = None  # libpulse SinkInput instance
 
+class SinkInputEvent:
+    def __init__(self, sink_input, event):
+        self.type = event.type
+        # 'sink' is the index of the sink associated with the sink-input.
+        self.sink = sink_input.sink
+        self.proplist = sink_input.proplist
+
+    def __eq__(self, other):
+        return (self.type == other.type and
+                self.sink == other.sink and
+                self.proplist == other.proplist)
+
 class Pulse:
     """Pulse monitors pulseaudio sink-input events."""
 
@@ -27,6 +39,7 @@ class Pulse:
         self.av_control_point = av_control_point
         self.closing = False
         self.lib_pulse = None
+        self.sink_input_events = {}
 
     async def close(self):
         if not self.closing:
@@ -89,6 +102,23 @@ class Pulse:
             if sink_input.sink == renderer.nullsink.sink.index:
                 return sink_input
         return None
+
+    def is_ignored_event(self, sink_input, event):
+        index = event.index
+        if index not in self.sink_input_events:
+            self.sink_input_events[index] = SinkInputEvent(sink_input, event)
+            return False
+        else:
+            if event.type == 'remove':
+                del self.sink_input_events[index]
+            else:
+                last_event = self.sink_input_events[index]
+                new_event = SinkInputEvent(sink_input, event)
+                if new_event == last_event:
+                    return True     # Ignore the event.
+                else:
+                    self.sink_input_events[index] = new_event
+        return False
 
     def find_previous_renderer(self, event):
         """Find the renderer that was last connected to this sink-input."""
@@ -159,7 +189,25 @@ class Pulse:
             sink = await self.lib_pulse.pa_context_get_sink_info_by_name(
                                                 renderer.nullsink.sink.name)
             if sink is not None:
-                renderer.pulse_queue.put_nowait((evt_type, sink, sink_input))
+                prev_state, new_state = renderer.sink_states(sink)
+                no_change = self.is_ignored_event(sink_input, event)
+                if no_change and prev_state == new_state:
+                    # Ignore a SinkInputEvent with no changes from the
+                    # previous one (or if the previous one does not exist) and
+                    # the sink state has not changed.
+                    pass
+                elif sink_input.index == renderer.previous_idx:
+                    # Ignore event related to the previous sink-input.
+                    pass
+                else:
+                    renderer.pulse_queue.put_nowait(
+                                                (evt_type, sink, sink_input))
+                    # Upon stopping a stream, libpulse emits a batch of weird
+                    # sink state changes and sometimes a batch of them for the
+                    # same change. This is the reason why we have to wait
+                    # for the change to be fully handled by the Renderer.
+                    if no_change and prev_state != new_state:
+                        await renderer.pulse_queue.join()
 
         prev_renderer = self.find_previous_renderer(event)
         # The sink_input has been re-routed to another sink.
@@ -168,6 +216,8 @@ class Pulse:
             # for the sink that had been previously connected to this
             # sink_input.
             evt_type = 'exit'
+            if event.index in self.sink_input_events:
+                del self.sink_input_events[event.index]
             prev_renderer.pulse_queue.put_nowait((evt_type, None, None))
 
     @log_exception(logger)

@@ -61,6 +61,54 @@ class Pulseaudio(IsolatedAsyncioTestCase):
 
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
+    async def test_dispatch_event(self):
+        results = []
+        renderer = self.new_renderer('mp3', results)
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            sink_input = SinkInput('source', [Event('new')])
+            LibPulse.add_sink_inputs([sink_input])
+
+            async with LibPulse('pa-dlna') as self.pulse.lib_pulse:
+                renderer.nullsink = await self.pulse.register(renderer)
+                await self.pulse.lib_pulse.pa_context_subscribe(
+                                            PA_SUBSCRIPTION_MASK_SINK_INPUT)
+                iterator = self.pulse.lib_pulse.get_events()
+                async for event in iterator:
+                    await self.pulse.dispatch_event(event)
+                    await asyncio.sleep(0)
+
+        self.assertTrue(results[0] == ('new', renderer.nullsink.sink,
+                                       sink_input))
+
+    async def test_ignore_prev_sink_input(self):
+        results = []
+        renderer = self.new_renderer('mp3', results)
+        proplist = {}
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            sink_input = SinkInput('source', [Event('new'), Event('change'),
+                                        Event('change', proplist=proplist)])
+            LibPulse.add_sink_inputs([sink_input])
+
+            async with LibPulse('pa-dlna') as self.pulse.lib_pulse:
+                renderer.nullsink = await self.pulse.register(renderer)
+                await self.pulse.lib_pulse.pa_context_subscribe(
+                                            PA_SUBSCRIPTION_MASK_SINK_INPUT)
+                iterator = self.pulse.lib_pulse.get_events()
+                count = 0
+                async for event in iterator:
+                    await self.pulse.dispatch_event(event)
+                    # Do not dispatch the second Event.
+                    renderer.previous_idx = 0 if count == 0 else None
+                    count += 1
+                    await asyncio.sleep(0)
+
+        self.assertTrue(len(results) == 2)
+        self.assertTrue(results[0] == ('new', renderer.nullsink.sink,
+                                       sink_input))
+        self.assertTrue(results[1] == ('change', renderer.nullsink.sink,
+                                       sink_input))
+        self.assertTrue(sink_input.proplist is proplist)
+
     async def test_connect_raise_once(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             LibPulse.add_sink_inputs([SinkInput('source', [Event('new')])])
