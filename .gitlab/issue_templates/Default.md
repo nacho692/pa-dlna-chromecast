@@ -6,7 +6,8 @@
 
 ### Your environment.
 
-- Sound server (Pulseaudio, Pipewire, both):
+- Pulseaudio version:
+- Pipewire version:
 - pa-dlna version:
 - DLNA device name:
 - Selected encoder:
