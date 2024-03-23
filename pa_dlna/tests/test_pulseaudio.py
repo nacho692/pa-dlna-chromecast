@@ -83,7 +83,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
     async def test_ignore_prev_sink_input(self):
         results = []
         renderer = self.new_renderer('mp3', results)
-        proplist = {}
+        proplist = {'media.role': 'video'}
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             sink_input = SinkInput('source', [Event('new'), Event('change'),
                                         Event('change', proplist=proplist)])
@@ -108,6 +108,37 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         self.assertTrue(results[1] == ('change', renderer.nullsink.sink,
                                        sink_input))
         self.assertTrue(sink_input.proplist is proplist)
+
+    async def test_ignore_sound_setting(self):
+        results = []
+        renderer = self.new_renderer('mp3', results)
+        proplist_event = {'media.role': 'event'}
+        proplist_video = {'media.role': 'video'}
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            sink_input = SinkInput('source', [Event('new'),
+                                    Event('change', proplist=proplist_event),
+                                    Event('change', proplist=proplist_video)])
+            LibPulse.add_sink_inputs([sink_input])
+
+            async with LibPulse('pa-dlna') as self.pulse.lib_pulse:
+                renderer.nullsink = await self.pulse.register(renderer)
+                await self.pulse.lib_pulse.pa_context_subscribe(
+                                            PA_SUBSCRIPTION_MASK_SINK_INPUT)
+                iterator = self.pulse.lib_pulse.get_events()
+                count = 0
+                async for event in iterator:
+                    await self.pulse.dispatch_event(event)
+                    # Do not dispatch the second Event.
+                    renderer.previous_idx = 0 if count == 0 else None
+                    count += 1
+                    await asyncio.sleep(0)
+
+        self.assertTrue(len(results) == 2)
+        self.assertTrue(results[0] == ('new', renderer.nullsink.sink,
+                                       sink_input))
+        self.assertTrue(results[1] == ('change', renderer.nullsink.sink,
+                                       sink_input))
+        self.assertTrue(sink_input.proplist is proplist_video)
 
     async def test_connect_raise_once(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:

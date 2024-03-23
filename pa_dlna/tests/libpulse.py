@@ -51,7 +51,7 @@ class PulseClosedError(LibPulseError): pass
 class PulseStateError(LibPulseError): pass
 
 class Event:
-    def __init__(self, event, proplist=None):
+    def __init__(self, event, proplist={'media.role': 'music'}):
         assert event in ('new', 'change', 'remove')
         self.type = event
         self.proplist = proplist

@@ -2,7 +2,9 @@ Release history
 ===============
 
 Version 0.8
-  - Support multiple embedded MediaRenderers.
+  - Changing the volume level with ``pavucontrol`` does not interfere with the
+    current audio stream.
+  - Support multiple embedded MediaRenderers in a DLNA device.
   - The ``deviceList`` attribute of UPnPDevice is now a list instead of a
     dictionary.
   - Do not age an UPnP root device upon receiving a ``CACHE-CONTROL`` header

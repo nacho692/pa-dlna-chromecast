@@ -184,6 +184,15 @@ class Pulse:
 
         renderer, sink_input = await self.find_renderer(event)
         if renderer is not None:
+            assert sink_input is not None
+
+            # Ignore sound settings events.
+            # See src/pulse/proplist.h in Pulseaudio source code.
+            proplist = sink_input.proplist
+            if (proplist and 'media.role' in proplist and
+                    proplist['media.role'] == 'event'):
+                return
+
             # 'renderer.nullsink.sink' is the stale sink from the previous
             # event, we need to fetch the 'sink' correponding to this event.
             sink = await self.lib_pulse.pa_context_get_sink_info_by_name(
