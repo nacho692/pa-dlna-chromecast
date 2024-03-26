@@ -27,8 +27,10 @@ RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
 CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
 IGNORED_SOAPFAULTS = {'701': 'Transition not available',
                       '715': "Content 'BUSY'"}
+# Maximum time before starting a new session while waiting for the second
+# pulse event.
+NEW_SESSION_MAX_DELAY = 1
 
-UPnPAction = namedtuple('UPnPAction', ['action', 'state'])
 def get_udn(data):
     """Build an UPnP udn."""
 
@@ -96,7 +98,8 @@ class Renderer:
         self.curtask = None             # Renderer.run() task
         self.closing = False
         self.nullsink = None            # NullSink instance
-        self.previous_idx = None        # index of previous sink input
+        self.previous_idx = None        # previous sink input index
+        self.exit_metadata = None       # sink input meta data at exit
         self.encoder = None
         self.mime_type = None
         self.protocol_info = None
@@ -184,24 +187,17 @@ class Renderer:
     async def start_track(self, writer):
         await self.stream_sessions.start_track(writer)
 
-    def sink_states(self, sink):
-        if sink is None:
-            sink = self.nullsink.sink
-            prev_state = sink.state
-            new_state = None
-        else:
-            prev_sink = self.nullsink.sink
-            prev_state = (prev_sink.state
-                          if prev_sink is not None else None)
-            new_state = sink.state
-        return prev_state, new_state
+    async def push_second_event_at(self, delay, event, sink, sink_input):
+        """Push the first pulse event a second time to start a new session.
 
-    def log_pulse_event(self, event, prev_state, new_state, sink_input):
-        if new_state is None:
-            sink_state = f'previous state: {prev_state}'
-        else:
-            sink_state = f'prev/new state: {prev_state}/{new_state}'
+        Handle the case where the second pulse event is missing.
+        """
 
+        await asyncio.sleep(delay)
+        if self.new_pulse_session:
+            self.pulse_queue.put_nowait((event, sink, sink_input))
+
+    def log_pulse_event(self, event, sink_input):
         sink_input_index = 'unknown'
         if sink_input is None:
             sink_input = self.nullsink.sink_input
@@ -209,21 +205,7 @@ class Renderer:
             sink_input_index = sink_input.index
 
         logger.debug(f"'{event}' pulse event [{self.name} "
-                     f'sink-input: idx {sink_input_index}, {sink_state}]')
-
-        if new_state == 'suspended' and not self.suspended_state:
-            self.suspended_state = True
-            logger.warning(f"'{event}' pulse event {self.name} sink-input: "
-                           f"{sink_input_index}, entering 'suspended' state")
-        elif new_state != 'suspended' and self.suspended_state:
-            self.suspended_state = False
-            logger.info(f"'{event}' pulse event {self.name} sink-input: "
-                        f"{sink_input_index}, leaving 'suspended' state")
-
-        for state in (prev_state, new_state):
-            if state not in (None, 'idle', 'running', 'suspended'):
-                logger.info(f"Expecting 'idle', 'running' or 'suspended'"
-                            f" state but found '{state}'")
+                     f'sink-input index {sink_input_index}]')
 
     def sink_input_meta(self, sink_input):
         if sink_input is None:
@@ -240,13 +222,8 @@ class Renderer:
 
         return MetaData(publisher, artist, title)
 
-    async def new_session(self, metadata, state):
-        await self.set_avtransporturi(metadata, state)
-        log_action(self.name, 'Play', state)
-        await self.play()
-
     async def handle_action(self, action):
-        """An action is either 'Stop', 'Pause' or an instance of MetaData.
+        """An action is either 'Stop' or an instance of MetaData.
 
         DLNA TransportStates are 'NO_MEDIA_PRESENT', 'STOPPED' or
         'PLAYING', the other states are silently ignored.
@@ -256,7 +233,7 @@ class Renderer:
         state = await self.get_transport_state()
 
         # Space out SOAP actions that start or stop a stream.
-        if action != 'Pause' and self.encoder.soap_minimum_interval != 0:
+        if self.encoder.soap_minimum_interval != 0:
             await self.soap_spacer.wait()
 
         # Run an AVTransport action if needed.
@@ -265,10 +242,6 @@ class Renderer:
                 if isinstance(action, MetaData):
                     if self.encoder.track_metadata:
                         await self.set_nextavtransporturi(action, state)
-                    else:
-                        await self.stop()
-                        log_action(self.name, 'Stop', state)
-                        await self.new_session(action, state)
                     return
                 elif action == 'Stop':
                     # Do not use the corresponding soap action. Let the
@@ -277,16 +250,11 @@ class Renderer:
                     log_action(self.name, 'Closing-Stop', state)
                     await self.stream_sessions.close_session()
                     return
-                # Ignore 'Pause' events as it does not work well with
-                # streaming because of the DLNA buffering the stream.
-                # Also pulseaudio generate very short lived 'Pause'
-                # events that are annoying.
-                elif action == 'Pause':
-                    pass
-            else:
-                if isinstance(action, MetaData):
-                    await self.new_session(action, state)
-                    return
+            elif isinstance(action, MetaData):
+                await self.set_avtransporturi(action, state)
+                log_action(self.name, 'Play', state)
+                await self.play()
+                return
         except UPnPSoapFaultError as e:
             error_code = e.args[0].errorCode
             if error_code in IGNORED_SOAPFAULTS:
@@ -298,31 +266,18 @@ class Renderer:
         log_action(self.name, action, state, ignored=True)
 
     async def handle_pulse_event(self):
-        try:
-            handling_event = False
-            event, sink, sink_input = await self.pulse_queue.get()
-            handling_event = True
-            await self._handle_pulse_event(event, sink, sink_input)
-        finally:
-            if handling_event:
-                self.pulse_queue.task_done()
-
-    async def _handle_pulse_event(self, event, sink, sink_input):
         """Handle a PulseAudio event.
 
-        Known pulseaudio states are 'idle', 'running'.
         An event is either 'new', 'change', 'remove' or 'exit'.
-        An action is either 'Stop', 'Pause' or an instance of MetaData.
+        An action is either 'Stop' or an instance of MetaData.
         """
 
-        # The 'sink' and 'sink_input' variables define the new state.
-        # 'self.nullsink' holds the state prior to this event.
         if self.nullsink is None:
             # The Renderer instance is now temporarily disabled.
             return
 
-        prev_state, new_state = self.sink_states(sink)
-        self.log_pulse_event(event, prev_state, new_state, sink_input)
+        event, sink, sink_input = await self.pulse_queue.get()
+        self.log_pulse_event(event, sink_input)
 
         # Note that, at each pulseaudio event, a new instance of sink and
         # sink_input is generated by the libpulse library.
@@ -333,44 +288,58 @@ class Renderer:
 
         # Process the event and set the new attributes values of nullsink.
         if event in ('remove', 'exit'):
-            self.nullsink.sink_input = None
-            await self.handle_action('Stop')
+            if self.nullsink.sink_input is not None:
+                if event == 'exit':
+                    self.exit_metadata = self.sink_input_meta(
+                                                    self.nullsink.sink_input)
+                self.nullsink.sink_input = None
+                await self.handle_action('Stop')
             return
 
         assert sink is not None and sink_input is not None
-        cur_metadata = self.sink_input_meta(sink_input)
+        try:
+            cur_metadata = self.sink_input_meta(sink_input)
+            if self.nullsink.sink_input is None:
+                self.new_pulse_session = True
+                # The reconnection of a sink-input after an exit is signaled
+                # by only one 'change' event, while a new session is signaled
+                # by two events in both PulseAudio and Pipewire, the track
+                # meta data (if any) being only available in the second one.
+                #
+                # push_second_event_at() handles the case where the second
+                # event is missing after a NEW_SESSION_MAX_DELAY delay.
+                if cur_metadata == self.exit_metadata:
+                    self.exit_metadata = None
+                else:
+                    self.control_point.cp_tasks.create_task(
+                        self.push_second_event_at(NEW_SESSION_MAX_DELAY,
+                                                  event, sink, sink_input),
+                        name='new_session_max_delay')
+                    return
 
-        # A new pulse session.
-        if (self.nullsink.sink_input is None or
-                prev_state == 'suspended' or
-                (event == 'new' and new_state == 'idle')):
-            self.new_pulse_session = True
-
-        if self.new_pulse_session:
-            if new_state == 'running':
+            if self.new_pulse_session:
+                self.new_pulse_session = False
                 # So that the device may display at least some useful info.
                 if not cur_metadata.title:
                     cur_metadata = cur_metadata._replace(
                                             title=cur_metadata.publisher)
-                self.new_pulse_session = False
                 await self.handle_action(cur_metadata)
 
-        elif (cur_metadata.title != '' and
-                (prev_state, new_state) == ('running', 'running')):
-            prev_metadata = self.sink_input_meta(self.nullsink.sink_input)
-            if (prev_metadata is not None and
-                    cur_metadata.title != prev_metadata.title):
-                await self.handle_action(cur_metadata)
+            # A new track.
+            elif 'media.title' in sink_input.proplist:
+                prev_metadata = self.sink_input_meta(self.nullsink.sink_input)
+                # Note that if self.encoder.track_metadata is false, then
+                # cur_metadata.title == prev_metadata.title since 'title'
+                # value is 'publisher' value.
+                if (prev_metadata is not None and
+                        cur_metadata.title != prev_metadata.title):
+                    await self.handle_action(cur_metadata)
 
-        elif (prev_state, new_state) == ('running', 'idle'):
-            await self.handle_action('Pause')
-
-        if self.nullsink is None:
-            # The Renderer instance is now temporarily disabled.
-            return
-
-        self.nullsink.sink = sink
-        self.nullsink.sink_input = sink_input
+        finally:
+            # If the Renderer instance is not temporarily disabled.
+            if self.nullsink is not None:
+                self.nullsink.sink = sink
+                self.nullsink.sink_input = sink_input
 
     async def soap_action(self, serviceId, action, args={}):
         """Send a SOAP action.
@@ -481,6 +450,8 @@ class Renderer:
                         f" handling '{self.mime_type}'"
                         f'{NL_INDENT}URL: {self.current_uri}')
 
+            # Handle the case where pa-dlna is started after streaming has
+            # started (no pulse event).
             sink_input = await self.control_point.pulse.get_sink_input(self)
             if sink_input is not None:
                 logger.info(f"Streaming '{sink_input.name}' on {self.name}")

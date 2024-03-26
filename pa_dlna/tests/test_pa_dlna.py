@@ -96,8 +96,7 @@ class RootDevice(UPnPRootDevice):
                          None, 3600)
 
 class Sink:
-    def __init__(self, state):
-        self.state = state
+    pass
 
 class SinkInput:
     def __init__(self, index=0, proplist=None):
@@ -404,20 +403,16 @@ class PulseEventContext:
 
     The context is made of 'renderer', 'sink' and 'sink_input'.
     'sink' and 'sink_input' are either both None or both not None.
-    In the last case, this is interpreted as a change of the pulseaudio state.
     """
 
     def __init__(self,
-                 previous_idx=None,
-                 prev_sink_state='idle',
+                 sink=None,
                  prev_sink_input_index = None,
-                 sink_state=None,
                  sink_input_index=None,
                  sink_input_proplist=None):
 
-        is_index = isinstance(sink_input_index, int)
-        assert (all((sink_state, is_index)) or
-                all((not sink_state, not is_index)))
+        assert ((sink is None and sink_input_index is None) or
+                (sink is not None and sink_input_index is not None))
 
         # Build the renderer.
         upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
@@ -431,26 +426,32 @@ class PulseEventContext:
         # Note that self.renderer is not appended to renderers_list as this is
         # not needed.
         self.renderer = Renderer(control_point, root_device, renderers_list)
-        self.renderer.previous_idx = previous_idx
 
         # Set the value of Renderer.nullsink.
-        prev_sink = Sink(prev_sink_state)
+        prev_sink = Sink()
         nullsink = pulseaudio.NullSink(prev_sink)
         if prev_sink_input_index is not None:
             nullsink.sink_input = SinkInput(prev_sink_input_index)
         self.renderer.nullsink = nullsink
 
         # Build the sink.
-        self.sink = Sink(sink_state) if sink_state is not None else None
+        self.sink = sink
 
         # Build the sink_input.
         self.sink_input = (SinkInput(sink_input_index, sink_input_proplist) if
-                           is_index else None)
+                           sink_input_index is not None else None)
 
 class PatchSoapActionTests(IsolatedAsyncioTestCase):
     """Test cases using patch_soap_action()."""
 
-    async def patch_soap_action(self, event, ctx, transport_state='PLAYING',
+    @staticmethod
+    async def select_encoder(ctx):
+        if ctx.renderer.encoder is None:
+            await ctx.renderer.select_encoder(ctx.renderer.root_device.udn)
+        else:
+            ctx.renderer.encoder.soap_minimum_interval = 0
+
+    async def patch_soap_action(self, event, ctx, transport_state='STOPPED',
                                 track_metadata=True,
                                 soap_minimum_interval=None):
         async def soap_action(renderer, serviceId, action, args={}):
@@ -468,42 +469,62 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             # Select the encoder: Renderer.sink_input_meta() needs
             # to read the Renderer.encoder.track_metadata attribute.
-            await ctx.renderer.select_encoder(ctx.renderer.root_device.udn)
-            ctx.renderer.encoder.track_metadata = track_metadata
+            await self.select_encoder(ctx)
+            renderer = ctx.renderer
+            renderer.encoder.track_metadata = track_metadata
             if soap_minimum_interval is not None:
-                ctx.renderer.soap_spacer.next_soap_at = (time.monotonic() +
-                                                         soap_minimum_interval)
+                renderer.encoder.soap_minimum_interval = soap_minimum_interval
+                renderer.soap_spacer.next_soap_at = (time.monotonic() +
+                                                     soap_minimum_interval)
 
-            ctx.renderer.pulse_queue.put_nowait((event, ctx.sink,
+            renderer.pulse_queue.put_nowait((event, ctx.sink,
                                                  ctx.sink_input))
-            await ctx.renderer.handle_pulse_event()
+            await renderer.handle_pulse_event()
 
         return result, m_logs
 
     async def test_remove_event(self):
-        ctx = PulseEventContext(prev_sink_state='running',
-                                prev_sink_input_index=0)
+        index = 999
+        ctx = PulseEventContext(prev_sink_input_index=index)
         self.assertEqual(ctx.sink, None)
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
         self.assertEqual(ctx.sink_input, None)
 
-        result, logs = await self.patch_soap_action('remove', ctx)
+        result, logs = await self.patch_soap_action('remove', ctx,
+                                                    transport_state='PLAYING')
 
         self.assertEqual(len(result), 0)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile("'remove' pulse event .*previous state: running")))
+            re.compile(f"'remove' pulse event .* index {index}")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
             re.compile(
                 "'Closing-Stop' UPnP action .* device prev state: PLAYING")))
 
-    async def test_first_track(self):
-        ctx = PulseEventContext(sink_state='running', sink_input_index=0)
-        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
-        del ctx.sink_input.proplist['media.title']
+    async def test_exit_metadata(self):
+        ctx = PulseEventContext(prev_sink_input_index=0)
+        self.assertEqual(ctx.sink, None)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
+        self.assertEqual(ctx.sink_input, None)
 
-        result, logs = await self.patch_soap_action('new', ctx,
-                                                    transport_state='STOPPED')
+        await self.patch_soap_action('exit', ctx, transport_state='PLAYING')
+        self.assertTrue(ctx.renderer.exit_metadata is not None)
+
+        ctx.sink = Sink()
+        ctx.sink_input = SinkInput(1)
+        result, logs = await self.patch_soap_action('change', ctx)
+
+        self.assertEqual(ctx.renderer.exit_metadata, None)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0][1], 'SetAVTransportURI')
+        self.assertEqual(result[1][1], 'Play')
+
+    async def test_first_track(self):
+        ctx = PulseEventContext(sink=Sink(), sink_input_index=0)
+        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
+
+        await self.patch_soap_action('new', ctx)
+        result, logs = await self.patch_soap_action('change', ctx)
 
         self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
         self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
@@ -511,92 +532,144 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(result[0][1], 'SetAVTransportURI')
         self.assertEqual(result[1][1], 'Play')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('new.* event .* prev/new state: idle/running')))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile("MetaData\(.* artist='Ziggy Stardust'")))
-
-    async def test_soap_minimum_interval(self):
-        ctx = PulseEventContext(sink_state='running', sink_input_index=0)
-
-        with mock.patch.object(asyncio, 'sleep') as sleep:
-            result, logs = await self.patch_soap_action('new', ctx,
-                        transport_state='STOPPED', soap_minimum_interval=5)
-        sleep.assert_called_once()
+                re.compile("MetaData\(.*artist='Ziggy Stardust'")))
 
     async def test_next_track(self):
+        index = 999
         proplist = PROPLIST.copy()
         proplist['media.title'] = 'Sticky Fingers'
-        ctx = PulseEventContext(prev_sink_state='running',
+        ctx = PulseEventContext(sink=Sink(),
                                 prev_sink_input_index=0,
-                                sink_state='running',
-                                sink_input_index=1,
+                                sink_input_index=index,
                                 sink_input_proplist=proplist)
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
 
-        result, logs = await self.patch_soap_action('change', ctx)
+        result, logs = await self.patch_soap_action('change', ctx,
+                                                    transport_state='PLAYING')
 
         self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
         self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], 'SetNextAVTransportURI')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile('change.* event .* prev/new state: running/running')))
+            re.compile(f'change.* event .* sink-input index {index}')))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile("MetaData\(.* artist='Ziggy Stardust'")))
+                re.compile("MetaData\(.* title='Sticky Fingers'\)")))
+
+    async def test_no_title(self):
+        # Test that an empty 'title' is replaced by the 'publisher'.
+        ctx = PulseEventContext(sink=Sink(), sink_input_index=0)
+        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
+
+        await self.patch_soap_action('new', ctx)
+        proplist = PROPLIST.copy()
+        application_name = 'foo'
+        proplist['application.name'] = application_name
+        proplist['media.title'] = ''
+        ctx.sink_input.proplist = proplist
+        result, logs = await self.patch_soap_action('change', ctx)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0][1], 'SetAVTransportURI')
+        self.assertEqual(result[1][1], 'Play')
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                re.compile(f"MetaData\(.*, title='{application_name}'\)")))
 
     async def test_no_track_metadata(self):
+        # Ignore change event when:
+        #   - not new_session
+        #   - renderer.encoder.track_metadata is false
+        ctx = PulseEventContext(sink=Sink(),
+                                prev_sink_input_index=0,
+                                sink_input_index=1)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
+
+        # A dummy 'change' event to select the encoder.
+        await self.patch_soap_action('change', ctx, transport_state='PLAYING')
+
+
+        ctx.renderer.encoder.track_metadata = False
+        sink_input_meta = ctx.renderer.sink_input_meta
         proplist = PROPLIST.copy()
         proplist['media.title'] = 'Sticky Fingers'
-        ctx = PulseEventContext(prev_sink_state='running',
-                                sink_state='running',
-                                sink_input_index=1,
-                                sink_input_proplist=proplist)
-        self.assertTrue(ctx.renderer.nullsink.sink_input is None)
+        ctx.renderer.nullsink.sink_input.proplist = proplist
+
+        # See the comment in the code.
+        self.assertTrue(sink_input_meta(ctx.sink_input) ==
+                   sink_input_meta(ctx.renderer.nullsink.sink_input))
+        result, logs = await self.patch_soap_action('change', ctx,
+                                                    transport_state='PLAYING')
+        self.assertEqual(len(result), 0)
+
+    async def test_change_same_metadata(self):
+        # Ignore change event when:
+        #   - not new_session
+        #   - no change in metadata
+        ctx = PulseEventContext(sink=Sink(),
+                                prev_sink_input_index=0,
+                                sink_input_index=1)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
 
         result, logs = await self.patch_soap_action('change', ctx,
-                                                    track_metadata=False)
+                                                    transport_state='PLAYING')
 
-        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
-        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
-        self.assertEqual(len(result), 3)
+        self.assertEqual(len(result), 0)
+
+    async def test_new_session_max_delay(self):
+        # Test that after Renderer.new_pulse_session is set to True, if the
+        # second event is missing, the first event event is pushed again by
+        # the 'new_session_max_delay' task.
+        async def soap_action(renderer, serviceId, action, args={}):
+            if action == 'GetProtocolInfo':
+                return {'Source': None,
+                        'Sink': 'http-get:*:audio/mp3:*'
+                        }
+            elif action == 'GetTransportInfo':
+                return {'CurrentTransportState': 'STOPPED'}
+            else:
+                result.append((serviceId, action, args))
+
+        ctx = PulseEventContext(sink=Sink(), sink_input_index=0)
+        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
+
+        with mock.patch.object(pa_dlna, 'NEW_SESSION_MAX_DELAY', 0) as delay:
+            await self.patch_soap_action('new', ctx)
+            self.assertTrue(ctx.renderer.new_pulse_session)
+            await asyncio.sleep(0)
+
+            # Handle the event pushed by the 'new_session_max_delay' task.
+            result = []
+            with mock.patch.object(Renderer, 'soap_action', soap_action),\
+                    self.assertLogs(level=logging.DEBUG) as logs:
+                await ctx.renderer.handle_pulse_event()
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0][1], 'SetAVTransportURI')
+        self.assertEqual(result[1][1], 'Play')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile('change.* event .* prev/new state: running/running')))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile("'Stop' UPnP action .* PLAYING")))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile("'SetAVTransportURI' UPnP action .* PLAYING")))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile("'Play' UPnP action .* PLAYING")))
+                re.compile("MetaData\(.*artist='Ziggy Stardust'")))
+
+    async def test_soap_minimum_interval(self):
+        ctx = PulseEventContext(sink=Sink(), sink_input_index=0)
+
+        with mock.patch.object(asyncio, 'sleep') as sleep:
+            await self.patch_soap_action('new', ctx)
+            result, logs = await self.patch_soap_action('change', ctx,
+                                                    soap_minimum_interval=5)
+        sleep.assert_called_once()
 
     async def test_soap_fault(self):
-        ctx = PulseEventContext(sink_state='running', sink_input_index=0)
+        ctx = PulseEventContext(sink=Sink(), sink_input_index=0)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
 
         with mock.patch.object(Renderer, 'play') as play:
             play.side_effect = UPnPSoapFaultError(SoapFault('701'))
-            result, logs = await self.patch_soap_action('new', ctx,
-                                                    transport_state='STOPPED')
+            await self.patch_soap_action('new', ctx)
+            result, logs = await self.patch_soap_action('change', ctx)
 
         play.assert_called_once()
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
             re.compile("Ignoring SOAP error 'Transition not available'")))
-
-    async def test_pause(self):
-        ctx = PulseEventContext(prev_sink_state='running',
-                                prev_sink_input_index=1,
-                                sink_state='idle',
-                                sink_input_index=1)
-        self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
-
-        result, logs = await self.patch_soap_action('change', ctx)
-
-        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
-        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
-        self.assertEqual(len(result), 0)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile('change.* event .* prev/new state: running/idle')))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-            re.compile("'Pause' ignored UPnP action")))
 
     async def test_start_streaming(self):
         # Test that streaming starts when pa-dlna is started while the track
@@ -631,33 +704,3 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
 
         self.assertTrue(search_in_logs(m_logs.output, 'pa-dlna',
                                 re.compile(f"Streaming '{sink_input_name}'")))
-
-    async def test_in_suspended_state(self):
-        ctx = PulseEventContext(sink_state='suspended', sink_input_index=0)
-        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
-
-        result, logs = await self.patch_soap_action('change', ctx,
-                                                    transport_state='STOPPED')
-
-        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
-        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
-        self.assertEqual(result, [])
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                                    re.compile("entering 'suspended' state")))
-
-    async def test_out_suspended_state(self):
-        ctx = PulseEventContext(prev_sink_state='suspended',
-                                sink_state='running', sink_input_index=0)
-        ctx.renderer.suspended_state = 'suspended'
-        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
-
-        result, logs = await self.patch_soap_action('change', ctx,
-                                                    transport_state='STOPPED')
-
-        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
-        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0][1], 'SetAVTransportURI')
-        self.assertEqual(result[1][1], 'Play')
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                                    re.compile("leaving 'suspended' state")))

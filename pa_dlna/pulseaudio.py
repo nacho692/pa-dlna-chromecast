@@ -164,9 +164,8 @@ class Pulse:
         index of a 'remove' event refers to the index of a previous 'new'
         event.
 
-        A 'new' event establishes an association between a sink-input and (to)
-        a sink. A 'change' event signals a change in the metadata of the
-        stream.
+        A 'new' event establishes an association between a sink-input and
+        a sink.
 
         IMPORTANT:
         'nullsink.sink' and 'nullsink.sink_input' are the renderer's instances
@@ -198,12 +197,11 @@ class Pulse:
             sink = await self.lib_pulse.pa_context_get_sink_info_by_name(
                                                 renderer.nullsink.sink.name)
             if sink is not None:
-                prev_state, new_state = renderer.sink_states(sink)
-                no_change = self.is_ignored_event(sink_input, event)
-                if no_change and prev_state == new_state:
+                if (self.is_ignored_event(sink_input, event) and
+                        event.type not in ('new', 'remove')):
                     # Ignore a SinkInputEvent with no changes from the
                     # previous one (or if the previous one does not exist) and
-                    # the sink state has not changed.
+                    # the event type is `change`.
                     pass
                 elif sink_input.index == renderer.previous_idx:
                     # Ignore event related to the previous sink-input.
@@ -211,12 +209,6 @@ class Pulse:
                 else:
                     renderer.pulse_queue.put_nowait(
                                                 (evt_type, sink, sink_input))
-                    # Upon stopping a stream, libpulse emits a batch of weird
-                    # sink state changes and sometimes a batch of them for the
-                    # same change. This is the reason why we have to wait
-                    # for the change to be fully handled by the Renderer.
-                    if no_change and prev_state != new_state:
-                        await renderer.pulse_queue.join()
 
         prev_renderer = self.find_previous_renderer(event)
         # The sink_input has been re-routed to another sink.

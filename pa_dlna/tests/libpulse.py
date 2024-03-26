@@ -107,7 +107,6 @@ class Sink:
     def __init__(self, name, owner_module=None):
         self.name = name
         self.owner_module = owner_module
-        self.state = 'ignored'
         self.sink_input = None
 
         self.index = Sink.index

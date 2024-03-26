@@ -1,6 +1,9 @@
 Release history
 ===============
 
+Version 0.9
+  - Support Pipewire 1.0 while still supporting the previous version 0.3.
+
 Version 0.8
   - Changing the volume level with ``pavucontrol`` does not interfere with the
     current audio stream.
