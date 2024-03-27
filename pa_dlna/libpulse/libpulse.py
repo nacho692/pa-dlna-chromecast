@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import ctypes as ct
 from ctypes.util import find_library
 
@@ -490,19 +491,22 @@ class LibPulse:
         if self.state[0] != 'PA_CONTEXT_READY':
             raise PulseStateError(self.state)
 
+        server_info = await self.pa_context_get_server_info()
+        server_name = server_info.server_name
+        if re.match(r'.*\d+\.\d', server_name):
+            # Pipewire includes the server version in the server name.
+            logger.info(f'Server: {server_name}')
+        else:
+            logger.info(f'Server: {server_name} {server_info.server_version}')
+
         version = pa_context_get_protocol_version(self.c_context)
         server_ver = pa_context_get_server_protocol_version(self.c_context)
         logger.debug(f'libpulse library/server versions: '
                      f'{version}/{server_ver}')
 
-        server_info = await self.pa_context_get_server_info()
-        logger.info(f'Server version: {server_info.server_version}')
-
         # 'server' is the name of the socket libpulse is connected to.
-        server_name = server_info.server_name
         server = pa_context_get_server(self.c_context)
-        logger.info(f"Connected to '{server_name}' at '{server.decode()}'")
-
+        logger.debug(f'{server_name} connected to {server.decode()}')
 
     # Private methods.
     @staticmethod

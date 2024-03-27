@@ -2,7 +2,8 @@ Release history
 ===============
 
 Version 0.9
-  - Support Pipewire 1.0 while still supporting the previous version 0.3.
+  - Support Pipewire version 1.0 and the previous version 0.3.
+  - Log the name of the sound server and its version.
 
 Version 0.8
   - Changing the volume level with ``pavucontrol`` does not interfere with the

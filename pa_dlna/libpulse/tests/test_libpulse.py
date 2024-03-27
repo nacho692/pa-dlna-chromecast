@@ -58,7 +58,7 @@ class LibPulseTestCase(IsolatedAsyncioTestCase):
                 await lib_pulse.log_server_info()
 
         self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
-                    re.compile(f'Connected to .* at')))
+                    re.compile(fr'Server: [Pp]ulse[Aa]udio.* \d+\.\d')))
 
     async def test_load_module(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
