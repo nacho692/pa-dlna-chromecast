@@ -296,5 +296,19 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(m_logs.output, 'http',
                                 re.compile('Invalid path in HTTP request')))
 
+    async def test_HEAD_method(self):
+        with self.assertLogs(level=logging.INFO) as m_logs:
+            renderer = await start_http_server()
+
+            # Start curl.
+            curl_task = asyncio.create_task(run_curl(renderer.current_uri,
+                                                     extra_args=['--head']))
+            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+
+        self.assertEqual(returncode, 0)
+        self.assertNotEqual(length, 0)
+        self.assertTrue(find_in_logs(m_logs.output, 'util',
+                                     'HTTP/1.1 HEAD request from 127.0.0.1'))
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -40,8 +40,10 @@ def unix_socket_path(socket_path_env):
         except OSError:
             pass
 
-async def run_curl(url, http_version='http1.1'):
-    curl_cmd = ['curl', '--silent', '--show-error', f'--{http_version}', url]
+async def run_curl(url, http_version='http1.1', extra_args=[]):
+    curl_cmd = ['curl', '--silent', '--show-error', f'--{http_version}']
+    curl_cmd.extend(extra_args)
+    curl_cmd.append(url)
     proc = await asyncio.create_subprocess_exec(*curl_cmd,
                                           stdin=asyncio.subprocess.DEVNULL,
                                           stdout=asyncio.subprocess.PIPE,

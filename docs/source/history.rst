@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.10
+  - Handle HTTP HEAD requests from DLNA devices. Some renderers fetch stream
+    meta data via HEAD request before requesting actual media streams.
   - Fix crash upon parsing empty deviceList in device description.
 
 Version 0.9

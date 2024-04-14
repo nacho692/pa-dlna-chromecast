@@ -82,11 +82,18 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         # Overriding log_message() that logs the errors.
         logger.error("%s - %s" % (self.client_address[0], format % args))
 
-    def do_GET(self):
-        logger.info(f'{self.request_version} GET request from '
+    def log_request(self, method):
+        logger.info(f'{self.request_version} {method} request from '
                     f'{self.client_address[0]}')
         logger.debug(f"uri path: '{self.path}'")
         logger.debug(f'Request headers:\n'
                      f"{pprint.pformat(dict(self.headers.items()))}")
 
-    do_POST = do_GET
+    def do_GET(self):
+        self.log_request('GET')
+
+    def do_POST(self):
+        self.log_request('POST')
+
+    def do_HEAD(self):
+        self.log_request('HEAD')

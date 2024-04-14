@@ -34,6 +34,15 @@ async def kill_process(process):
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
 
+async def write_http_ok(writer, renderer):
+    query = ['HTTP/1.1 200 OK',
+             'Content-type: ' + renderer.mime_type,
+             'Connection: close',
+             'Transfer-Encoding: chunked',
+             '', '']
+    writer.write('\r\n'.join(query).encode('latin-1'))
+    await writer.drain()
+
 class Track:
     """An HTTP socket connected to a subprocess stdout.
 
@@ -131,13 +140,7 @@ class Track:
         assert self.task is not None
         renderer = self.session.renderer
         try:
-            query = ['HTTP/1.1 200 OK',
-                     'Content-type: ' + renderer.mime_type,
-                     'Connection: close',
-                     'Transfer-Encoding: chunked',
-                     '', '']
-            self.writer.write('\r\n'.join(query).encode('latin-1'))
-            await self.writer.drain()
+            await write_http_ok(self.writer, renderer)
             logger.debug(f'{self.task_name}: track is started')
             await self.write_track(reader)
             await self.shutdown()
@@ -505,6 +508,10 @@ class HTTPServer:
                     handler.send_error(HTTPStatus.CONFLICT,
                                        f'{renderer.name} temporarily disabled')
                     break
+
+                if handler.command == 'HEAD':
+                    await write_http_ok(writer, renderer)
+                    return
 
                 # Ok, handle the request.
                 await renderer.start_track(writer)
