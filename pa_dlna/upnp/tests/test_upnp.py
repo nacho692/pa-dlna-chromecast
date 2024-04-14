@@ -89,8 +89,9 @@ class HTTPServer:
 
 async def start_http_server(soap_response=None, icons='', devices=''):
     http_server = HTTPServer(soap_response, icons, devices)
-    asyncio.create_task(http_server.run())
+    task = asyncio.create_task(http_server.run())
     await http_server.startup
+    return task
 
 class ControlPoint(IsolatedAsyncioTestCase):
     """Control Point test cases."""
@@ -520,6 +521,23 @@ class RootDevice(IsolatedAsyncioTestCase):
         all_devices = list(
                     UPnPDevice.embedded_devices_generator(self.root_device))
         self.assertEqual(all_devices, [self.root_device, embedded])
+
+    async def test_empty_device_list(self):
+        empty_list = '<deviceList></deviceList>'
+        newline_list = '<deviceList>\n</deviceList>'
+        for devices in (empty_list, newline_list):
+            with self.subTest(devices=devices):
+                with mock.patch.object(
+                            self.root_device, '_age_root_device') as age,\
+                        self.assertLogs(level=logging.DEBUG) as m_logs:
+                    # Make the UPnPRootDevice._run() coroutine terminate.
+                    age.side_effect = [None]
+                    task = await start_http_server(devices=devices)
+                    await self.root_device._run()
+                    task.cancel()
+
+        self.assertTrue(isinstance(self.root_device.deviceList, list))
+        self.assertTrue(len(self.root_device.deviceList) == 0)
 
     def tearDown(self):
         self.control_point.close()

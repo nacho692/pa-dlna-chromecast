@@ -1,6 +1,9 @@
 Release history
 ===============
 
+Version 0.10
+  - Fix crash upon parsing empty deviceList in device description.
+
 Version 0.9
   - Support Pipewire version 1.0 and the previous version 0.3.
   - Log the name of the sound server and its version.

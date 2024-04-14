@@ -357,7 +357,8 @@ class UPnPDevice(UPnPElement):
         # Add the childless elements of the device element as instance
         # attributes of the UPnPDevice instance.
         for k, v in findall_childless(device_etree, namespace).items():
-            setattr(self, k, v)
+            if k not in ('serviceList', 'deviceList', 'iconList'):
+                setattr(self, k, v)
 
         if not hasattr(self, 'deviceType'):
             raise UPnPXMLError("Missing 'deviceType' element")
