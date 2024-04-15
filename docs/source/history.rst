@@ -2,8 +2,9 @@ Release history
 ===============
 
 Version 0.10
-  - Handle HTTP HEAD requests from DLNA devices. Some renderers fetch stream
-    meta data via HEAD request before requesting actual media streams.
+  - **[Teufel 3sixty]** Handle HTTP HEAD requests from DLNA devices. Some
+    renderers fetch stream meta data via HEAD request before requesting actual
+    media streams.
   - Fix crash upon parsing empty deviceList in device description.
 
 Version 0.9
@@ -13,7 +14,8 @@ Version 0.9
 Version 0.8
   - Changing the volume level with ``pavucontrol`` does not interfere with the
     current audio stream.
-  - Support multiple embedded MediaRenderers in a DLNA device.
+  - **[Marantz NR1200]** Support multiple embedded MediaRenderers in a DLNA
+    device.
   - The ``deviceList`` attribute of UPnPDevice is now a list instead of a
     dictionary.
   - Do not age an UPnP root device upon receiving a ``CACHE-CONTROL`` header
@@ -33,7 +35,8 @@ Version 0.7
   - Log the sound server name and version.
 
 Version 0.6
-  - Spread out UPnP SOAP actions that start/stop a stream (issue #16).
+  - **[Yamaha RN402D]** Spread out UPnP SOAP actions that start/stop a stream
+    (issue #16).
   - Fix the ``args`` option in the [EncoderName.UDN] section of the user
     configuration is always None.
   - Log a warning when the sink-input enters the ``suspended`` state.
