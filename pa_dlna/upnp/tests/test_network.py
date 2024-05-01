@@ -171,7 +171,7 @@ class SSDP_notify(IsolatedAsyncioTestCase):
                 notify.sock.close()
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
-            re.compile('256\.0\.0\.0 cannot be member of 239.255.255.250')))
+            re.compile(r'256\.0\.0\.0 cannot be member of 239.255.255.250')))
 
     async def test_failed_memberships(self):
         try:
@@ -214,7 +214,7 @@ class SSDP_notify(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(m_logs.output, 'network',
                                        re.compile('on_con_lost.*done')))
         self.assertTrue(search_in_logs(m_logs.output, 'network',
-                                       re.compile(f'OSError\({err_msg!r}\)')))
+                                    re.compile(fr'OSError\({err_msg!r}\)')))
 
     async def test_invalid_field(self):
         field = 'invalid NTS field'
@@ -254,6 +254,12 @@ class SSDP_msearch(IsolatedAsyncioTestCase):
                 sock.setblocking(False)
                 sock.sendto(datagram.encode(),
                             (HOST, MSEARCH_PORT))
+
+                # With python 3.12 the tests calling this function fail unless
+                # we give back control twice to the asyncio loop.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+
                 try:
                     return await asyncio.wait_for(_get_result(protocol), 1)
                 except asyncio.TimeoutError:
@@ -270,7 +276,7 @@ class SSDP_msearch(IsolatedAsyncioTestCase):
             await loopback_datagrams(_msearch)
 
         self.assertTrue(search_in_logs(m_logs.output, 'network', re.compile(
-            "Sent 1 M-SEARCH datagrams to \('239\.255\.255\.250', 1900\)")))
+            r"Sent 1 M-SEARCH datagrams to \('239\.255\.255\.250', 1900\)")))
 
     async def test_ssdp_socket_msearch(self):
         coro = self._sendto_coro(MSEARCH_RESPONSE)
@@ -303,7 +309,7 @@ class SSDP_msearch(IsolatedAsyncioTestCase):
             await send_mcast('256.0.0.0', 0)
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
-                                re.compile('Cannot bind.*256\.0\.0\.0')))
+                                re.compile(r'Cannot bind.*256\.0\.0\.0')))
 
 class SSDP_http(IsolatedAsyncioTestCase):
     """Http test cases."""

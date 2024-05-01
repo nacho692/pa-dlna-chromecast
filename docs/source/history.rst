@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 0.11
+  - Support Python version 3.12 - fix some network mock tests by forcing the
+    release of control to the asyncio loop.
+
 Version 0.10
   - **[Teufel 3sixty]** Handle HTTP HEAD requests from DLNA devices. Some
     renderers fetch stream meta data via HEAD request before requesting actual
