@@ -378,7 +378,7 @@ class LibPulse:
 
     @run_in_task
     async def pa_context_load_module(self, name, argument):
-        """Load the pulseaudio module named 'name' and return its index.
+        r"""Load the pulseaudio module named 'name' and return its index.
 
         'argument' is a string. Note that space characters within the double
         quoted strings MUST be escaped with '\'.

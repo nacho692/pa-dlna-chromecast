@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import pprint
 
-sys.path.insert(0, '/home/xavier/src/pa-dlna/pyclibrary')   # XXX for debugging
 from pyclibrary.c_library import CParser
 
 PULSEAUDIO_H = '/usr/include/pulse/pulseaudio.h'
@@ -70,7 +69,7 @@ def get_parser():
 
 def lib_generator(parser, type):
     return ((name, item) for (name, item) in parser.defs[type].items() if
-            name.startswith('pa_') or name.startswith('PA_'))
+            name.startswith('pa_'))
 
 def signature_index(type_instance):
     # A Type instance is a function signature when one of its members is a
@@ -202,12 +201,11 @@ def main():
     # Merge all signatures into a 'functions' dictionary.
     functions = {}
     functions['signatures'] = {}
+    functions['signatures'].update(signatures)
+    functions['callbacks'] = callbacks
     for name, signature in arrays['pa_mainloop_api'].items():
         if name != 'userdata':
-            functions['signatures'][name] = signature
-    functions['signatures'].update(signatures)
-    functions['signatures'].update(arrays['pa_spawn_api'])
-    functions['callbacks'] = callbacks
+            functions['callbacks'][name] = signature
 
     # Create the parsed sections files.
     for name in ('types', 'enums', 'structs', 'functions'):
