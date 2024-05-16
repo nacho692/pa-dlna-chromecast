@@ -4,17 +4,33 @@ import asyncio
 import logging
 import re
 import ctypes as ct
-from ctypes.util import find_library
 
-from .pulseaudio_h import *
-from .mainloop import MainLoop, get_ctype, CALLBACK_TYPES, callback_func_ptr
-from .prototypes import PROTOTYPES
-from .structures import (PA_SAMPLE_SPEC, PA_CHANNEL_MAP, PA_CVOLUME,
-                         PA_SINK_INFO, PA_SINK_INPUT_INFO, PA_SERVER_INFO)
+from .libpulse_ctypes import PA_INVALID_INDEX
+from .mainloop import MainLoop, pulse_ctypes, callback_func_ptr
+from .pulse_functions import pulse_functions
+from .pulse_enums import pulse_enums
 
+struct_ctypes = pulse_ctypes.struct_ctypes
 logger = logging.getLogger('libpuls')
 
-# Map some of the values defined in pulseaudio_h to their name.
+def _add_pulse_to_namespace():
+    # Add the pulse constants and functions to the module namespace.
+    _globals = globals()
+
+    for name in pulse_functions['signatures']:
+        assert name not in _globals, f'{name} is duplicated'
+        func = pulse_ctypes.get_prototype(name)
+        _globals[name] = func
+
+    for enum, constants in pulse_enums.items():
+        for name, value in constants.items():
+            assert name not in _globals, f'{name} is duplicated'
+            _globals[name] = value
+
+_add_pulse_to_namespace()
+del _add_pulse_to_namespace
+
+# Map values to their name.
 ERROR_CODES = dict((eval(var), var) for var in globals() if
                    var.startswith('PA_ERR_') or var == 'PA_OK')
 CTX_STATES = dict((eval(state), state) for state in
@@ -63,55 +79,6 @@ def run_in_task(coro):
             logger.error(f'{coro.__qualname__}() has been cancelled')
             raise
     return wrapper
-
-def setup_prototype(func_name, libpulse):
-    """Set the restype and argtypes of a libpulse function name."""
-
-    # Ctypes does not allow None as a NULL callback function pointer.
-    # Overriding _CFuncPtr.from_param() allows it. This is a hack as _CFuncPtr
-    # is private.
-    # See https://ctypes-users.narkive.com/wmJNDPu2/optional-callbacks-
-    # passing-null-for-function-pointers.
-    def from_param(cls, obj):
-        if obj is None:
-            return None     # Return a NULL pointer.
-        return ct._CFuncPtr.from_param(obj)
-
-    func = getattr(libpulse, func_name)
-    val = PROTOTYPES[func_name]
-    func.restype = get_ctype(val[0])        # The return type.
-
-    argtypes = []
-    for arg in val[1]:                      # The args types.
-        try:
-            argtype = get_ctype(arg)
-        except KeyError:
-            # Not a known data type. So it must be a function pointer to a
-            # callback.
-            argtype = CALLBACK_TYPES[arg]
-            argtype.from_param = classmethod(from_param)
-        argtypes.append(argtype)
-    func.argtypes = argtypes
-    return func
-
-def build_libpulse_prototypes(debug=False):
-    """Add the ctypes libpulse functions to the current module namespace."""
-
-    _globals = globals()
-    # The current module namespace has already been set up.
-    if 'pa_context_new' in _globals:
-        return
-
-    path = find_library('pulse')
-    if path is None:
-        raise PulseMissingLibError('Cannot find the libpulse library')
-    libpulse = ct.CDLL(path)
-    for func_name in PROTOTYPES:
-        func = setup_prototype(func_name, libpulse)
-        _globals[func_name] = func
-
-        if debug:
-            logger.debug(f'{func.__name__}: ({func.restype}, {func.argtypes})')
 
 class LibPulseError(Exception): pass
 class PulseMissingLibError(LibPulseError): pass
@@ -186,7 +153,7 @@ class PulseEvent:
     Use the event_facilities() and event_types() static methods to get all the
     values currently defined by the libpulse library for 'facility' and
     'type'. They correspond to some of the variables defined in the
-    pulseaudio_h module under the pa_subscription_event_type_t Enum.
+    pulse_enums module under the pa_subscription_event_type Enum.
 
     attributes:
         facility:   str - name of the facility, for example 'sink'.
@@ -244,53 +211,51 @@ class PulseStructure:
                 setattr(self, name, c_struct_val.decode())
             elif c_type in (ct.c_int, ct.c_uint32, ct.c_uint64, ct.c_uint8):
                 setattr(self, name, int(c_struct_val))
-            elif c_type is PA_SAMPLE_SPEC:
+            elif c_type is struct_ctypes['pa_sample_spec']:
                 setattr(self, name, SampleSpec(c_struct_val))
-            elif c_type is PA_CHANNEL_MAP:
+            elif c_type is struct_ctypes['pa_channel_map']:
                 setattr(self, name, ChannelMap(c_struct_val))
-            elif c_type is PA_CVOLUME:
+            elif c_type is struct_ctypes['pa_cvolume']:
                 setattr(self, name, CVolume(c_struct_val))
             elif name == 'proplist':
                 self.proplist = PropList(c_struct_val)
 
 class SampleSpec(PulseStructure):
     def __init__(self, c_struct):
-        super().__init__(c_struct, PA_SAMPLE_SPEC)
+        super().__init__(c_struct, struct_ctypes['pa_sample_spec'])
 
 class ChannelMap(PulseStructure):
     def __init__(self, c_struct):
-        super().__init__(c_struct, PA_CHANNEL_MAP)
+        super().__init__(c_struct, struct_ctypes['pa_channel_map'])
 
 class CVolume(PulseStructure):
     def __init__(self, c_struct):
-        super().__init__(c_struct, PA_CVOLUME)
+        super().__init__(c_struct, struct_ctypes['pa_cvolume'])
 
 class Sink(PulseStructure):
     """A pulseaudio sink.
 
     The attribute names of an instance of this class form a subset of the
-    names of the _fields_ of the PA_SINK_INFO structure defined in the
-    'structures' module.
+    names of the _fields_ of the 'pa_sink_info' ctypes Structure.
     """
 
     def __init__(self, c_struct):
-        super().__init__(c_struct, PA_SINK_INFO)
+        super().__init__(c_struct, struct_ctypes['pa_sink_info'])
         self.state = SINK_STATES[self.state]
 
 class SinkInput(PulseStructure):
     """A pulseaudio sink input.
 
     The attribute names of an instance of this class form a subset of the
-    names of the _fields_ of the PA_SINK_INPUT_INFO structure defined in the
-    'structures' module.
+    names of the _fields_ of the 'pa_sink_input_info' ctypes Structure.
     """
 
     def __init__(self, c_struct):
-        super().__init__(c_struct, PA_SINK_INPUT_INFO)
+        super().__init__(c_struct, struct_ctypes['pa_sink_input_info'])
 
 class ServerInfo(PulseStructure):
     def __init__(self, c_struct):
-        super().__init__(c_struct, PA_SERVER_INFO)
+        super().__init__(c_struct, struct_ctypes['pa_server_info'])
 
 class LibPulse:
     """Interface to libpulse library as an asynchronous context manager."""
@@ -300,8 +265,6 @@ class LibPulse:
     # Public methods.
     def __init__(self, name):
         """'name' is the name of the application."""
-
-        build_libpulse_prototypes()
 
         assert isinstance(name, str)
         self.c_context = pa_context_new(MainLoop.C_MAINLOOP_API,
@@ -339,7 +302,7 @@ class LibPulse:
         """Enable event notification.
 
         'subscription_masks' is built by ORing the masks defined by the
-        'pa_subscription_mask_t' Enum in the pulseaudio_h module.
+        'pa_subscription_mask' Enum in the pulse_enums module.
 
         This method may be invoked at any time to change the subscription
         masks currently set, even from within the async for loop that iterates

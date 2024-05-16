@@ -2,94 +2,21 @@
 
 import asyncio
 import logging
-import pprint
-import functools
 import time
 import gc
 import ctypes as ct
 
-from .pulseaudio_h import (PA_ENUM_LIST, PA_IO_EVENT_NULL, PA_IO_EVENT_INPUT,
-                           PA_IO_EVENT_OUTPUT)
-from .prototypes import CALLBACKS
-from .structures import (PA_SINK_INFO, PA_SINK_INPUT_INFO, TIMEVAL,
-                         PA_SERVER_INFO)
+from .libpulse_ctypes import PulseCTypes, python_object
+from .pulse_enums import pulse_enums
 
 logger = logging.getLogger('libpuls')
 
-def python_object(ctypes_object, cls=None):
-    obj = ct.cast(ctypes_object, ct.POINTER(ct.py_object)).contents.value
-    if cls is not None:
-        assert type(obj) is cls
-    return obj
-
-def known_ctypes():
-    map = { 'void':                         None,
-            'int':                          ct.c_int,
-            'uint32_t':                     ct.c_uint32,
-            'char *':                       ct.c_char_p,
-            'struct timeval *':             ct.POINTER(TIMEVAL),
-            'pa_sink_info *':               ct.POINTER(PA_SINK_INFO),
-            'pa_sink_input_info *':         ct.POINTER(PA_SINK_INPUT_INFO),
-            'pa_server_info *':             ct.POINTER(PA_SERVER_INFO),
-           }
-    for enum_name in PA_ENUM_LIST:
-        map[enum_name] = ct.c_int
-    return map
-
-_known_ctypes = known_ctypes()
-
-@functools.lru_cache
-def get_ctype(name):
-    if name in _known_ctypes:
-        return _known_ctypes[name]
-    elif name.endswith('*'):
-        return ct.c_void_p
-    else:
-        raise KeyError(f'No ctypes match found for {name}')
-
-def callback_types(debug=False):
-    """Build a dictionary mapping callbacks to their ctypes type."""
-
-    def get_cb_type(func_name):
-        types = []
-        val = CALLBACKS[func_name]
-        restype = get_ctype(val[0])     # The return type.
-        types.append(restype)
-
-        for arg in val[1]:              # The args types.
-            try:
-                argtype = get_ctype(arg)
-            except KeyError:
-                # Not a known data type. So it must be a function pointer to a
-                # callback. Find its description in CALLBACKS and call
-                # get_cb_type() recursively.
-                assert arg in CALLBACKS
-                # First check if it's already in the dictionary.
-                argtype = cb_types.get(arg)
-                if argtype is None:
-                    argtype = get_cb_type(arg)
-            types.append(argtype)
-
-        if cb_types_params is not None:
-            cb_types_params[func_name] = types
-        return ct.CFUNCTYPE(*types)
-
-    # Used to log the parameters of ct.CFUNCTYPE().
-    cb_types_params = dict() if debug else None
-
-    cb_types = dict()
-    for name in CALLBACKS:
-        cb_types[name] = get_cb_type(name)
-
-    if cb_types_params is not None:
-        logger.debug(pprint.pformat(cb_types_params))
-
-    return cb_types
-
-CALLBACK_TYPES = callback_types()
+pulse_ctypes = PulseCTypes()
+pa_io_event_flags = pulse_enums['pa_io_event_flags']
 
 def callback_func_ptr(name, python_function):
-    return CALLBACK_TYPES[name](python_function)
+    callback = pulse_ctypes.get_callback(name)
+    return callback(python_function)
 
 def build_mainloop_api():
     """Build an instance of the libpulse Main Loop API."""
@@ -112,7 +39,7 @@ def build_mainloop_api():
     class Mainloop_api(ct.Structure):
         _fields_ = [('userdata', ct.c_void_p)]
         for name in api:
-            _fields_.append((name, CALLBACK_TYPES[name]))
+            _fields_.append((name, pulse_ctypes.get_callback(name)))
 
     # Instantiate Mainloop_api.
     args = [callback_func_ptr(name, api[name]) for name in api]
@@ -174,30 +101,33 @@ class IoEvent(PulseEvent):
     def __init__(self, fd, c_callback, c_userdata):
         super().__init__(c_callback, c_userdata)
         self.fd = fd
-        self.flags = PA_IO_EVENT_NULL
+        self.flags = pa_io_event_flags['PA_IO_EVENT_NULL']
 
     def read_callback(self):
         self.debug('read_callback IoEvent')
-        self.c_callback(self.mainloop.C_MAINLOOP_API, self.c_self,
-                        self.fd, PA_IO_EVENT_INPUT, self.c_userdata)
+        self.c_callback(self.mainloop.C_MAINLOOP_API, self.c_self, self.fd,
+                    pa_io_event_flags['PA_IO_EVENT_INPUT'], self.c_userdata)
 
     def write_callback(self):
         self.debug('write_callback IoEvent')
-        self.c_callback(self.mainloop.C_MAINLOOP_API, self.c_self,
-                        self.fd, PA_IO_EVENT_OUTPUT, self.c_userdata)
+        self.c_callback(self.mainloop.C_MAINLOOP_API, self.c_self, self.fd,
+                    pa_io_event_flags['PA_IO_EVENT_OUTPUT'], self.c_userdata)
 
     def enable(self, flags):
         self.debug(f'enable IoEvent: {flags}')
         aio_loop = self.mainloop.aio_loop
-        if flags & PA_IO_EVENT_INPUT and not (self.flags & PA_IO_EVENT_INPUT):
+
+        pa_io_event_input = pa_io_event_flags['PA_IO_EVENT_INPUT']
+        pa_io_event_output = pa_io_event_flags['PA_IO_EVENT_OUTPUT']
+        if flags & pa_io_event_input and not (self.flags & pa_io_event_input):
             aio_loop.add_reader(self.fd, self.read_callback)
-        if not (flags & PA_IO_EVENT_INPUT) and self.flags & PA_IO_EVENT_INPUT:
+        if not (flags & pa_io_event_input) and self.flags & pa_io_event_input:
             aio_loop.remove_reader(self.fd)
-        if (flags & PA_IO_EVENT_OUTPUT and
-                not (self.flags & PA_IO_EVENT_OUTPUT)):
+        if (flags & pa_io_event_output and
+                not (self.flags & pa_io_event_output)):
             aio_loop.add_writer(self.fd, self.write_callback)
-        if (not (flags & PA_IO_EVENT_OUTPUT) and
-                self.flags & PA_IO_EVENT_OUTPUT):
+        if (not (flags & pa_io_event_output) and
+                self.flags & pa_io_event_output):
             aio_loop.remove_writer(self.fd)
         self.flags = flags
 
@@ -218,7 +148,7 @@ class IoEvent(PulseEvent):
     def io_free(c_io_event):
         event = python_object(c_io_event, cls=IoEvent)
         event.debug('io_free')
-        event.enable(PA_IO_EVENT_NULL)
+        event.enable(pa_io_event_flags['PA_IO_EVENT_NULL'])
         IoEvent.EVENTS.remove(event)
 
 class TimeEvent(PulseEvent):

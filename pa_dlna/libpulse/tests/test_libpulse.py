@@ -15,7 +15,7 @@ from ...upnp.tests import search_in_logs
 
 SINK_NAME= 'foo'
 MODULE_ARG = (f'sink_name="{SINK_NAME}" sink_properties=device.description='
-              f'"{SINK_NAME}\ description"')
+              fr'"{SINK_NAME}\ description"')
 
 async def get_event(facility, type, lib_pulse, ready):
     try:
@@ -141,7 +141,6 @@ class LibPulseTestCase(IsolatedAsyncioTestCase):
                                    PulseClosedIteratorError))
 
     async def test_excep_ctx_mgr(self):
-        libpulse_module.build_libpulse_prototypes()
         with mock.patch.object(libpulse_module,
                                'pa_context_connect') as connect,\
                 self.assertRaises(PulseStateError):
@@ -150,7 +149,6 @@ class LibPulseTestCase(IsolatedAsyncioTestCase):
                 pass
 
     async def test_cancel_ctx_mgr(self):
-        libpulse_module.build_libpulse_prototypes()
         with mock.patch.object(libpulse_module,
                                'pa_context_connect') as connect,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
@@ -203,7 +201,6 @@ class LibPulseTestCase(IsolatedAsyncioTestCase):
         # This test assumes that the libpulse library calls
         # _context_state_callback() at least twice when connecting to the
         # library.
-        libpulse_module.build_libpulse_prototypes()
         with mock.patch.object(libpulse_module,
                                'pa_context_get_state') as connect,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
@@ -225,16 +222,3 @@ class LibPulseTestCase(IsolatedAsyncioTestCase):
                     self.fail('wait_forever has not been cancelled as expected')
             self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
                     re.compile('LibPulse instance .* aborted:.*PA_CONTEXT_FAILED')))
-
-    async def test_missing_lib(self):
-        # Force the reloading of the library.
-        libpulse_module.build_libpulse_prototypes()
-        if hasattr(libpulse_module, 'pa_context_new'):
-            del libpulse_module.pa_context_new
-
-        with mock.patch.object(libpulse_module,
-                               'find_library') as find_library,\
-                self.assertRaises(PulseMissingLibError):
-            find_library.return_value = None
-            async with LibPulse('libpulse-test') as lib_pulse:
-                pass

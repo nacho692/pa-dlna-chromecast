@@ -3,8 +3,8 @@
 import asyncio
 import logging
 
-from .libpulse import (LibPulse, PA_SUBSCRIPTION_MASK_SINK_INPUT,
-                       PulseMissingLibError, PulseStateError)
+from .libpulse.libpulse import (LibPulse, PA_SUBSCRIPTION_MASK_SINK_INPUT,
+                                PulseMissingLibError, PulseStateError)
 from .upnp.util import NL_INDENT, log_exception
 
 logger = logging.getLogger('pulse')

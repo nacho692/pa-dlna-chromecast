@@ -173,7 +173,7 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.assertEqual(returncode, 0)
         self.assertEqual(length, 0)
         self.assertTrue(search_in_logs(m_logs.output, 'http',
-                                       re.compile('RuntimeError\(\)')))
+                                       re.compile(r'RuntimeError\(\)')))
 
     async def test_disable_with_encoder(self):
         with mock.patch.object(Renderer, 'disable_root_device') as disable,\

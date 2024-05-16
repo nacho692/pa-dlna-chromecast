@@ -196,10 +196,10 @@ class DLNAControlPoint(PaDlnaTestCase):
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                    re.compile("Got exception closing DLNATest_\S+"
-                               f" OSError\('foo'\)")))
+                    re.compile(r"Got exception closing DLNATest_\S+"
+                               fr" OSError\('foo'\)")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                                       re.compile('Close \S+ root device')))
+                                       re.compile(r'Close \S+ root device')))
 
     async def test_abort(self):
         async def handle_pulse_event(renderer):
@@ -532,7 +532,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(result[0][1], 'SetAVTransportURI')
         self.assertEqual(result[1][1], 'Play')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile("MetaData\(.*artist='Ziggy Stardust'")))
+                re.compile(r"MetaData\(.*artist='Ziggy Stardust'")))
 
     async def test_next_track(self):
         index = 999
@@ -554,7 +554,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
             re.compile(f'change.* event .* sink-input index {index}')))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile("MetaData\(.* title='Sticky Fingers'\)")))
+                re.compile(r"MetaData\(.* title='Sticky Fingers'\)")))
 
     async def test_no_title(self):
         # Test that an empty 'title' is replaced by the 'publisher'.
@@ -573,7 +573,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(result[0][1], 'SetAVTransportURI')
         self.assertEqual(result[1][1], 'Play')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile(f"MetaData\(.*, title='{application_name}'\)")))
+                re.compile(fr"MetaData\(.*, title='{application_name}'\)")))
 
     async def test_no_track_metadata(self):
         # Ignore change event when:
@@ -647,7 +647,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(result[0][1], 'SetAVTransportURI')
         self.assertEqual(result[1][1], 'Play')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile("MetaData\(.*artist='Ziggy Stardust'")))
+                re.compile(r"MetaData\(.*artist='Ziggy Stardust'")))
 
     async def test_soap_minimum_interval(self):
         ctx = PulseEventContext(sink=Sink(), sink_input_index=0)

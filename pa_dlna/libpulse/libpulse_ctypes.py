@@ -104,9 +104,7 @@ class PulseCTypes:
         if struct in self.struct_ctypes:
             return self.struct_ctypes[struct]
 
-        # Create the Structure subclass.
-        struct_class = type(struct, (ct.Structure, ), {'_fields_': []})
-
+        _fields_ = []
         for member in pulse_structs[struct]:
             member_name = member[0]
             member_type = member[1]
@@ -119,14 +117,14 @@ class PulseCTypes:
             if length == 3:
                 if ''.join(types).endswith('**'):
                     ctype = ct.c_void_p
-                    struct_class._fields_.append((member_name, ctype))
+                    _fields_.append((member_name, ctype))
                     continue
                 elif types[1] == '*':
                     try:
                         base_ctype = self._ctype_struct_class(types[:1])
                         # An array of ctypes.
                         ctype = (base_ctype * int(types[-1]))
-                        struct_class._fields_.append((member_name, ctype))
+                        _fields_.append((member_name, ctype))
                         continue
                     except ValueError:
                         pass
@@ -136,8 +134,11 @@ class PulseCTypes:
                 ctype = ct.c_void_p
             else:
                 ctype = self._ctype_struct_class(types)
-            struct_class._fields_.append((member_name, ctype))
+            _fields_.append((member_name, ctype))
 
+        # Create the Structure subclass.
+        struct_class = type(struct, (ct.Structure, ),
+                                            {'_fields_': tuple(_fields_)})
         return struct_class
 
     def update_struct_ctypes(self):
@@ -249,6 +250,12 @@ class PulseCTypes:
 
         return func
 
+
+def python_object(ctypes_object, cls=None):
+    obj = ct.cast(ctypes_object, ct.POINTER(ct.py_object)).contents.value
+    if cls is not None:
+        assert type(obj) is cls
+    return obj
 
 def print_types(sections):
     types = PulseCTypes()

@@ -232,7 +232,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
             await asyncio.wait_for(is_called(msearch), 1)
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
-                                       re.compile("OSError\('FOO'\)")))
+                                       re.compile(r"OSError\('FOO'\)")))
         self.assertTrue(find_in_logs(m_logs.output, 'upnp',
                                      'Close UPnPControlPoint'))
 

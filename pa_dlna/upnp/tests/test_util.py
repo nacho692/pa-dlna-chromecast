@@ -82,7 +82,7 @@ class Util(TestCase):
             asyncio.run(self._loopback_get('foo', OSError()))
 
         self.assertTrue(search_in_logs(m_logs.output, 'test',
-            re.compile('Exception at end of HTTPServer.run\(\): OSError')))
+            re.compile(r'Exception at end of HTTPServer.run\(\): OSError')))
 
     def test_asyncio_tasks(self):
         async def coro():
