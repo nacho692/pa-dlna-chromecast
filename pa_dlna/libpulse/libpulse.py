@@ -236,7 +236,6 @@ class LibPulse:
 
     ASYNCIO_LOOPS = dict()              # {asyncio loop: LibPulse instance}
 
-    # Public methods.
     def __init__(self, name):
         """'name' is the name of the application."""
 
@@ -304,7 +303,7 @@ class LibPulse:
             logger.debug(f'LibPulse connection: {st}')
 
     @run_in_task
-    async def pa_context_connect(self):
+    async def _pa_context_connect(self):
         """Connect the context to the default server."""
 
         pa_context_set_state_callback(self.c_context,
@@ -344,14 +343,14 @@ class LibPulse:
                 assert len(args) >= 3 and arg == args[-2]
                 return callback_name, callback_sig
 
-    def call_ctypes_func(self, func_name, cb_func_ptr, *func_args):
+    def call_ctypes_func(self, func_name, context, cb_func_ptr, *func_args):
         # Call the 'func_name' ctypes function.
         args = []
         for arg in func_args:
             arg = arg.encode() if isinstance(arg, str) else arg
             args.append(arg)
         func_proto = pulse_ctypes.get_prototype(func_name)
-        c_operation = func_proto(self.c_context, *args, cb_func_ptr, None)
+        c_operation = func_proto(context, *args, cb_func_ptr, None)
         return c_operation
 
     @staticmethod
@@ -370,7 +369,7 @@ class LibPulse:
         finally:
             pa_operation_unref(c_operation)
 
-    async def pa_async_one_shot(self, func_name, *func_args):
+    async def _pa_context_worker(self, func_name, *func_args):
         """Call an asynchronous pulse function that does not return a list.
 
         'func_args' is the sequence of the arguments of the function preceding
@@ -405,8 +404,8 @@ class LibPulse:
 
         # Await on the future.
         cb_func_ptr = callback_func_ptr(callback_name, callback_func)
-        c_operation = self.call_ctypes_func(func_name, cb_func_ptr,
-                                                                *func_args)
+        c_operation = self.call_ctypes_func(func_name, self.c_context,
+                                                    cb_func_ptr, *func_args)
         await LibPulse.handle_operation(c_operation, notification, errmsg)
 
         results = notification.result()
@@ -418,7 +417,7 @@ class LibPulse:
         return results
 
     @run_in_task
-    async def pa_async_func_list(self, func_name, *func_args):
+    async def _pa_context_get_list(self, func_name, *func_args):
         """Call an asynchronous pulse function that returns a list.
 
         'func_args' is the sequence of the arguments of the function preceding
@@ -451,8 +450,8 @@ class LibPulse:
 
         # Await on the future.
         cb_func_ptr = callback_func_ptr(callback_name, info_callback)
-        c_operation = self.call_ctypes_func(func_name, cb_func_ptr,
-                                                                *func_args)
+        c_operation = self.call_ctypes_func(func_name, self.c_context,
+                                                    cb_func_ptr, *func_args)
         await LibPulse.handle_operation(c_operation, notification, errmsg)
 
         eol = notification.result()
@@ -464,19 +463,20 @@ class LibPulse:
         return infos
 
     @run_in_task
-    async def pa_async_func(self, func_name, *func_args):
-        return await self.pa_async_one_shot(func_name, *func_args)
+    async def _pa_context_get(self, func_name, *func_args):
+        return await self._pa_context_worker(func_name, *func_args)
 
     @run_in_task
-    async def pa_async_func_success(self, func_name, *func_args):
+    async def _pa_context_op_result(self, func_name, *func_args):
         # 'success' may be PA_OPERATION_DONE or PA_OPERATION_CANCELLED.
         # PA_OPERATION_CANCELLED occurs "as a result of the context getting
         # disconnected while the operation is pending". We just log this event
         # as the LibPulse instance will be aborted following this
         # disconnection.
-        success = await self.pa_async_one_shot(func_name, *func_args)
+        success = await self._pa_context_worker(func_name, *func_args)
         if success == PA_OPERATION_CANCELLED:
             logger.debug(f'Got PA_OPERATION_CANCELLED for {func_name}')
+        return success
 
 
     # Context manager.
@@ -520,7 +520,7 @@ class LibPulse:
             # Set up the two callbacks that live until this instance is
             # closed.
             self.main_task = asyncio.current_task(self.loop)
-            await self.pa_context_connect()
+            await self._pa_context_connect()
             pa_context_set_subscribe_callback(self.c_context,
                                     self.c_context_subscribe_callback, None)
             return self
@@ -579,19 +579,35 @@ class LibPulse:
         logger.debug(f'{server_name} connected to {server.decode()}')
 
 
-# Partial methods.
-for func_name in ('pa_context_get_server_info',
-                  'pa_context_load_module'):
-    setattr(LibPulse, func_name, partialmethod(
-                                LibPulse.pa_async_func, func_name))
+# Register the partial methods.
+method_types = {
+    'context':          LibPulse._pa_context_get,
+    'context result':   LibPulse._pa_context_op_result,
+    'context list':     LibPulse._pa_context_get_list,
+    }
 
-for func_name in ('pa_context_subscribe',
-                  'pa_context_unload_module'):
-    setattr(LibPulse, func_name, partialmethod(
-                                LibPulse.pa_async_func_success, func_name))
+def register_methods(type, names):
+    libpulse_method = method_types[type]
+    for name in names:
+        setattr(LibPulse, name, partialmethod(libpulse_method, name))
 
-for func_name in ('pa_context_get_sink_info_list',
+# Function signature: (pa_operation *,
+#                       [pa_context *, [args...], cb_t, void *])
+# Callback signature: (void, [pa_context *, obj, [objs...], void *])
+register_methods('context',
+                 ('pa_context_get_server_info',
+                  'pa_context_load_module'))
+
+# Function signature: (pa_operation *,
+#                       [pa_context *, [args...], cb_t, void *])
+# Callback signature: (void, [pa_context *, int, void *])
+register_methods('context result',
+                 ('pa_context_subscribe',
+                  'pa_context_unload_module'))
+
+# Function signature: (pa_operation *, [pa_context *, cb_t, void *])
+# Callback signature: (void, [pa_context *, struct *, int, void *])
+register_methods('context list',
+                 ('pa_context_get_sink_info_list',
                   'pa_context_get_sink_input_info_list',
-                  'pa_context_get_sink_info_by_name'):
-    setattr(LibPulse, func_name, partialmethod(
-                                LibPulse.pa_async_func_list, func_name))
+                  'pa_context_get_sink_info_by_name'))
