@@ -8,7 +8,6 @@ from unittest import mock
 
 from . import skip_loop_iterations
 from ..libpulse.libpulse import PA_SUBSCRIPTION_MASK_SINK_INPUT
-from ..libpulse.libpulse import PulseMissingLibError
 
 SKIP_LOOP_ITERATIONS = 30
 

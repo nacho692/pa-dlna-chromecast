@@ -1,9 +1,11 @@
 """The ctypes interface to the libpulse library."""
 
+import sys
 import asyncio
 import logging
 import re
 import ctypes as ct
+from functools import partialmethod
 
 from .libpulse_ctypes import PA_INVALID_INDEX
 from .mainloop import MainLoop, pulse_ctypes, callback_func_ptr
@@ -14,19 +16,20 @@ struct_ctypes = pulse_ctypes.struct_ctypes
 logger = logging.getLogger('libpuls')
 
 def _add_pulse_to_namespace():
+    def add_obj(name, obj):
+        assert getattr(module, name, None) is None, f'{name} is duplicated'
+        setattr(module, name, obj)
+
     # Add the pulse constants and functions to the module namespace.
-    _globals = globals()
+    module = sys.modules[__name__]
 
     for name in pulse_functions['signatures']:
-        assert name not in _globals, f'{name} is duplicated'
         func = pulse_ctypes.get_prototype(name)
-        _globals[name] = func
+        add_obj(name, func)
 
     for enum, constants in pulse_enums.items():
         for name, value in constants.items():
-            assert name not in _globals, f'{name} is duplicated'
-            _globals[name] = value
-
+            add_obj(name, value)
 _add_pulse_to_namespace()
 del _add_pulse_to_namespace
 
@@ -38,12 +41,6 @@ CTX_STATES = dict((eval(state), state) for state in
                    'PA_CONTEXT_AUTHORIZING', 'PA_CONTEXT_SETTING_NAME',
                    'PA_CONTEXT_READY', 'PA_CONTEXT_FAILED',
                    'PA_CONTEXT_TERMINATED'))
-_plen = len('PA_SINK_')
-SINK_STATES = dict((eval(state), state[_plen:].lower()) for state in
-                   ('PA_SINK_INVALID_STATE', 'PA_SINK_RUNNING',
-                    'PA_SINK_IDLE', 'PA_SINK_SUSPENDED', 'PA_SINK_INIT',
-                    'PA_SINK_UNLINKED'))
-del _plen
 
 def event_codes_to_names():
     def build_events_dict(mask):
@@ -81,7 +78,6 @@ def run_in_task(coro):
     return wrapper
 
 class LibPulseError(Exception): pass
-class PulseMissingLibError(LibPulseError): pass
 class PulseClosedError(LibPulseError): pass
 class PulseStateError(LibPulseError): pass
 class PulseOperationError(LibPulseError): pass
@@ -102,15 +98,15 @@ class EventIterator:
 
 
     # Private methods.
-    def _abort(self):
+    def abort(self):
         while True:
             try:
                 self.event_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-        self._put_nowait(self.QUEUE_CLOSED)
+        self.put_nowait(self.QUEUE_CLOSED)
 
-    def _put_nowait(self, obj):
+    def put_nowait(self, obj):
         if not self.closed:
             self.event_queue.put_nowait(obj)
 
@@ -200,10 +196,13 @@ class PropList(dict):
                 break
 
 class PulseStructure:
-    def __init__(self, c_struct, c_struct_type):
+    pointer_names = set()
+
+    def __init__(self, c_struct, c_structure_type):
         # Make a deep copy of some of the elements of the structure as they
         # are only temporarily available.
-        for name, c_type in c_struct_type._fields_:
+        # Members of the structure that are pointers are ignored.
+        for name, c_type in c_structure_type._fields_:
             c_struct_val = getattr(c_struct, name)
             if c_type is ct.c_char_p:
                 if not bool(c_struct_val):
@@ -211,51 +210,26 @@ class PulseStructure:
                 setattr(self, name, c_struct_val.decode())
             elif c_type in (ct.c_int, ct.c_uint32, ct.c_uint64, ct.c_uint8):
                 setattr(self, name, int(c_struct_val))
-            elif c_type is struct_ctypes['pa_sample_spec']:
-                setattr(self, name, SampleSpec(c_struct_val))
-            elif c_type is struct_ctypes['pa_channel_map']:
-                setattr(self, name, ChannelMap(c_struct_val))
-            elif c_type is struct_ctypes['pa_cvolume']:
-                setattr(self, name, CVolume(c_struct_val))
             elif name == 'proplist':
                 self.proplist = PropList(c_struct_val)
+            else:
+                fq_name = f'{c_structure_type.__name__}.{name}'
+                if fq_name in self.pointer_names:
+                    continue
+                for c_struct_type in struct_ctypes.values():
+                    if c_type is c_struct_type:
+                        try:
+                            setattr(self, name,
+                                PulseStructure(c_struct_val, c_struct_type))
+                        except AttributeError:
+                            self.ignore_member(fq_name)
+                        break
+                else:
+                    self.ignore_member(fq_name)
 
-class SampleSpec(PulseStructure):
-    def __init__(self, c_struct):
-        super().__init__(c_struct, struct_ctypes['pa_sample_spec'])
-
-class ChannelMap(PulseStructure):
-    def __init__(self, c_struct):
-        super().__init__(c_struct, struct_ctypes['pa_channel_map'])
-
-class CVolume(PulseStructure):
-    def __init__(self, c_struct):
-        super().__init__(c_struct, struct_ctypes['pa_cvolume'])
-
-class Sink(PulseStructure):
-    """A pulseaudio sink.
-
-    The attribute names of an instance of this class form a subset of the
-    names of the _fields_ of the 'pa_sink_info' ctypes Structure.
-    """
-
-    def __init__(self, c_struct):
-        super().__init__(c_struct, struct_ctypes['pa_sink_info'])
-        self.state = SINK_STATES[self.state]
-
-class SinkInput(PulseStructure):
-    """A pulseaudio sink input.
-
-    The attribute names of an instance of this class form a subset of the
-    names of the _fields_ of the 'pa_sink_input_info' ctypes Structure.
-    """
-
-    def __init__(self, c_struct):
-        super().__init__(c_struct, struct_ctypes['pa_sink_input_info'])
-
-class ServerInfo(PulseStructure):
-    def __init__(self, c_struct):
-        super().__init__(c_struct, struct_ctypes['pa_server_info'])
+    def ignore_member(self, name):
+        self.pointer_names.add(name)
+        logger.debug(f"Ignoring '{name}' structure member")
 
 class LibPulse:
     """Interface to libpulse library as an asynchronous context manager."""
@@ -285,10 +259,13 @@ class LibPulse:
 
         # Keep a reference to prevent garbage collection.
         self.c_context_state_callback = callback_func_ptr(
-            'pa_context_notify_cb_t', LibPulse._context_state_callback)
+            'pa_context_notify_cb_t', LibPulse.context_state_callback)
         self.c_context_subscribe_callback = callback_func_ptr(
-            'pa_context_subscribe_cb_t', LibPulse._context_subscribe_callback)
+            'pa_context_subscribe_cb_t', LibPulse.context_subscribe_callback)
 
+
+    # Private methods.
+    # Initialisation.
     @staticmethod
     def get_instance():
         loop = asyncio.get_running_loop()
@@ -297,236 +274,8 @@ class LibPulse:
         except KeyError:
             return None
 
-    @run_in_task
-    async def pa_context_subscribe(self, subscription_masks):
-        """Enable event notification.
-
-        'subscription_masks' is built by ORing the masks defined by the
-        'pa_subscription_mask' Enum in the pulse_enums module.
-
-        This method may be invoked at any time to change the subscription
-        masks currently set, even from within the async for loop that iterates
-        over the reception of libpulse events.
-        """
-
-        def context_success_callback(c_context, success, c_userdata):
-            LibPulse._success_callback('pa_context_subscribe', notification,
-                                       success)
-
-        notification  = self.loop.create_future()
-        c_context_success_callback = callback_func_ptr(
-                        'pa_context_success_cb_t', context_success_callback)
-        c_operation = pa_context_subscribe(self.c_context, subscription_masks,
-                                           c_context_success_callback, None)
-
-        errmsg = f'Cannot subscribe events with {subscription_masks} mask'
-        await LibPulse._handle_operation(c_operation, notification, errmsg)
-
-    def get_events(self):
-        """Return an Asynchronous Iterator of libpulse events.
-
-        The iterator is used to run an async for loop over the PulseEvent
-        instances. The async for loop can be terminated by invoking the
-        close() method of the iterator from within the loop or from another
-        task.
-        """
-        if self.closed:
-            raise PulseOperationError('The LibPulse instance is closed')
-
-        if self.event_iterator is not None and not self.event_iterator.closed:
-            raise LibPulseError('Not allowed: the current Asynchronous'
-                                ' Iterator must be closed first')
-        self.event_iterator = EventIterator()
-        return self.event_iterator
-
-    @run_in_task
-    async def pa_context_load_module(self, name, argument):
-        r"""Load the pulseaudio module named 'name' and return its index.
-
-        'argument' is a string. Note that space characters within the double
-        quoted strings MUST be escaped with '\'.
-        For example:
-        sink_name="foo" sink_properties=device.description="foo\ description"
-        """
-
-        def context_index_callback(c_context, index, c_userdata):
-            if not notification.done():
-                notification.set_result(index)
-
-        notification  = self.loop.create_future()
-        c_context_index_callback = callback_func_ptr('pa_context_index_cb_t',
-                                             context_index_callback)
-        c_operation = pa_context_load_module(self.c_context, name.encode(),
-                        argument.encode(), c_context_index_callback, None)
-
-        errmsg = f"Cannot load '{name}' module with '{argument}' argument"
-        await LibPulse._handle_operation(c_operation, notification, errmsg)
-
-        index = notification.result()
-        if index == PA_INVALID_INDEX:
-            raise PulseOperationError(errmsg)
-        logger.debug(f"Load '{name}'({index}) {argument}")
-        return index
-
-    @run_in_task
-    async def pa_context_unload_module(self, index):
-        """Unload the module whose index is 'index'.
-
-        Note that this operation fails only if the 'index' argument is
-        PA_INVALID_INDEX !
-        See command_kill() in libpulse instrospect.c.
-        """
-
-        def context_success_callback(c_context, success, c_userdata):
-            LibPulse._success_callback('pa_context_unload_module',
-                                       notification, success)
-
-        notification  = self.loop.create_future()
-        c_context_success_callback = callback_func_ptr(
-                        'pa_context_success_cb_t', context_success_callback)
-        c_operation = pa_context_unload_module(self.c_context, index,
-                                            c_context_success_callback, None)
-
-        errmsg = f'Cannot unload module at {index} index'
-        await LibPulse._handle_operation(c_operation, notification, errmsg)
-        logger.debug(f'Unload module at index {index}')
-
-    @run_in_task
-    async def pa_context_get_sink_info_list(self):
-        """Return the list of Sink instances."""
-        return await self._get_info_list(Sink, 'pa_sink_info_cb_t',
-                                         pa_context_get_sink_info_list)
-
-    @run_in_task
-    async def pa_context_get_sink_input_info_list(self):
-        """Return the list of SinkInput instances."""
-        return await self._get_info_list(SinkInput, 'pa_sink_input_info_cb_t',
-                                         pa_context_get_sink_input_info_list)
-
-    @run_in_task
-    async def pa_context_get_sink_info_by_name(self, name):
-        """Return the Sink instance whose name is 'name'."""
-
-        def sink_info_callback(c_context, c_sink_info, eol, c_userdata):
-            LibPulse._list_callback(notification, sink_infos, Sink,
-                                    c_sink_info, eol)
-
-        sink_infos = []
-        notification  = self.loop.create_future()
-        c_sink_info_callback = callback_func_ptr('pa_sink_info_cb_t',
-                                                 sink_info_callback)
-        c_operation = pa_context_get_sink_info_by_name(self.c_context,
-                                    name.encode(), c_sink_info_callback, None)
-        errmsg = 'Error at pa_context_get_sink_info_by_name()'
-        await LibPulse._handle_operation(c_operation, notification, errmsg)
-
-        eol = notification.result()
-        if eol < 0:
-            raise PulseOperationError(errmsg)
-        return sink_infos[0]
-
-    @run_in_task
-    async def pa_context_get_server_info(self):
-        """Get the server name and the environment it's running on."""
-
-        def server_info_callback(c_context, c_server_info, c_userdata):
-            if not bool(c_server_info):
-                server_info = None
-            else:
-                server_info = ServerInfo(c_server_info.contents)
-            if not notification.done():
-                notification.set_result(server_info)
-
-        notification  = self.loop.create_future()
-        c_server_info_callback = callback_func_ptr('pa_server_info_cb_t',
-                                                server_info_callback)
-        c_operation = pa_context_get_server_info(self.c_context,
-                                                c_server_info_callback, None)
-        errmsg = 'Error at pa_context_get_server_info()'
-        await LibPulse._handle_operation(c_operation, notification, errmsg)
-
-        server_info = notification.result()
-        if server_info is None:
-            raise PulseOperationError(errmsg)
-        return server_info
-
-    async def log_server_info(self):
-        if self.state[0] != 'PA_CONTEXT_READY':
-            raise PulseStateError(self.state)
-
-        server_info = await self.pa_context_get_server_info()
-        server_name = server_info.server_name
-        if re.match(r'.*\d+\.\d', server_name):
-            # Pipewire includes the server version in the server name.
-            logger.info(f'Server: {server_name}')
-        else:
-            logger.info(f'Server: {server_name} {server_info.server_version}')
-
-        version = pa_context_get_protocol_version(self.c_context)
-        server_ver = pa_context_get_server_protocol_version(self.c_context)
-        logger.debug(f'libpulse library/server versions: '
-                     f'{version}/{server_ver}')
-
-        # 'server' is the name of the socket libpulse is connected to.
-        server = pa_context_get_server(self.c_context)
-        logger.debug(f'{server_name} connected to {server.decode()}')
-
-    # Private methods.
     @staticmethod
-    def _success_callback(func_name, future, success):
-        # 'success' may be PA_OPERATION_DONE or PA_OPERATION_CANCELLED.
-        # PA_OPERATION_CANCELLED occurs "as a result of the context getting
-        # disconnected while the operation is pending". We just log this event as
-        # the LibPulse instance will be aborted following this disconnection.
-        if success == PA_OPERATION_CANCELLED:
-            logger.debug(f'Got PA_OPERATION_CANCELLED for {func_name}')
-        elif not future.done():
-            future.set_result(None)
-
-    @staticmethod
-    def _list_callback(notification, instances, cls, c_object, eol):
-        # From the ctypes documentation: "NULL pointers have a False
-        # boolean value".
-        if not bool(c_object):
-            if not notification.done():
-                notification.set_result(eol)
-        else:
-            instances.append(cls(c_object.contents))
-
-    async def _get_info_list(self, cls, callback_name, operation):
-        def info_callback(c_context, c_info, eol, c_userdata):
-            LibPulse._list_callback(notification, infos, cls, c_info, eol)
-
-        infos = []
-        notification = self.loop.create_future()
-        c_info_callback = callback_func_ptr(callback_name, info_callback)
-        c_operation = operation(self.c_context, c_info_callback, None)
-        errmsg = f'Error in getting infos on the list of {cls.__name__}s'
-        await LibPulse._handle_operation(c_operation, notification, errmsg)
-
-        eol = notification.result()
-        if eol < 0:
-            raise PulseOperationError(errmsg)
-        return infos
-
-    @staticmethod
-    async def _handle_operation(c_operation, future, errmsg):
-        # From the ctypes documentation: "NULL pointers have a False
-        # boolean value".
-        if not bool(c_operation):
-            future.cancel()
-            raise PulseOperationError(errmsg)
-
-        try:
-            await future
-        except asyncio.CancelledError:
-            pa_operation_cancel(c_operation)
-            raise
-        finally:
-            pa_operation_unref(c_operation)
-
-    @staticmethod
-    def _context_state_callback(c_context, c_userdata):
+    def context_state_callback(c_context, c_userdata):
         """Call back that monitors the connection state."""
 
         lib_pulse = LibPulse.get_instance()
@@ -547,15 +296,15 @@ class LibPulse:
             if not state_notification.done():
                 state_notification.set_result(state)
             elif not lib_pulse.closed and st != 'PA_CONTEXT_READY':
-                # A task is used here instead of calling directly _abort() so
-                # that _pa_context_connect() has the time to handle a
+                # A task is used here instead of calling directly abort() so
+                # that pa_context_connect() has the time to handle a
                 # previous PA_CONTEXT_READY state.
-                asyncio.create_task(lib_pulse._abort(state))
+                asyncio.create_task(lib_pulse.abort(state))
         else:
             logger.debug(f'LibPulse connection: {st}')
 
     @run_in_task
-    async def _pa_context_connect(self):
+    async def pa_context_connect(self):
         """Connect the context to the default server."""
 
         pa_context_set_state_callback(self.c_context,
@@ -570,7 +319,7 @@ class LibPulse:
             raise PulseStateError(self.state)
 
     @staticmethod
-    def _context_subscribe_callback(c_context, event_type, index, c_userdata):
+    def context_subscribe_callback(c_context, event_type, index, c_userdata):
         """Call back to handle pulseaudio events."""
 
         lib_pulse = LibPulse.get_instance()
@@ -578,15 +327,165 @@ class LibPulse:
             return
 
         if lib_pulse.event_iterator is not None:
-            lib_pulse.event_iterator._put_nowait(PulseEvent(event_type,
+            lib_pulse.event_iterator.put_nowait(PulseEvent(event_type,
                                                             index))
 
-    async def _abort(self, state):
+
+    # Libpulse async methods workers.
+    @staticmethod
+    def get_callback_data(func_name):
+        # Get name and signature of the callback argument of 'func_name'.
+        func_sig = pulse_functions['signatures'][func_name]
+        args = func_sig[1]
+        for arg in args:
+            if arg in pulse_functions['callbacks']:
+                callback_name = arg
+                callback_sig = pulse_functions['callbacks'][arg]
+                assert len(args) >= 3 and arg == args[-2]
+                return callback_name, callback_sig
+
+    def call_ctypes_func(self, func_name, cb_func_ptr, *func_args):
+        # Call the 'func_name' ctypes function.
+        args = []
+        for arg in func_args:
+            arg = arg.encode() if isinstance(arg, str) else arg
+            args.append(arg)
+        func_proto = pulse_ctypes.get_prototype(func_name)
+        c_operation = func_proto(self.c_context, *args, cb_func_ptr, None)
+        return c_operation
+
+    @staticmethod
+    async def handle_operation(c_operation, future, errmsg):
+        # From the ctypes documentation: "NULL pointers have a False
+        # boolean value".
+        if not bool(c_operation):
+            future.cancel()
+            raise PulseOperationError(errmsg)
+
+        try:
+            await future
+        except asyncio.CancelledError:
+            pa_operation_cancel(c_operation)
+            raise
+        finally:
+            pa_operation_unref(c_operation)
+
+    async def pa_async_one_shot(self, func_name, *func_args):
+        """Call an asynchronous pulse function that does not return a list.
+
+        'func_args' is the sequence of the arguments of the function preceding
+        the callback in the function signature. The last argument
+        (i.e. 'userdata') is set to None by call_ctypes_func().
+        """
+
+        def callback_func(c_context, *c_results):
+            results = []
+            for arg, c_result in zip(callback_sig[1][1:-1], c_results[:-1]):
+                arg_list = arg.split()
+                if arg_list[-1] == '*':
+                    assert arg_list[0] in struct_ctypes
+                    struct_name = arg_list[0]
+                    if not bool(c_result):
+                        results.append(None)
+                    else:
+                        results.append(PulseStructure(c_result.contents,
+                                                struct_ctypes[struct_name]))
+                else:
+                    results.append(c_result)
+
+            if not notification.done():
+                notification.set_result(results)
+
+        callback_data = self.get_callback_data(func_name)
+        assert callback_data, f'{func_name} signature without a callback'
+        callback_name, callback_sig = callback_data
+
+        notification  = self.loop.create_future()
+        errmsg = 'Error at {func_name}()'
+
+        # Await on the future.
+        cb_func_ptr = callback_func_ptr(callback_name, callback_func)
+        c_operation = self.call_ctypes_func(func_name, cb_func_ptr,
+                                                                *func_args)
+        await LibPulse.handle_operation(c_operation, notification, errmsg)
+
+        results = notification.result()
+        for result in results:
+            if result is None:
+                raise PulseOperationError(errmsg)
+        if len(results) == 1:
+            return results[0]
+        return results
+
+    @run_in_task
+    async def pa_async_func_list(self, func_name, *func_args):
+        """Call an asynchronous pulse function that returns a list.
+
+        'func_args' is the sequence of the arguments of the function preceding
+        the callback in the function signature. The last argument
+        (i.e. 'userdata') is set to None by call_ctypes_func().
+        """
+
+        def info_callback(c_context, c_info, eol, c_userdata):
+            # From the ctypes documentation: "NULL pointers have a False
+            # boolean value".
+            if not bool(c_info):
+                if not notification.done():
+                    notification.set_result(eol)
+            else:
+                arg = callback_sig[1][1]
+                arg_list = arg.split()
+                assert arg_list[-1] == '*'
+                assert arg_list[0] in struct_ctypes
+                struct_name = arg_list[0]
+                infos.append(PulseStructure(c_info.contents,
+                                            struct_ctypes[struct_name]))
+
+        callback_data = self.get_callback_data(func_name)
+        assert callback_data, f'{func_name} signature without a callback'
+        callback_name, callback_sig = callback_data
+
+        infos = []
+        notification  = self.loop.create_future()
+        errmsg = 'Error at {func_name}()'
+
+        # Await on the future.
+        cb_func_ptr = callback_func_ptr(callback_name, info_callback)
+        c_operation = self.call_ctypes_func(func_name, cb_func_ptr,
+                                                                *func_args)
+        await LibPulse.handle_operation(c_operation, notification, errmsg)
+
+        eol = notification.result()
+        if eol < 0:
+            raise PulseOperationError(errmsg)
+        if func_name.endswith(('_by_name', '_by_index')):
+            assert len(infos) == 1
+            return infos[0]
+        return infos
+
+    @run_in_task
+    async def pa_async_func(self, func_name, *func_args):
+        return await self.pa_async_one_shot(func_name, *func_args)
+
+    @run_in_task
+    async def pa_async_func_success(self, func_name, *func_args):
+        # 'success' may be PA_OPERATION_DONE or PA_OPERATION_CANCELLED.
+        # PA_OPERATION_CANCELLED occurs "as a result of the context getting
+        # disconnected while the operation is pending". We just log this event
+        # as the LibPulse instance will be aborted following this
+        # disconnection.
+        success = await self.pa_async_one_shot(func_name, *func_args)
+        if success == PA_OPERATION_CANCELLED:
+            logger.debug(f'Got PA_OPERATION_CANCELLED for {func_name}')
+
+
+    # Context manager.
+    async def abort(self, state):
         # Cancelling the main task does close the LibPulse context manager.
         logger.error(f'The LibPulse instance has been aborted: {state}')
         self.main_task.cancel()
 
-    def _close(self):
+    def close(self):
         if self.closed:
             return
         self.closed = True
@@ -595,7 +494,7 @@ class LibPulse:
             for task in self.libpulse_tasks:
                 task.cancel()
             if self.event_iterator is not None:
-                self.event_iterator._abort()
+                self.event_iterator.abort()
 
             pa_context_set_state_callback(self.c_context, None, None)
             pa_context_set_subscribe_callback(self.c_context, None, None)
@@ -621,20 +520,78 @@ class LibPulse:
             # Set up the two callbacks that live until this instance is
             # closed.
             self.main_task = asyncio.current_task(self.loop)
-            await self._pa_context_connect()
+            await self.pa_context_connect()
             pa_context_set_subscribe_callback(self.c_context,
                                     self.c_context_subscribe_callback, None)
             return self
         except asyncio.CancelledError:
-            self._close()
+            self.close()
             if self.state[0] != 'PA_CONTEXT_READY':
                 raise PulseStateError(self.state)
         except Exception:
-            self._close()
+            self.close()
             raise
 
     async def __aexit__(self, exc_type, exc_value, traceback):
-        self._close()
+        self.close()
         if exc_type is asyncio.CancelledError:
             if self.state[0] != 'PA_CONTEXT_READY':
                 raise PulseStateError(self.state)
+
+
+    # Public methods.
+    def get_events(self):
+        """Return an Asynchronous Iterator of libpulse events.
+
+        The iterator is used to run an async for loop over the PulseEvent
+        instances. The async for loop can be terminated by invoking the
+        close() method of the iterator from within the loop or from another
+        task.
+        """
+        if self.closed:
+            raise PulseOperationError('The LibPulse instance is closed')
+
+        if self.event_iterator is not None and not self.event_iterator.closed:
+            raise LibPulseError('Not allowed: the current Asynchronous'
+                                ' Iterator must be closed first')
+        self.event_iterator = EventIterator()
+        return self.event_iterator
+
+    async def log_server_info(self):
+        if self.state[0] != 'PA_CONTEXT_READY':
+            raise PulseStateError(self.state)
+
+        server_info = await self.pa_context_get_server_info()
+        server_name = server_info.server_name
+        if re.match(r'.*\d+\.\d', server_name):
+            # Pipewire includes the server version in the server name.
+            logger.info(f'Server: {server_name}')
+        else:
+            logger.info(f'Server: {server_name} {server_info.server_version}')
+
+        version = pa_context_get_protocol_version(self.c_context)
+        server_ver = pa_context_get_server_protocol_version(self.c_context)
+        logger.debug(f'libpulse library/server versions: '
+                     f'{version}/{server_ver}')
+
+        # 'server' is the name of the socket libpulse is connected to.
+        server = pa_context_get_server(self.c_context)
+        logger.debug(f'{server_name} connected to {server.decode()}')
+
+
+# Partial methods.
+for func_name in ('pa_context_get_server_info',
+                  'pa_context_load_module'):
+    setattr(LibPulse, func_name, partialmethod(
+                                LibPulse.pa_async_func, func_name))
+
+for func_name in ('pa_context_subscribe',
+                  'pa_context_unload_module'):
+    setattr(LibPulse, func_name, partialmethod(
+                                LibPulse.pa_async_func_success, func_name))
+
+for func_name in ('pa_context_get_sink_info_list',
+                  'pa_context_get_sink_input_info_list',
+                  'pa_context_get_sink_info_by_name'):
+    setattr(LibPulse, func_name, partialmethod(
+                                LibPulse.pa_async_func_list, func_name))

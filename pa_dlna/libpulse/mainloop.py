@@ -1,17 +1,22 @@
 """An implementation of the libpulse Main Loop based on asyncio."""
 
+import sys
 import asyncio
 import logging
 import time
 import gc
 import ctypes as ct
 
-from .libpulse_ctypes import PulseCTypes, python_object
+from .libpulse_ctypes import PulseCTypes, python_object, PulseCTypesLibError
 from .pulse_enums import pulse_enums
 
 logger = logging.getLogger('libpuls')
 
-pulse_ctypes = PulseCTypes()
+try:
+    pulse_ctypes = PulseCTypes()
+except PulseCTypesLibError as e:
+    sys.exit(f'{e!r}')
+
 pa_io_event_flags = pulse_enums['pa_io_event_flags']
 
 def callback_func_ptr(name, python_function):

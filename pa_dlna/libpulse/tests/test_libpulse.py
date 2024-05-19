@@ -60,20 +60,6 @@ class LibPulseTestCase(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
                     re.compile(fr'Server: [Pp]ulse[Aa]udio.* \d+\.\d')))
 
-    async def test_load_module(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            async with LibPulse('libpulse-test') as lib_pulse:
-                async with LoadModule(lib_pulse, 'module-null-sink',
-                                      MODULE_ARG) as loaded_module:
-                    pass
-
-        self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
-                    re.compile(f"Load 'module-null-sink'.*{SINK_NAME}.*"
-                               f'description')))
-        self.assertTrue(search_in_logs(m_logs.output, 'libpuls',
-                    re.compile(f'Unload module at index'
-                               f' {loaded_module.module_index}')))
-
     async def test_list_sinks(self):
         async with LibPulse('libpulse-test') as lib_pulse:
             async with LoadModule(lib_pulse, 'module-null-sink',

@@ -5,6 +5,7 @@ from unittest import TestCase, mock
 from contextlib import redirect_stdout
 
 # Load the tests in the order they are declared.
+from ...tests import requires_resources
 from ...upnp.tests import load_ordered_tests
 
 import pa_dlna.libpulse.libpulse_ctypes as libpulse_ctypes_module
