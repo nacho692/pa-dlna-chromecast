@@ -1,4 +1,53 @@
-"""The ctypes interface to the libpulse library."""
+"""The ctypes interface to the libpulse library.
+
+This module provides:
+
+    - All the enums constants of the libpulse library as module variables and
+      also the PA_INVALID_INDEX variable.
+
+    - All the functions of the libpulse library (except the callbacks) may
+      be called directly from Python as ctypes functions.
+      To call the 'pa_context_*' functions, instantiate LibPulse and use its
+      'c_context' attribute. See below.
+      To call asynchronous functions, see below as well.
+
+The LibPulse class is an asyncio context manager, use it like this:
+
+    async with LibPulse(some_name) as lib_pulse:
+        statements using the 'lib_pulse' LibPulse instance
+        ..
+
+The LibPulse instance manages the connection to libpulse and provides:
+
+    - The 'c_context' attribute, that is required by all 'pa_context_*'
+      functions as first argument.
+
+    - Asyncio coroutine methods that correspond to the libpulse asynchronous
+      functions (i.e. those functions that have a callback as argument).
+      The methods arguments omit the first argument, the last one and the
+      callback argument in the corresponding libpulse signature. For example
+      pa_context_get_server_info() is invoked as:
+
+            server_info = await lib_pulse.pa_context_get_server_info()
+
+    - pa_context_subscribe() is one of the LibPulse asyncio coroutine method.
+      This method may be invoked at any time to change the subscription
+      masks currently set, even from within the 'async for' loop that iterates
+      over the reception of libpulse events.
+      After this method has been invoked for the first time, call the
+      get_events() method to get an iterator that returns the successive
+      libpulse events. For example:
+
+            # Start the iteration on sink-input events.
+            await lib_pulse.pa_context_subscribe(
+                                    PA_SUBSCRIPTION_MASK_SINK_INPUT)
+            iterator = lib_pulse.get_events()
+            async for event in iterator:
+                await dispatch_event(event)
+
+      'event' is an instance of PulseEvent (see PulseEvent.__doc__).
+
+"""
 
 import sys
 import asyncio
