@@ -56,7 +56,7 @@ import re
 import ctypes as ct
 from functools import partialmethod
 
-from .libpulse_ctypes import PA_INVALID_INDEX
+from .libpulse_ctypes import PulseCTypes, PA_INVALID_INDEX
 from .mainloop import MainLoop, pulse_ctypes, callback_func_ptr
 from .pulse_functions import pulse_functions
 from .pulse_enums import pulse_enums
@@ -226,12 +226,10 @@ class PulseEvent:
         return list(EVENT_TYPES.values())
 
 class PropList(dict):
-    """Dictionary of the properties of a pulseaudio object."""
+    """Dictionary of the elements of a proplist whose value is a string."""
 
     def __init__(self, c_pa_proplist):
         super().__init__()
-        if not bool(c_pa_proplist):
-            return
 
         null_ptr = ct.POINTER(ct.c_void_p)()
         null_ptr_ptr = ct.pointer(null_ptr)
@@ -245,36 +243,65 @@ class PropList(dict):
                 break
 
 class PulseStructure:
+    """The representation of a ctypes Structure.
+
+    When returned by a callback as a pointer to a structure, one must make a
+    deep copy of the elements of the structure as they are only temporarily
+    available.
+
+    A pointer to an array or a pointer to a pointer is ignored.
+    """
+
     pointer_names = set()
 
     def __init__(self, c_struct, c_structure_type):
-        # Make a deep copy of some of the elements of the structure as they
-        # are only temporarily available.
-        # Members of the structure that are pointers are ignored.
         for name, c_type in c_structure_type._fields_:
-            c_struct_val = getattr(c_struct, name)
-            if c_type is ct.c_char_p:
-                if not bool(c_struct_val):
-                    c_struct_val = b''
+            fq_name = f'{c_structure_type.__name__}.{name}: {c_type.__name__}'
+            if fq_name in self.pointer_names:
+                continue
+
+            try:
+                c_struct_val = getattr(c_struct, name)
+            except AttributeError:
+                assert False, (f'{fq_name} not found while instantiating'
+                               f' a PulseStructure')
+
+            # A NULL pointer.
+            if not bool(c_struct_val):
+                setattr(self, name, None)
+
+            elif c_type is ct.c_char_p:
                 setattr(self, name, c_struct_val.decode())
-            elif c_type in (ct.c_int, ct.c_uint32, ct.c_uint64, ct.c_uint8):
-                setattr(self, name, int(c_struct_val))
-            elif name == 'proplist':
-                self.proplist = PropList(c_struct_val)
+
+            elif c_type in PulseCTypes.numeric_types.values():
+                setattr(self, name, c_struct_val)
+
+            # A proplist pointer.
+            elif (hasattr(c_struct_val, 'contents') and
+                        c_struct_val._type_.__name__ == 'pa_proplist'):
+                setattr(self, name, PropList(c_struct_val))
+
+            elif not hasattr(c_struct_val, 'contents'):
+                # A structure.
+                if c_type.__name__ in struct_ctypes:
+                    try:
+                        setattr(self, name,
+                            PulseStructure(c_struct_val, c_type))
+                        continue
+                    except AttributeError:
+                        pass
+                self.ignore_member(fq_name)
             else:
-                fq_name = f'{c_structure_type.__name__}.{name}'
-                if fq_name in self.pointer_names:
-                    continue
-                for c_struct_type in struct_ctypes.values():
-                    if c_type is c_struct_type:
-                        try:
-                            setattr(self, name,
-                                PulseStructure(c_struct_val, c_struct_type))
-                        except AttributeError:
-                            self.ignore_member(fq_name)
-                        break
-                else:
-                    self.ignore_member(fq_name)
+                # A pointer.
+                if c_struct_val._type_.__name__ in struct_ctypes:
+                    try:
+                        setattr(self, name,
+                                PulseStructure(c_struct_val.contents,
+                                               c_struct_val._type_))
+                        continue
+                    except AttributeError:
+                        pass
+                self.ignore_member(fq_name)
 
     def ignore_member(self, name):
         self.pointer_names.add(name)

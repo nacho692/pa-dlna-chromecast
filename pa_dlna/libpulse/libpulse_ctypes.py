@@ -41,8 +41,7 @@ class timeval(ct.Structure):
 
 class PulseCTypes:
 
-    standard_ctypes = {
-        'void':         None,
+    numeric_types = {
         'int':          ct.c_int,
         'int64_t':      ct.c_int64,
         'unsigned':     ct.c_uint,
@@ -53,9 +52,14 @@ class PulseCTypes:
         'uint64_t':     ct.c_uint64,
         'size_t':       ct.c_size_t,
         'float':        ct.c_float,
+    }
+
+    standard_ctypes = {
+        'void':         None,
         'char *':       ct.c_char_p,
         'void *':       ct.c_void_p,
     }
+    standard_ctypes.update(numeric_types)
 
     def __init__(self):
         self.known_ctypes = {}
