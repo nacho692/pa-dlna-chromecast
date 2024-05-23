@@ -136,14 +136,13 @@ Requirements
 """"""""""""
 
 Development:
-    * ``gcc`` is used to parse libpulse's pulseaudio.h and to create
-      pulseaudio_h.py and prototypes.py. It should not be needed after the
-      creation of both these Python modules as pulseaudio enforces the ABI
-      compatibility of libpulse across its different versions.
+    * ``gcc`` and `pyclibrary`_ are used to parse the libpulse headers and to
+      create the ``pulse_types.py``, ``pulse_enums.py``, ``pulse_structs.py``
+      and ``pulse_functions.py`` files in the pa_dlna/libpulse directory.
 
-      pulseaudio_h.py and prototypes.py are created by running the command::
+      To re-create those files using the current libpulse headers run::
 
-        $ python -m tools.parse_libpulse
+        $ python -m tools.libpulse_parser pa_dlna/libpulse
 
     * `curl`_ is used to run the full test suite. When missing, the tests
       using curl are skipped. It is also needed when releasing a new version to
@@ -251,6 +250,8 @@ Releasing
     https://docs.python.org/3/library/unittest.html#command-line-options
 .. _latest documentation:
     https://pa-dlna.readthedocs.io/en/latest/
+.. _pyclibrary:
+    https://pypi.org/project/pyclibrary/
 
 .. rubric:: Footnotes
 
