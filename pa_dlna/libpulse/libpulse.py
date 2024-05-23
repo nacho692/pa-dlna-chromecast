@@ -30,6 +30,9 @@ The LibPulse instance manages the connection to libpulse and provides:
 
             server_info = await lib_pulse.pa_context_get_server_info()
 
+      The coroutine returns the result(s) of the execution of the libpulse
+      callback.
+
     - pa_context_subscribe() is one of the LibPulse asyncio coroutine method.
       This method may be invoked at any time to change the subscription
       masks currently set, even from within the 'async for' loop that iterates
@@ -53,6 +56,7 @@ import sys
 import asyncio
 import logging
 import re
+import pprint
 import ctypes as ct
 from functools import partialmethod
 
@@ -248,16 +252,23 @@ class PulseStructure:
     When returned by a callback as a pointer to a structure, one must make a
     deep copy of the elements of the structure as they are only temporarily
     available.
-
-    A pointer to an array or a pointer to a pointer is ignored.
     """
 
-    pointer_names = set()
+    ignored_pointer_names = set()
+
+    array_sizes = {
+        'pa_card_port_info':        'n_ports',
+        'pa_source_port_info':      'n_ports',
+        'pa_sink_port_info':        'n_ports',
+        'pa_card_profile_info':     'n_profiles',
+        'pa_card_profile_info2':    'n_profiles',
+        'pa_format_info':           'n_formats',
+        }
 
     def __init__(self, c_struct, c_structure_type):
         for name, c_type in c_structure_type._fields_:
             fq_name = f'{c_structure_type.__name__}.{name}: {c_type.__name__}'
-            if fq_name in self.pointer_names:
+            if fq_name in self.ignored_pointer_names:
                 continue
 
             try:
@@ -266,46 +277,70 @@ class PulseStructure:
                 assert False, (f'{fq_name} not found while instantiating'
                                f' a PulseStructure')
 
+            if c_type in PulseCTypes.numeric_types.values():
+                setattr(self, name, c_struct_val)
+
             # A NULL pointer.
-            if not bool(c_struct_val):
+            elif not bool(c_struct_val):
                 setattr(self, name, None)
 
             elif c_type is ct.c_char_p:
                 setattr(self, name, c_struct_val.decode())
 
-            elif c_type in PulseCTypes.numeric_types.values():
-                setattr(self, name, c_struct_val)
-
             # A proplist pointer.
-            elif (hasattr(c_struct_val, 'contents') and
+            elif (isinstance(c_struct_val, ct._Pointer) and
                         c_struct_val._type_.__name__ == 'pa_proplist'):
                 setattr(self, name, PropList(c_struct_val))
 
-            elif not hasattr(c_struct_val, 'contents'):
-                # A structure.
-                if c_type.__name__ in struct_ctypes:
-                    try:
-                        setattr(self, name,
-                            PulseStructure(c_struct_val, c_type))
-                        continue
-                    except AttributeError:
-                        pass
-                self.ignore_member(fq_name)
-            else:
-                # A pointer.
+            # An array.
+            elif isinstance(c_struct_val, ct.Array):
+                # All libpulse arrays have a numeric type.
+                setattr(self, name, c_struct_val[:])
+
+            # An array of pointers.
+            elif (isinstance(c_struct_val, ct._Pointer) and
+                    isinstance(c_struct_val.contents, ct._Pointer)):
+                ptr = c_struct_val.contents
+                ctype = ptr._type_
+                if ctype.__name__ in struct_ctypes:
+                    val = []
+                    size_attr = self.array_sizes[ctype.__name__]
+                    array_size = getattr(self, size_attr)
+                    i = 0
+                    while True:
+                        if not bool(ptr[i]):
+                            break
+                        if i == array_size:
+                            break
+                        val.append(PulseStructure(ptr[i], ctype))
+                        i += 1
+                    setattr(self, name, val)
+                else:
+                    self.ignore_member(fq_name)
+
+            # A pointer.
+            elif isinstance(c_struct_val, ct._Pointer):
                 if c_struct_val._type_.__name__ in struct_ctypes:
-                    try:
-                        setattr(self, name,
-                                PulseStructure(c_struct_val.contents,
-                                               c_struct_val._type_))
-                        continue
-                    except AttributeError:
-                        pass
-                self.ignore_member(fq_name)
+                    setattr(self, name,
+                            PulseStructure(c_struct_val.contents,
+                                           c_struct_val._type_))
+                else:
+                    self.ignore_member(fq_name)
+
+            # A structure.
+            else:
+                if c_type.__name__ in struct_ctypes:
+                    setattr(self, name,
+                            PulseStructure(c_struct_val, c_type))
+                else:
+                    self.ignore_member(fq_name)
 
     def ignore_member(self, name):
-        self.pointer_names.add(name)
+        self.ignored_pointer_names.add(name)
         logger.debug(f"Ignoring '{name}' structure member")
+
+    def __repr__(self):
+        return pprint.pformat(self.__dict__, sort_dicts=False)
 
 class LibPulse:
     """Interface to libpulse library as an asynchronous context manager."""

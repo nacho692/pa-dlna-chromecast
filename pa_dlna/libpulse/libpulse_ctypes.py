@@ -89,7 +89,7 @@ class PulseCTypes:
                     continue
             raise PulseCTypesError(f'Unknown type: {item}: {types}')
 
-    def _ctype_struct_class(self, types):
+    def get_member_ctype(self, types):
         # ctype_struct_class() helper.
         if types[0] in pulse_structs or types[0] == 'timeval':
             # Recursive call.
@@ -102,72 +102,65 @@ class PulseCTypes:
             ctype = self.get_ctype(' '.join(types))
         return ctype
 
-    def ctype_struct_class(self, struct):
+    def ctype_struct_class(self, struct_name):
         """Build a ctypes Structure class."""
 
-        if struct in self.struct_ctypes:
-            return self.struct_ctypes[struct]
+        if struct_name in self.struct_ctypes:
+            return self.struct_ctypes[struct_name]
 
         _fields_ = []
-        for member in pulse_structs[struct]:
+        for member in pulse_structs[struct_name]:
             member_name = member[0]
             member_type = member[1]
             types = member_type.split()
             if types[0] == 'struct':
                 types = types[1:]
 
-            length = len(types)
-            assert length <= 3
-            if length == 3:
-                if ''.join(types).endswith('**'):
-                    ctype = ct.c_void_p
-                    _fields_.append((member_name, ctype))
-                    continue
-                elif types[1] == '*':
-                    try:
-                        base_ctype = self._ctype_struct_class(types[:1])
-                        # An array of ctypes.
-                        ctype = (base_ctype * int(types[-1]))
-                        _fields_.append((member_name, ctype))
-                        continue
-                    except ValueError:
-                        pass
+            # An array of ctypes.
+            if len(types) == 3 and types[1] == '*' and types[2] != '*':
+                ctype = self.get_member_ctype(types[:1])
+                try:
+                    _fields_.append((member_name, (ctype * int(types[2]))))
+                except ValueError:
+                    assert False, f'{struct_name}.{member_name}'
 
-            assert length <= 2
-            if member_type.endswith('**'):
-                ctype = ct.c_void_p
+            # A pointer to a pointer.
+            elif ''.join(types).endswith('**'):
+                ctype = self.get_member_ctype(types[:1])
+                _fields_.append((member_name, ct.POINTER(ct.POINTER(ctype))))
+
             else:
-                ctype = self._ctype_struct_class(types)
-            _fields_.append((member_name, ctype))
+                ctype = self.get_member_ctype(types)
+                _fields_.append((member_name, ctype))
 
         # Create the Structure subclass.
-        struct_class = type(struct, (ct.Structure, ),
+        struct_class = type(struct_name, (ct.Structure, ),
                                             {'_fields_': tuple(_fields_)})
+
+        if len(struct_class._fields_) != 0:
+            self.struct_ctypes[struct_name] = struct_class
+            self.struct_ctypes[struct_name + ' *'] = ct.POINTER(struct_class)
         return struct_class
 
     def update_struct_ctypes(self):
         self.struct_ctypes['timeval'] = timeval
         self.struct_ctypes['timeval *'] = ct.POINTER(timeval)
+        for struct_name in pulse_structs:
+            self.ctype_struct_class(struct_name)
 
-        for struct in pulse_structs:
-            struct_class = self.ctype_struct_class(struct)
-            if len(struct_class._fields_) != 0:
-                self.struct_ctypes[struct] = struct_class
-                self.struct_ctypes[struct + ' *'] = ct.POINTER(struct_class)
-
-    def get_ctype(self, str_type):
-        if str_type.startswith('struct '):
-            str_type = str_type[7:]
-        if str_type in self.standard_ctypes:
-            return self.standard_ctypes[str_type]
-        elif str_type in self.known_ctypes:
-            return self.known_ctypes[str_type]
-        elif str_type in self.struct_ctypes:
-            return self.struct_ctypes[str_type]
-        elif str_type.endswith('*'):
+    def get_ctype(self, type_name):
+        if type_name.startswith('struct '):
+            type_name = type_name[7:]
+        if type_name in self.standard_ctypes:
+            return self.standard_ctypes[type_name]
+        elif type_name in self.known_ctypes:
+            return self.known_ctypes[type_name]
+        elif type_name in self.struct_ctypes:
+            return self.struct_ctypes[type_name]
+        elif type_name.endswith('*'):
             return ct.c_void_p
         else:
-            raise PulseCTypesError(f'Cannot convert to ctypes: {str_type}')
+            raise PulseCTypesError(f'Cannot convert to ctypes: {type_name}')
 
     @functools.lru_cache
     def get_callback(self, callback_name):

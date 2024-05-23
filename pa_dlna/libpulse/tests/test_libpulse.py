@@ -78,7 +78,9 @@ class LibPulseTestCase(IsolatedAsyncioTestCase):
                                   MODULE_ARG) as loaded_module:
                 sink = (await
                     lib_pulse.pa_context_get_sink_info_by_name(SINK_NAME))
-                self.assertEqual(sink.name, SINK_NAME)
+        self.assertEqual(sink.name, SINK_NAME)
+        self.assertEqual(sink.channel_map.channels, 2)
+        self.assertEqual(len(sink.channel_map.map), 32)
 
     async def test_sink_proplist(self):
         async with LibPulse('libpulse-test') as lib_pulse:
