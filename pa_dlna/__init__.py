@@ -10,3 +10,7 @@ if _version < MIN_PYTHON_VERSION:
     print(f'error: the python version must be at least'
           f' {MIN_PYTHON_VERSION}', file=sys.stderr)
     sys.exit(1)
+
+# Temporary hack to enable importing libpulse at top level.
+from os.path import join, dirname
+sys.path.append(join(dirname(__file__), '..'))

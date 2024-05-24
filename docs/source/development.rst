@@ -138,11 +138,11 @@ Requirements
 Development:
     * ``gcc`` and `pyclibrary`_ are used to parse the libpulse headers and to
       create the ``pulse_types.py``, ``pulse_enums.py``, ``pulse_structs.py``
-      and ``pulse_functions.py`` files in the pa_dlna/libpulse directory.
+      and ``pulse_functions.py`` files in the libpulse directory.
 
       To re-create those files using the current libpulse headers run::
 
-        $ python -m tools.libpulse_parser pa_dlna/libpulse
+        $ python -m tools.libpulse_parser libpulse
 
     * `curl`_ is used to run the full test suite. When missing, the tests
       using curl are skipped. It is also needed when releasing a new version to

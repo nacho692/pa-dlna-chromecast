@@ -7,7 +7,7 @@ import collections.abc
 from unittest import mock
 
 from . import skip_loop_iterations
-from ..libpulse.libpulse import PA_SUBSCRIPTION_MASK_SINK_INPUT
+from libpulse.libpulse import PA_SUBSCRIPTION_MASK_SINK_INPUT
 
 SKIP_LOOP_ITERATIONS = 30
 
@@ -30,14 +30,14 @@ def use_libpulse_stubs(modules):
     for module in modules:
         if module in sys.modules:
             del sys.modules[module]
-    for module in ('pa_dlna.libpulse', 'pa_dlna.libpulse.libpulse'):
+    for module in ('libpulse', 'libpulse.libpulse'):
         if module in sys.modules:
             del sys.modules[module]
     importlib.invalidate_caches()
 
     with mock.patch.dict('sys.modules',
-                         {'pa_dlna.libpulse': sys.modules[__name__],
-                          'pa_dlna.libpulse.libpulse': sys.modules[__name__]
+                         {'libpulse': sys.modules[__name__],
+                          'libpulse.libpulse': sys.modules[__name__]
                           }):
         yield tuple(reversed(recurse_import(modules.copy())))
 

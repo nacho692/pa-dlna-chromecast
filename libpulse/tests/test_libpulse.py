@@ -6,12 +6,10 @@ import logging
 from unittest import IsolatedAsyncioTestCase, mock
 
 # Load the tests in the order they are declared.
-from ...upnp.tests import load_ordered_tests
+from . import requires_resources, load_ordered_tests, search_in_logs
 
-import pa_dlna.libpulse.libpulse as libpulse_module
+import libpulse.libpulse as libpulse_module
 from ..libpulse import *
-from ...tests import requires_resources
-from ...upnp.tests import search_in_logs
 
 SINK_NAME= 'foo'
 MODULE_ARG = (f'sink_name="{SINK_NAME}" sink_properties=device.description='
