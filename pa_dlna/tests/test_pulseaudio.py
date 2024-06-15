@@ -11,7 +11,7 @@ from . import load_ordered_tests as load_tests
 
 from . import find_in_logs, search_in_logs
 from .streams import pulseaudio, pa_dlna
-from .libpulse import (SinkInput, Event, PulseClosedError, LibPulse,
+from .libpulse import (SinkInput, Event, LibPulseClosedError, LibPulse,
                        LibPulseError, PA_SUBSCRIPTION_MASK_SINK_INPUT)
 
 class Renderer(pa_dlna.DLNATestDevice):
@@ -154,11 +154,11 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         with mock.patch.object(self.pulse, 'dispatch_event') as dispatch,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             LibPulse.add_sink_inputs([SinkInput('source', [Event('new')])])
-            dispatch.side_effect = PulseClosedError()
+            dispatch.side_effect = LibPulseClosedError()
             await self.pulse.run()
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                    re.compile('pa_dlna.tests.libpulse.PulseClosedError')))
+                    re.compile('pa_dlna.tests.libpulse.LibPulseClosedError')))
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_register(self):
