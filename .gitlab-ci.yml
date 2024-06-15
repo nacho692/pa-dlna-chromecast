@@ -13,7 +13,7 @@ default:
     before_script:
         - apt-get update -yq && apt-get install -yq curl ffmpeg
         - python --version
-        - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil
+        - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil libpulse
 
 .pulseaudio: &pulseaudio
     - apt-get update -yq && apt-get install -yq pulseaudio
@@ -35,7 +35,7 @@ default:
 
 .coverage-scripts: &coverage-scripts
     - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install coverage
-    - python -m coverage run -m unittest
+    - python -m coverage run --include="./*" -m unittest
     - python -m coverage report --show-missing
 
 pipwire-tests:

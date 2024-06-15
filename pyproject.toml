@@ -8,7 +8,7 @@ readme = "README.rst"
 requires-python = ">=3.8,<4"
 license = {file = "LICENSE"}
 authors = [{name = "Xavier de Gaye", email = "xdegaye@gmail.com"}]
-keywords = ["pulseaudio", "pipewire", "DLNA", "UPnP", "asyncio", "ctypes"]
+keywords = ["pulseaudio", "pipewire", "DLNA", "UPnP", "asyncio"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Framework :: AsyncIO",
@@ -17,6 +17,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Multimedia :: Sound/Audio :: Players",
     ]
+dependencies = [
+    "psutil",
+    "libpulse",
+]
 dynamic = ["version", "description"]
 
 [project.urls]

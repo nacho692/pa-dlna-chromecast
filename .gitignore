@@ -3,5 +3,3 @@
 /.coverage
 .emacs.desktop*
 *.pyc
-libpulse.cpp
-libpulse.cache

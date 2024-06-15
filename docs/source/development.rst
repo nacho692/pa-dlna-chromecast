@@ -46,14 +46,6 @@ Task names in **bold** characters indicate that there is one such task for each
 DLNA device, when in *italics* that there may be such tasks for each DLNA
 device.
 
-  LibPulse tasks:
-
-    ================      ======================================================
-    *coroutines*          Coroutines are wrapped in a task that is cancelled
-                          when the |br| libpulse connection state becomes
-                          PA_CONTEXT_FAILED.
-    ================      ======================================================
-
   UPnPControlPoint tasks:
 
     ================      ======================================================
@@ -136,14 +128,6 @@ Requirements
 """"""""""""
 
 Development:
-    * ``gcc`` and `pyclibrary`_ are used to parse the libpulse headers and to
-      create the ``pulse_types.py``, ``pulse_enums.py``, ``pulse_structs.py``
-      and ``pulse_functions.py`` files in the libpulse directory.
-
-      To re-create those files using the current libpulse headers run::
-
-        $ python -m tools.libpulse_parser libpulse
-
     * `curl`_ is used to run the full test suite. When missing, the tests
       using curl are skipped. It is also needed when releasing a new version to
       fetch the GitLab test coverage badge.

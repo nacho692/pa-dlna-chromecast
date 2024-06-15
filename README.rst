@@ -9,9 +9,7 @@ servers.
  * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices.
  * The ``upnp-cmd`` is an interactive command line tool for introspection and
    control of UPnP devices [#]_.
- * The UPnP Python package is used by both commands.
- * The libpulse Python package is a ctypes interface to the ``libpulse``
-   library.
+ * The UPnP Python sub-package is used by both commands.
 
 See the **pa-dlna** `documentation`_.
 
@@ -23,10 +21,19 @@ Python version 3.8 or more recent.
 psutil
 ------
 
-The built-in UPnP package  and therefore the ``upnp-cmd`` and ``pa-dlna``
+The UPnP sub-package  and therefore the ``upnp-cmd`` and ``pa-dlna``
 commands depend on the `psutil`_ Python package. This package is available in
-most distributions as ``python3-psutil`` or ``python-psutil``. It can also be
-installed with ``pip``.
+most distributions as ``python3-psutil`` or ``python-psutil``. It will be
+installed by ``pip`` as a dependency of ``pa-dlna`` if not already installed as
+a package of the distribution.
+
+libpulse
+--------
+
+`libpulse`_ is a Python asyncio interface to the Pulseaudio and Pipewire
+``libpulse`` library. It was a sub-package of ``pa-dlna`` and has become a
+full-fledged package on PyPi. It will be installed by ``pip`` as a dependency of
+``pa-dlna``.
 
 parec
 -----
@@ -113,6 +120,7 @@ See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
 .. _lame: https://lame.sourceforge.io/
 .. _configuration: https://pa-dlna.readthedocs.io/en/stable/configuration.html
 .. _pipewire-pulse: https://docs.pipewire.org/page_man_pipewire_pulse_1.html
+.. _libpulse: https://pypi.org/project/libpulse/
 
 .. [#] When using PipeWire with the Wireplumber session manager, ``pa-dlna``
        must be started before the audio streams that are routed to DLNA

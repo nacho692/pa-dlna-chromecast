@@ -2,7 +2,7 @@ Release history
 ===============
 
 Version 0.11
-  - Parse the libpulse headers with ``pyclibrary``.
+  - Import the libpulse package from Pypi.
   - Support Python version 3.12 - fix some network mock tests by forcing the
     release of control to the asyncio loop.
 
