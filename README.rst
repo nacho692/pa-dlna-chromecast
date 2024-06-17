@@ -70,7 +70,7 @@ Installation
 pipewire as a pulseaudio sound server
 -------------------------------------
 
-The ``pipsewire``, ``pipewire-pulse`` and ``wireplumber`` packages must be
+The ``pipewire``, ``pipewire-pulse`` and ``wireplumber`` packages must be
 installed and the corresponding programs started. If you are switching from
 pulseaudio, make sure to remove ``/etc/pulse/client.conf`` or to comment out the
 setting of ``default-server`` in this file as pulseaudio and pipewire do not use

@@ -1,6 +1,9 @@
 Release history
 ===============
 
+Version 0.12
+  - Fix a typo in the installation documentation.
+
 Version 0.11
   - Import the libpulse package from Pypi.
   - Support Python version 3.12 - fix some network mock tests by forcing the
