@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.12
+  - Handle exceptions raised while getting the sink after ``module-null-sink``
+    has been loaded.
   - Fix a typo in the installation documentation.
 
 Version 0.11

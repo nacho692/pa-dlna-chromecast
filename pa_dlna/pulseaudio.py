@@ -47,22 +47,9 @@ class Pulse:
             logger.info('Close pulse')
             await self.av_control_point.close()
 
-    async def register(self, renderer):
-        """Load a null-sink module."""
+    async def get_sink(self, renderer, module_index, module_name):
+        """Get the sink matching a renderer from 'module_index'."""
 
-        if self.lib_pulse is None:
-            return
-
-        upnp_device = renderer.upnp_device
-        module_name = f'{renderer.getattr("modelName")}-{upnp_device.UDN}'
-        _description = renderer.description.replace(' ', r'\ ')
-
-        module_index = await self.lib_pulse.pa_context_load_module(
-            'module-null-sink',
-            f'sink_name="{module_name}" '
-            f'sink_properties=device.description=' f'"{_description}"')
-
-        # Return the NullSink instance.
         for sink in await self.lib_pulse.pa_context_get_sink_info_list():
             if sink.owner_module == module_index:
                 logger.info(f'Load null-sink module {sink.name}'
@@ -80,11 +67,40 @@ class Pulse:
                         f'Two DLNA devices registered with the same name:'
                         f'{NL_INDENT}{module_name}')
 
+                    # AVControlPoint.abort() raises an exception.
+                    assert False, 'Statement never reached'
+
+                return sink
+
+    async def register(self, renderer):
+        """Load a null-sink module."""
+
+        if self.lib_pulse is None:
+            return
+
+        upnp_device = renderer.upnp_device
+        module_name = f'{renderer.getattr("modelName")}-{upnp_device.UDN}'
+        _description = renderer.description.replace(' ', r'\ ')
+
+        module_index = await self.lib_pulse.pa_context_load_module(
+            'module-null-sink',
+            f'sink_name="{module_name}" '
+            f'sink_properties=device.description=' f'"{_description}"')
+
+        # Return the NullSink instance.
+        exception = None
+        try:
+            sink = await self.get_sink(renderer, module_index, module_name)
+            if sink:
                 return NullSink(sink)
+        except Exception as e:
+            exception = e
 
         await self.lib_pulse.pa_context_unload_module(module_index)
         logger.error(
             f'Failed loading {module_name} pulseaudio module')
+        if exception:
+            raise exception
         return None
 
     async def unregister(self, nullsink):

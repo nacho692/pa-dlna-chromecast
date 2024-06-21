@@ -13,6 +13,7 @@ from . import find_in_logs, search_in_logs
 from .streams import pulseaudio, pa_dlna
 from .libpulse import (SinkInput, Event, LibPulseClosedError, LibPulse,
                        LibPulseError, PA_SUBSCRIPTION_MASK_SINK_INPUT)
+from ..pa_dlna import ControlPointAbortError
 
 class Renderer(pa_dlna.DLNATestDevice):
     def __init__(self, control_point, mime_type, results=None):
@@ -35,7 +36,7 @@ class ControlPoint(pa_dlna.AVControlPoint):
         self.root_devices = {}
 
     def abort(self, msg):
-        pass
+        raise ControlPointAbortError(msg)
 
     async def close(self):
         pass
@@ -193,11 +194,11 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             LibPulse.add_sink_inputs([])
             async with LibPulse('pa-dlna') as self.pulse.lib_pulse:
-                with mock.patch.object(self.control_point, 'abort') as abort:
+                with self.assertRaises(ControlPointAbortError) as cm:
                     await self.pulse.register(renderer)
                     await self.pulse.register(renderer)
-
-        abort.assert_called_once()
+                self.assertTrue(cm.exception.args[0].startswith(
+                            'Two DLNA devices registered with the same name'))
 
     async def test_remove_event(self):
         results = []
