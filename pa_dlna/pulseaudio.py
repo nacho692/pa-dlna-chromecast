@@ -246,7 +246,7 @@ class Pulse:
                 # Start the iteration on sink-input events.
                 await self.lib_pulse.pa_context_subscribe(
                                     PA_SUBSCRIPTION_MASK_SINK_INPUT)
-                iterator = self.lib_pulse.get_events()
+                iterator = self.lib_pulse.get_events_iterator()
                 self.av_control_point.start_event.set()
                 async for event in iterator:
                     await self.dispatch_event(event)

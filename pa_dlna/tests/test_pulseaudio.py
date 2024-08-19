@@ -73,7 +73,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
                 renderer.nullsink = await self.pulse.register(renderer)
                 await self.pulse.lib_pulse.pa_context_subscribe(
                                             PA_SUBSCRIPTION_MASK_SINK_INPUT)
-                iterator = self.pulse.lib_pulse.get_events()
+                iterator = self.pulse.lib_pulse.get_events_iterator()
                 async for event in iterator:
                     await self.pulse.dispatch_event(event)
                     await asyncio.sleep(0)
@@ -94,7 +94,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
                 renderer.nullsink = await self.pulse.register(renderer)
                 await self.pulse.lib_pulse.pa_context_subscribe(
                                             PA_SUBSCRIPTION_MASK_SINK_INPUT)
-                iterator = self.pulse.lib_pulse.get_events()
+                iterator = self.pulse.lib_pulse.get_events_iterator()
                 count = 0
                 async for event in iterator:
                     await self.pulse.dispatch_event(event)
@@ -125,7 +125,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
                 renderer.nullsink = await self.pulse.register(renderer)
                 await self.pulse.lib_pulse.pa_context_subscribe(
                                             PA_SUBSCRIPTION_MASK_SINK_INPUT)
-                iterator = self.pulse.lib_pulse.get_events()
+                iterator = self.pulse.lib_pulse.get_events_iterator()
                 count = 0
                 async for event in iterator:
                     await self.pulse.dispatch_event(event)
@@ -211,7 +211,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
                 renderer.nullsink = await self.pulse.register(renderer)
                 await self.pulse.lib_pulse.pa_context_subscribe(
                                             PA_SUBSCRIPTION_MASK_SINK_INPUT)
-                iterator = self.pulse.lib_pulse.get_events()
+                iterator = self.pulse.lib_pulse.get_events_iterator()
                 async for event in iterator:
                     await self.pulse.dispatch_event(event)
                     await asyncio.sleep(0)
@@ -233,7 +233,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
                                                             mp3_renderer)
                 await self.pulse.lib_pulse.pa_context_subscribe(
                                             PA_SUBSCRIPTION_MASK_SINK_INPUT)
-                iterator = self.pulse.lib_pulse.get_events()
+                iterator = self.pulse.lib_pulse.get_events_iterator()
                 async for event in iterator:
                     await self.pulse.dispatch_event(event)
                     await asyncio.sleep(0)

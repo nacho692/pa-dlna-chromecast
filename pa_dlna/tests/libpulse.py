@@ -192,7 +192,7 @@ class LibPulse():
     async def log_server_info(self):
         return
 
-    def get_events(self):
+    def get_events_iterator(self):
         return EventIterator(self)
 
     def raise_once(self):

@@ -198,7 +198,7 @@ Releasing
 
 * Get the test suite coverage::
 
-    $ coverage run -m unittest
+    $ coverage run --include="./*" -m unittest
     $ coverage report -m
 
 * Update ``__version__`` in pa_dlna/__init__.py.

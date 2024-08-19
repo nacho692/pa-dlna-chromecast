@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.12
+  - Rename LibPulse.get_events() to get_events_iterator(). The change has been
+    introduced by version 0.4 of the libpulse package.
   - Handle exceptions raised while getting the sink after ``module-null-sink``
     has been loaded.
   - Fix a typo in the installation documentation.
