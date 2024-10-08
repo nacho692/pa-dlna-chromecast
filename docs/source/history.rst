@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 0.13
+  - **[Moode UPNP]** Fix libexpat called by ``upmpdcli`` fails parsing the
+    DIDL-Lite xml strings (issue #29).
+
 Version 0.12
   - Rename LibPulse.get_events() to get_events_iterator(). The change has been
     introduced by version 0.4 of the libpulse package.

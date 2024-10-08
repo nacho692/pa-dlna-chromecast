@@ -54,6 +54,24 @@ def log_action(name, action, state, ignored=False, msg=None):
         txt += NL_INDENT + msg
     logger.debug(txt)
 
+def normalize_xml(xml):
+    """Convert a multi-lines xml string to one line, handling whitespaces.
+
+    To support parsing by libexpat, see issue 29.
+    """
+
+    lines = []
+    prev_end = None
+    for line in xml.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if prev_end and prev_end != '>':
+            line = ' ' + line
+        prev_end = line[-1]
+        lines.append(line)
+    return ''.join(lines)
+
 # Classes.
 class MetaData(namedtuple('MetaData', ['publisher', 'artist', 'title'])):
     def __str__(self):
@@ -374,7 +392,7 @@ class Renderer:
         The returned string is built with ../tools/build_didl_lite.py.
         """
 
-        metadata = (
+        didl_lite = (
           f'''
         <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
           xmlns:dc="http://purl.org/dc/elements/1.1/"
@@ -389,30 +407,30 @@ class Renderer:
         </item></DIDL-Lite>
           '''
         )
-        return metadata.strip()
+        return normalize_xml(didl_lite)
 
     async def set_avtransporturi(self, metadata, state):
         action = 'SetAVTransportURI'
-        didl_lite_metadata = self.didl_lite_metadata(metadata)
+        didl_lite = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
                 'CurrentURI': self.current_uri,
-                'CurrentURIMetaData': didl_lite_metadata
+                'CurrentURIMetaData': didl_lite
                 }
-        log_action(self.name, action, state, msg=didl_lite_metadata)
+        log_action(self.name, action, state, msg=didl_lite)
         logger.info(f'{metadata}'
                     f'{NL_INDENT}URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
 
     async def set_nextavtransporturi(self, metadata, state):
         action = 'SetNextAVTransportURI'
-        didl_lite_metadata = self.didl_lite_metadata(metadata)
+        didl_lite = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
                 'NextURI': self.current_uri,
-                'NextURIMetaData': didl_lite_metadata
+                'NextURIMetaData': didl_lite
                 }
 
         await self.stream_sessions.stop_track()
-        log_action(self.name, action, state, msg=didl_lite_metadata)
+        log_action(self.name, action, state, msg=didl_lite)
         logger.info(f'{metadata}')
         logger.debug(f'URL: {self.current_uri}')
         await self.soap_action(AVTRANSPORT, action, args)
