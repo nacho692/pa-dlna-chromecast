@@ -7,7 +7,8 @@ import urllib.parse
 import logging
 from http import HTTPStatus
 
-from .upnp.util import AsyncioTasks, log_exception, HTTPRequestHandler
+from .upnp.util import (AsyncioTasks, log_unhandled_exception, log_exception,
+                        HTTPRequestHandler)
 from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
@@ -58,7 +59,7 @@ class Track:
         self.task = None
         self.closing = False
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def shutdown(self):
         """Close the HTTP socket."""
 
@@ -81,9 +82,6 @@ class Track:
         except asyncio.CancelledError:
             logger.debug(f'{self.task_name}: Got CancelledError at Track'
                          f' shutdown')
-        except Exception as e:
-            logger.debug(f'{self.task_name}: Got exception at Track shutdown:'
-                         f' {e!r}')
 
     def stop(self):
         """Stop the track and run the shutdown coro in a task."""
@@ -135,7 +133,7 @@ class Track:
                 logger.debug(f'EOF reading from pipe on {self.task_name}')
                 break
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run(self, reader):
         assert self.task is not None
         renderer = self.session.renderer
@@ -152,9 +150,9 @@ class Track:
             await self.session.close_session(shutdown_coro=True)
             # This will cause a new stream session to start.
             await renderer.disable_for(period=0)
-        except Exception as e:
-            logger.exception(f'{e!r}')
+        except Exception:
             await self.session.close_session(shutdown_coro=True)
+            raise
 
 class StreamProcesses:
     """Processes connected through pipes to an HTTP socket.
@@ -227,7 +225,7 @@ class StreamProcesses:
                 await renderer.disable_root_device()
 
         except Exception as e:
-            logger.exception(f'{e!r}')
+            log_exception(logger, f'{e!r}')
 
     async def get_stream_reader(self):
         """Get the stdout pipe of the last process."""
@@ -238,7 +236,7 @@ class StreamProcesses:
             self.stream_reader = await self.queue.get()
         return self.stream_reader
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def log_stderr(self, name, stderr):
         logger = logging.getLogger(name)
 
@@ -255,8 +253,6 @@ class StreamProcesses:
                 if msg == b'':
                     break
                 logger.error(msg.decode().strip())
-        except Exception as e:
-            logger.exception(f'{e!r}')
         finally:
             # Checking for the environment variable still in the environ
             # because the test suite also patches os.environ in
@@ -264,80 +260,76 @@ class StreamProcesses:
             if remove_env and 'AV_LOG_FORCE_NOCOLOR' in os.environ:
                 del os.environ['AV_LOG_FORCE_NOCOLOR']
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run_parec(self, encoder, parec_cmd, stdout=None):
         renderer = self.session.renderer
-        try:
-            if self.no_encoder:
-                stdout = asyncio.subprocess.PIPE
-            monitor = renderer.nullsink.sink.monitor_source_name
-            parec_cmd.extend([f'--device={monitor}',
-                              f'--format={encoder.sample_format}',
-                              f'--rate={encoder.rate}',
-                              f'--channels={encoder.channels}'])
-            logger.info(f"{renderer.name}: {' '.join(parec_cmd)}")
 
-            exit_status = 0
-            self.parec_proc = await asyncio.create_subprocess_exec(
-                                    *parec_cmd,
-                                    stdin=asyncio.subprocess.DEVNULL,
-                                    stdout=stdout,
-                                    stderr=asyncio.subprocess.PIPE)
+        if self.no_encoder:
+            stdout = asyncio.subprocess.PIPE
+        monitor = renderer.nullsink.sink.monitor_source_name
+        parec_cmd.extend([f'--device={monitor}',
+                          f'--format={encoder.sample_format}',
+                          f'--rate={encoder.rate}',
+                          f'--channels={encoder.channels}'])
+        logger.info(f"{renderer.name}: {' '.join(parec_cmd)}")
 
-            if self.no_encoder:
-                self.queue.put_nowait(self.parec_proc.stdout)
-            else:
-                os.close(stdout)
-            self.session.stream_tasks.create_task(
-                        self.log_stderr('parec', self.parec_proc.stderr),
-                        name='parec_stderr')
+        exit_status = 0
+        self.parec_proc = await asyncio.create_subprocess_exec(
+                                *parec_cmd,
+                                stdin=asyncio.subprocess.DEVNULL,
+                                stdout=stdout,
+                                stderr=asyncio.subprocess.PIPE)
 
-            ret = await self.parec_proc.wait()
-            self.parec_proc = None
-            self.stream_reader = None
-            exit_status = ret if ret >= 0 else signal.strsignal(-ret)
-            logger.info(f'Exit status of parec process: {exit_status}')
-            if exit_status in (0, 'Killed', 'Terminated'):
-                await self.close()
-                return
-        except Exception as e:
-            logger.exception(f'{e!r}')
+        if self.no_encoder:
+            self.queue.put_nowait(self.parec_proc.stdout)
+        else:
+            os.close(stdout)
+        self.session.stream_tasks.create_task(
+                    self.log_stderr('parec', self.parec_proc.stderr),
+                    name='parec_stderr')
+
+        ret = await self.parec_proc.wait()
+        self.parec_proc = None
+        self.stream_reader = None
+        exit_status = ret if ret >= 0 else signal.strsignal(-ret)
+        logger.info(f'Exit status of parec process: {exit_status}')
+        if exit_status in (0, 'Killed', 'Terminated'):
+            await self.close()
+            return
 
         await self.close(disable=True)
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run_encoder(self, encoder_cmd):
         renderer = self.session.renderer
-        try:
-            logger.info(f"{renderer.name}: {' '.join(encoder_cmd)}")
 
-            exit_status = 0
-            self.encoder_proc = await asyncio.create_subprocess_exec(
-                                    *encoder_cmd,
-                                    stdin=self.pipe_reader,
-                                    stdout=asyncio.subprocess.PIPE,
-                                    stderr=asyncio.subprocess.PIPE)
-            self.queue.put_nowait(self.encoder_proc.stdout)
-            self.session.stream_tasks.create_task(
-                    self.log_stderr('encoder', self.encoder_proc.stderr),
-                    name='encoder_stderr')
+        logger.info(f"{renderer.name}: {' '.join(encoder_cmd)}")
 
-            ret = await self.encoder_proc.wait()
-            self.encoder_proc = None
-            self.stream_reader = None
-            exit_status = ret if ret >= 0 else signal.strsignal(-ret)
-            # ffmpeg exit code is 255 when the process is killed with SIGTERM.
-            # See ffmpeg main() at https://gitlab.com/fflabs/ffmpeg/-/blob/
-            # 0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
-            if (isinstance(renderer.encoder, FFMpegEncoder) and
-                    exit_status == 255):
-                exit_status = 'Terminated'
-            logger.info(f'Exit status of encoder process: {exit_status}')
+        exit_status = 0
+        self.encoder_proc = await asyncio.create_subprocess_exec(
+                                *encoder_cmd,
+                                stdin=self.pipe_reader,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE)
+        self.queue.put_nowait(self.encoder_proc.stdout)
+        self.session.stream_tasks.create_task(
+                self.log_stderr('encoder', self.encoder_proc.stderr),
+                name='encoder_stderr')
 
-            if exit_status in (0, 'Killed', 'Terminated'):
-                return
-        except Exception as e:
-            logger.exception(f'{e!r}')
+        ret = await self.encoder_proc.wait()
+        self.encoder_proc = None
+        self.stream_reader = None
+        exit_status = ret if ret >= 0 else signal.strsignal(-ret)
+        # ffmpeg exit code is 255 when the process is killed with SIGTERM.
+        # See ffmpeg main() at https://gitlab.com/fflabs/ffmpeg/-/blob/
+        # 0279e727e99282dfa6c7019f468cb217543be243/fftools/ffmpeg.c#L4833
+        if (isinstance(renderer.encoder, FFMpegEncoder) and
+                exit_status == 255):
+            exit_status = 'Terminated'
+        logger.info(f'Exit status of encoder process: {exit_status}')
+
+        if exit_status in (0, 'Killed', 'Terminated'):
+            return
 
         await self.close(disable=True)
 
@@ -365,7 +357,7 @@ class StreamProcesses:
                 self.encoder_task = self.session.stream_tasks.create_task(
                                 self.run_encoder(encoder_cmd), name='encoder')
         except Exception as e:
-            logger.exception(f'{e!r}')
+            log_exception(logger, f'{e!r}')
             await self.close(disable=True)
 
 class StreamSessions:
@@ -454,7 +446,7 @@ class HTTPServer:
     def allow_from(self, ip_addr):
         self.allowed_ips.add(ip_addr)
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def client_connected(self, reader, writer):
         """Handle an HTTP GET request from a DLNA device.
 
@@ -527,8 +519,6 @@ class HTTPServer:
             # Flush the error response.
             await writer.drain()
 
-        except Exception as e:
-            logger.exception(f'{e!r}')
         finally:
             if do_close:
                 try:
@@ -537,7 +527,7 @@ class HTTPServer:
                 except ConnectionError:
                     pass
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run(self):
         task_name = asyncio.current_task().get_name()
         try:
@@ -555,5 +545,5 @@ class HTTPServer:
                     logger.info(f'{task_name} closed')
 
         except Exception as e:
-            logger.error(f'{task_name}: {e!r}')
             await self.control_point.close(f'{e!r}')
+            raise

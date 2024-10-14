@@ -16,7 +16,17 @@ def shorten(txt, head_len=10, tail_len=5):
         return txt
     return txt[:head_len] + '...' + txt[len(txt)-tail_len:]
 
-def log_exception(logger):
+def log_exception(logger, expt_msg):
+    log_backtrace = any(handler.level == logging.DEBUG for handler in
+                                                logging.getLogger().handlers)
+    if log_backtrace:
+        logger.exception(expt_msg)
+    else:
+        logger.error(f"{expt_msg}{NL_INDENT}"
+                     f"Run this program at the 'debug' log level to print the"
+                     " exception backtrace")
+
+def log_unhandled_exception(logger):
     """A decorator logging exceptions occuring in a coroutine.
 
     Its purpose is to ensure that a task may not trigger unhandled exceptions
@@ -31,8 +41,11 @@ def log_exception(logger):
             try:
                 return await coro(*args, **kwargs)
             except Exception as e:
-                logger.exception(
-                    f'Exception at end of {coro.__qualname__}(): {e!r}')
+                task_name = asyncio.current_task().get_name()
+                expt_msg = (f"Exception in task '{task_name}' - function"
+                            f' {coro.__qualname__}():{NL_INDENT}{e!r}')
+                log_exception(logger, expt_msg)
+                return e
         return wrapper
     return decorator
 

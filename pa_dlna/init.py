@@ -270,8 +270,6 @@ def padlna_main(clazz, doc, argv=sys.argv):
             event = threading.Event()
             cp_thread = run_in_thread(app.run_control_point(event))
             exit_code = app.run(cp_thread, event)
-    except KeyboardInterrupt as e:
-        logger.info(f'{app} got {e!r}')
     finally:
         logger.info(f'End of {app}')
         if logfile_hdler is not None:

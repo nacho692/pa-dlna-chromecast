@@ -142,24 +142,24 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         self.assertTrue(sink_input.proplist is proplist_video)
 
     async def test_connect_raise_once(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
+        with self.assertLogs(level=logging.INFO) as m_logs:
             LibPulse.add_sink_inputs([SinkInput('source', [Event('new')])])
             LibPulse.do_raise_once = True
             await self.pulse.run()
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                                     re.compile('raise LibPulseError')))
+                    re.compile(r'function Pulse.run\(\):\n * LibPulseError')))
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_disconnected(self):
         with mock.patch.object(self.pulse, 'dispatch_event') as dispatch,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                self.assertLogs(level=logging.INFO) as m_logs:
             LibPulse.add_sink_inputs([SinkInput('source', [Event('new')])])
             dispatch.side_effect = LibPulseClosedError()
             await self.pulse.run()
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                    re.compile('pa_dlna.tests.libpulse.LibPulseClosedError')))
+            re.compile(r'function Pulse.run\(\):\n *LibPulseClosedError')))
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_register(self):

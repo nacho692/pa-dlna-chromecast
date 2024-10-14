@@ -341,13 +341,13 @@ class RootDevice(IsolatedAsyncioTestCase):
 
     async def test_missing_device(self):
         with mock.patch('pa_dlna.upnp.upnp.xml_of_subelement') as subelement,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                self.assertLogs(level=logging.INFO) as m_logs:
             subelement.side_effect = [None]
             await start_http_server()
             await self.root_device._run()
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
-                        re.compile(f" Missing 'device' subelement in root"
+                        re.compile("Missing 'device' subelement in root"
                                    ' device description')))
 
     async def test_age_device(self):
@@ -457,14 +457,14 @@ class RootDevice(IsolatedAsyncioTestCase):
                    </iconList>"""
 
         with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                self.assertLogs(level=logging.INFO) as m_logs:
             # Make the UPnPRootDevice._run() coroutine terminate.
             age.side_effect = [None]
             await start_http_server(icons=icons)
             await self.root_device._run()
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
-            re.compile("UPnPXMLError: Found "
+            re.compile("UPnPXMLError.*Found "
                 "'{urn:schemas-yamaha-com:device-1-0}icon' instead of"
                 " '{urn:schemas-upnp-org:device-1-0}icon'")))
 

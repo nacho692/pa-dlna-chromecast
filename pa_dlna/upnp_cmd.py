@@ -12,8 +12,8 @@ import traceback
 
 from .init import padlna_main, UPnPApplication
 from .upnp import (UPnPControlPoint, UPnPSoapFaultError,
-                   UPnPClosedDeviceError, pformat_xml, log_exception,
-                   QUEUE_CLOSED)
+                   UPnPClosedDeviceError, pformat_xml,
+                   log_unhandled_exception, QUEUE_CLOSED)
 
 logger = logging.getLogger('upnpcmd')
 pprint_pprint = functools.partial(pprint.pprint, sort_dicts=False)
@@ -595,8 +595,9 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
         except KeyboardInterrupt as e:
             print(f'Got {e!r}')
             self.close()
+            return 1
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run_control_point(self, event):
         self.loop = asyncio.get_running_loop()
         try:
@@ -619,8 +620,6 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                         self.devices.remove(root_device)
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            logger.exception(f'Got exception {e!r}')
         finally:
             self.close()
 

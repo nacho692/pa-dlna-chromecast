@@ -5,7 +5,7 @@ import logging
 
 from libpulse.libpulse import (LibPulse, PA_SUBSCRIPTION_MASK_SINK_INPUT,
                                LibPulseStateError)
-from .upnp.util import NL_INDENT, log_exception
+from .upnp.util import NL_INDENT, log_unhandled_exception
 
 logger = logging.getLogger('pulse')
 
@@ -237,7 +237,7 @@ class Pulse:
                 del self.sink_input_events[event.index]
             prev_renderer.pulse_queue.put_nowait((evt_type, None, None))
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run(self):
         try:
             async with LibPulse('pa-dlna') as self.lib_pulse:
@@ -258,8 +258,6 @@ class Pulse:
 
         except LibPulseStateError as e:
             logger.error(f'{e!r}')
-        except Exception as e:
-            logger.exception(f'{e!r}')
         finally:
             self.lib_pulse = None
             await self.close()

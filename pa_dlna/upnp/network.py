@@ -11,6 +11,7 @@ import psutil
 from ipaddress import IPv4Interface, IPv4Address
 
 from . import UPnPError, TEST_LOGLEVEL
+from .util import log_exception
 
 logger = logging.getLogger('network')
 
@@ -439,7 +440,8 @@ class NotifyServerProtocol:
             self.error_received(exc)
 
     def error_received(self, exc):
-        logger.exception(f'Error received by NotifyServerProtocol: {exc!r}')
+        log_exception(logger,
+                      f'Error received by NotifyServerProtocol: {exc!r}')
 
     def connection_lost(self, exc):
         if exc:

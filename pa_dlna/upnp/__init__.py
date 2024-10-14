@@ -10,6 +10,6 @@ from .upnp import (UPnPClosedDeviceError, UPnPInvalidSoapError,
                    UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                    QUEUE_CLOSED)
 from .network import ipaddr_from_nics
-from .util import (NL_INDENT, shorten, log_exception, AsyncioTasks,
-                   log_exception)
+from .util import (NL_INDENT, shorten, AsyncioTasks, log_exception,
+                   log_unhandled_exception)
 from .xml import UPnPXMLError, pformat_xml

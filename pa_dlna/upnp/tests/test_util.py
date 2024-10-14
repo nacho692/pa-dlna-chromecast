@@ -11,7 +11,8 @@ from . import load_ordered_tests as load_tests
 
 from . import search_in_logs
 from ..network import http_get, UPnPInvalidHttpError
-from ..util import shorten, log_exception, AsyncioTasks, HTTPRequestHandler
+from ..util import (shorten, log_unhandled_exception, AsyncioTasks,
+                    HTTPRequestHandler)
 
 logger = logging.getLogger('test')
 
@@ -43,7 +44,7 @@ class HTTPServer:
             except ConnectionError:
                 pass
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run(self):
         try:
             aio_server = await asyncio.start_server(self.client_connected,
@@ -76,13 +77,13 @@ class Util(TestCase):
                 self.assertEqual(shorten(text, head_len=3, tail_len=3),
                                  expected)
 
-    def test_log_exception(self):
+    def test_log_unhandled_exception(self):
         with self.assertRaises(UPnPInvalidHttpError),\
                 self.assertLogs(level=logging.ERROR) as m_logs:
             asyncio.run(self._loopback_get('foo', OSError()))
 
         self.assertTrue(search_in_logs(m_logs.output, 'test',
-            re.compile(r'Exception at end of HTTPServer.run\(\): OSError')))
+            re.compile(r'Exception .* HTTPServer.run\(\):\n *OSError')))
 
     def test_asyncio_tasks(self):
         async def coro():

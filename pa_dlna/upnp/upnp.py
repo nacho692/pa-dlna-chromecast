@@ -53,7 +53,7 @@ from ipaddress import IPv4Interface, IPv4Address
 from signal import SIGINT, SIGTERM, strsignal
 
 from . import UPnPError, TEST_LOGLEVEL
-from .util import NL_INDENT, shorten, log_exception, AsyncioTasks
+from .util import NL_INDENT, shorten, log_unhandled_exception, AsyncioTasks
 from .network import (ipaddr_from_nics, parse_ssdp, msearch, send_mcast,
                       Notify, http_get, http_soap)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
@@ -454,7 +454,7 @@ class UPnPRootDevice(UPnPDevice):
                 self.close()
                 break
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def _run(self):
         self._curtask = asyncio.current_task()
         try:
@@ -487,8 +487,8 @@ class UPnPRootDevice(UPnPDevice):
             logger.error(f'UPnPRootDevice._run(): {e!r}')
             self.close(exc=e)
         except Exception as e:
-            logger.exception(f'{e!r}')
             self.close(exc=e)
+            raise
 
     def __str__(self):
         """Return a short representation of udn."""
@@ -785,7 +785,7 @@ class UPnPControlPoint:
                              f' M-SEARCH messages, next try in'
                              f' {self.msearch_interval} seconds')
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def _ssdp_msearch(self, coro=msearch):
         """Send msearch multicast SSDPs and process unicast responses."""
 
@@ -803,12 +803,10 @@ class UPnPControlPoint:
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
         finally:
             self.close()
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def _ssdp_notify(self):
         """Listen to SSDP notifications."""
 
@@ -816,8 +814,6 @@ class UPnPControlPoint:
             await self._notify.run()
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            logger.exception(f'{e!r}')
         finally:
             self.close()
 

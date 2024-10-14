@@ -164,11 +164,17 @@ class Http_Server(IsolatedAsyncioTestCase):
 
     async def test_Exception(self):
         with mock.patch.object(Track, 'write_track') as wtrack,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                self.assertLogs(level=logging.INFO) as m_logs:
             wtrack.side_effect = RuntimeError()
             curl_task, renderer = await play_track('audio/mp3',
                 ['ignore', BLKSIZE], wait_for_completion=False, logs=m_logs)
             returncode, length = await curl_task
+
+            # Sleep to let the logger in the log_unhandled_exception decorator
+            # log the exception before asyncio termination. Otherwise the
+            # log message is printed on stderr after the unittest test has
+            # terminated. Using asyncSetUp() and asyncTearDown() does not help.
+            await asyncio.sleep(0.5)
 
         self.assertEqual(returncode, 0)
         self.assertEqual(length, 0)

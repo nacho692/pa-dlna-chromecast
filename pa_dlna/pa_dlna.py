@@ -16,7 +16,7 @@ from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPDevice, UPnPClosedDeviceError,
                    UPnPSoapFaultError, NL_INDENT, shorten,
-                   log_exception, AsyncioTasks, QUEUE_CLOSED)
+                   log_unhandled_exception, AsyncioTasks, QUEUE_CLOSED)
 
 logger = logging.getLogger('pa-dlna')
 
@@ -455,7 +455,7 @@ class Renderer:
                             f':{self.control_point.port}'
                             f'{AUDIO_URI_PREFIX}/{self.upnp_device.UDN}')
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run(self):
         """Run the Renderer task."""
 
@@ -494,9 +494,9 @@ class Renderer:
         except (OSError, UPnPSoapFaultError, UPnPClosedDeviceError,
                 ControlPointAbortError) as e:
             logger.error(f'{e!r}')
-        except Exception as e:
-            logger.exception(f'{e!r}')
+        except Exception:
             await self.disable_root_device()
+            raise
         finally:
             await self.close()
 
@@ -607,44 +607,38 @@ class AVControlPoint(UPnPApplication):
         # test_pa_dlna.py.
         self.test_end = None
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def shutdown(self, end_event):
         try:
             await end_event.wait()
             await self.close('Got SIGINT or SIGTERM')
-        except Exception as e:
-            logger.exception(f'{e!r}')
         finally:
             loop = asyncio.get_running_loop()
             for sig in (SIGINT, SIGTERM):
                 loop.remove_signal_handler(sig)
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def close(self, msg=None):
         # This coroutine may be run as a task by AVControlPoint.abort().
-        try:
-            if not self.closing:
-                self.closing = True
+        if not self.closing:
+            self.closing = True
 
-                # The semaphore prevents a race condition where a new Renderer
-                # is awaiting the registration of a sink with pulseaudio while
-                # the renderers are being closed here. In that case,
-                # this sink would never be unregistered.
-                async with self.register_sem:
-                    for renderers_list in list(self.root_devices.values()):
-                        await renderers_list.close()
+            # The semaphore prevents a race condition where a new Renderer
+            # is awaiting the registration of a sink with pulseaudio while
+            # the renderers are being closed here. In that case,
+            # this sink would never be unregistered.
+            async with self.register_sem:
+                for renderers_list in list(self.root_devices.values()):
+                    await renderers_list.close()
 
-                if self.pulse is not None:
-                    await self.pulse.close()
+            if self.pulse is not None:
+                await self.pulse.close()
 
-                if self.curtask != asyncio.current_task():
-                    if sys.version_info[:2] >= (3, 9):
-                        self.curtask.cancel(msg)
-                    else:
-                        self.curtask.cancel()
-
-        except Exception as e:
-            logger.exception(f'Got exception {e!r}')
+            if self.curtask != asyncio.current_task():
+                if sys.version_info[:2] >= (3, 9):
+                    self.curtask.cancel(msg)
+                else:
+                    self.curtask.cancel()
 
     def abort(self, msg):
         """Abort the whole program from a non-main task."""
@@ -735,7 +729,7 @@ class AVControlPoint(UPnPApplication):
             else:
                 raise RuntimeError('Error: Unknown notification')
 
-    @log_exception(logger)
+    @log_unhandled_exception(logger)
     async def run_control_point(self):
         try:
             self.curtask = asyncio.current_task()
@@ -779,11 +773,6 @@ class AVControlPoint(UPnPApplication):
 
         except asyncio.CancelledError as e:
             logger.info(f'Main task got: {e!r}')
-            if e.args:
-                return e
-        except Exception as e:
-            logger.exception(f'Got exception {e!r}')
-            return e
         finally:
             await self.close()
 

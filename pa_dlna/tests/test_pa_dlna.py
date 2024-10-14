@@ -175,7 +175,7 @@ class DLNAControlPoint(PaDlnaTestCase):
 
         return_code, logs = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
-        self.assertTrue(isinstance(return_code, asyncio.CancelledError))
+        self.assertTrue(return_code == None)
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
 
@@ -192,7 +192,7 @@ class DLNAControlPoint(PaDlnaTestCase):
             return_code, logs = await self.run_control_point(
                             handle_pulse_event, test_devices=['audio/mp3'])
 
-        self.assertTrue(isinstance(return_code, asyncio.CancelledError))
+        self.assertTrue(return_code == None)
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
@@ -221,7 +221,7 @@ class DLNAControlPoint(PaDlnaTestCase):
         return_code, logs = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
 
-        self.assertTrue(isinstance(return_code, asyncio.CancelledError))
+        self.assertTrue(return_code == None)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                                        re.compile('Got SIGINT or SIGTERM')))
 

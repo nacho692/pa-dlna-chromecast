@@ -2,6 +2,10 @@ Release history
 ===============
 
 Version 0.13
+  - The backtraces of unhandled exceptions that occur in asyncio tasks are
+    logged at the debug log level. Otherwise these exceptions are just logged as
+    an error with a message saying that the backtrace can be obtained by running
+    the program at the debug log level.
   - **[Moode UPNP]** Fix libexpat called by ``upmpdcli`` fails parsing the
     DIDL-Lite xml strings (issue #29).
 
