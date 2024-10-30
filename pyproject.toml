@@ -19,7 +19,7 @@ classifiers = [
     ]
 dependencies = [
     "psutil",
-    "libpulse >=0.4",
+    "libpulse >=0.5",
 ]
 dynamic = ["version", "description"]
 

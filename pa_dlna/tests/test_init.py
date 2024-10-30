@@ -7,6 +7,8 @@ import struct
 import ipaddress
 import logging
 import unittest
+import tempfile
+import pathlib
 try:
     import termios
     import pty
@@ -112,7 +114,9 @@ class Argv(BaseTestCase):
                                    'nolog_upnp': False,
                                    'port': 8080,
                                    'test_devices': [],
-                                   'ttl': b'\x02'})
+                                   'ttl': b'\x02',
+                                   'clients_uuids': None,
+                                   'applications': None})
 
     def test_ip_addresses(self):
         options, _ = parse_args(self.__doc__,
@@ -159,6 +163,65 @@ class Argv(BaseTestCase):
             options, _ = parse_args(self.__doc__, argv=['--dump-default',
                                                           '--dump-internal'])
         self.assertEqual(cm.exception.args[0], 2)
+
+    def test_not_writable(self):
+        with mock.patch('builtins.open', mock.mock_open()) as m_open,\
+                redirect_stderr(io.StringIO()) as output,\
+                self.assertRaises(SystemExit) as cm:
+
+            m_open.side_effect = OSError
+            options, _ = parse_args(self.__doc__,
+                                    argv=['--clients-uuids', 'foo'])
+
+        m_open.assert_called_once()
+        self.assertEqual(cm.exception.args[0], 2)
+        self.assertRegex(output.getvalue(),
+                         'pa-dlna: error: foo is not writable: OSError()')
+
+    def test_not_readable(self):
+        if os.geteuid() == 0:
+            self.skipTest('cannot run test as root')
+
+        with tempfile.NamedTemporaryFile() as f,\
+                redirect_stderr(io.StringIO()) as output,\
+                self.assertRaises(SystemExit) as cm:
+
+            path = pathlib.PosixPath(f.name)
+            path.chmod(0o222)
+            options, _ = parse_args(self.__doc__,
+                                    argv=['--clients-uuids', str(path)])
+
+        self.assertEqual(cm.exception.args[0], 2)
+        self.assertRegex(output.getvalue(),
+                         r'pa-dlna: error: \[Errno 13] Permission denied')
+
+    def test_invalid_header(self):
+        with tempfile.NamedTemporaryFile(mode='w') as f,\
+                redirect_stderr(io.StringIO()) as output,\
+                self.assertRaises(SystemExit) as cm:
+
+            f.write('[foo]\n')
+            f.flush()
+            options, _ = parse_args(self.__doc__,
+                                    argv=['--clients-uuids', f.name])
+
+        self.assertEqual(cm.exception.args[0], 2)
+        self.assertRegex(output.getvalue(),
+                         'pa-dlna: error: Invalid default section header')
+
+    def test_no_header(self):
+        with tempfile.NamedTemporaryFile(mode='w') as f,\
+                redirect_stderr(io.StringIO()) as output,\
+                self.assertRaises(SystemExit) as cm:
+
+            f.write('[foo\n')
+            f.flush()
+            options, _ = parse_args(self.__doc__,
+                                    argv=['--clients-uuids', f.name])
+
+        self.assertEqual(cm.exception.args[0], 2)
+        self.assertRegex(output.getvalue(),
+                    'ConfigParser error: File contains no section headers')
 
     def test_log_options(self):
         with mock.patch('pa_dlna.init.setup_logging') as setup_logging:

@@ -7,6 +7,7 @@ import signal
 import time
 import shutil
 import logging
+import tempfile
 from unittest import IsolatedAsyncioTestCase, mock
 
 # Load the tests in the order they are declared.
@@ -54,7 +55,8 @@ async def wait_for(awaitable, timeout=2):
 
 def get_control_point(sink_inputs):
     upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
-    control_point = AVControlPoint(nics=['lo'], port=8080)
+    control_point = AVControlPoint(nics=['lo'], port=8080, clients_uuids=None,
+                                   applications=None)
     control_point.upnp_control_point = upnp_control_point
 
     # LibPulse must be instantiated after the call to the
@@ -101,6 +103,7 @@ class Sink:
 class SinkInput:
     def __init__(self, index=0, proplist=None):
         self.index = index
+        self.client = 0
         self.proplist = proplist if proplist is not None else PROPLIST.copy()
 
 class PaDlnaTestCase(IsolatedAsyncioTestCase):
@@ -126,7 +129,8 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
 
             control_point = AVControlPoint(ip_addresses=[], nics='lo',
                                         port=8080, ttl=2, msearch_interval=60,
-                                        msearch_port=0,
+                                        msearch_port=0, clients_uuids=None,
+                                        applications=None,
                                         test_devices=test_devices)
             set_control_point(control_point)
             LibPulse.add_sink_inputs([])
@@ -409,14 +413,20 @@ class PulseEventContext:
                  sink=None,
                  prev_sink_input_index = None,
                  sink_input_index=None,
-                 sink_input_proplist=None):
+                 sink_input_proplist=None,
+                 clients_uuids=None,
+                 applications={}):
 
         assert ((sink is None and sink_input_index is None) or
                 (sink is not None and sink_input_index is not None))
 
         # Build the renderer.
         upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
-        control_point = AVControlPoint()
+        control_point = AVControlPoint(clients_uuids=clients_uuids,
+                                       applications=applications)
+        control_point.pulse = pulseaudio.Pulse(control_point)
+        LibPulse.add_sink_inputs([])
+        control_point.pulse.lib_pulse = LibPulse('pa-dlna')
         control_point.upnp_control_point = upnp_control_point
         _set_control_point(control_point)
 
@@ -533,6 +543,31 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(result[1][1], 'Play')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile(r"MetaData\(.*artist='Ziggy Stardust'")))
+
+    async def test_clients_uuids(self):
+        class Client:
+            def __init__(self, proplist):
+                self.proplist = proplist
+        client = Client(PROPLIST)
+
+        # Add a first entry to the 'clients_uuids' file.
+        with tempfile.NamedTemporaryFile() as f:
+
+            ctx = PulseEventContext(sink=Sink(), sink_input_index=0,
+                                    clients_uuids=f.name)
+            control_point = ctx.renderer.control_point
+            ctx.sink_input.client = client
+            control_point.pulse.lib_pulse.sink_inputs.append(ctx.sink_input)
+
+            await self.patch_soap_action('new', ctx)
+            result, logs = await self.patch_soap_action('change', ctx)
+
+            self.assertEqual(result[0][1], 'SetAVTransportURI')
+            self.assertTrue(search_in_logs(logs.output, 'pulse',
+                    re.compile("Adding new association 'Strawberry' -> uuid")))
+            applications = ctx.renderer.control_point.applications
+            self.assertTrue('Strawberry' in applications)
+            self.assertTrue(applications['Strawberry'].startswith('uuid:'))
 
     async def test_next_track(self):
         index = 999

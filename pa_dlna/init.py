@@ -9,6 +9,8 @@ import asyncio
 import threading
 import struct
 import atexit
+import configparser
+from pathlib import PosixPath
 try:
     import termios
 except ImportError:
@@ -16,6 +18,7 @@ except ImportError:
 
 from . import __version__
 from .config import DefaultConfig, UserConfig
+from .pulseaudio import APPS_TITLE, APPS_HEADER
 
 logger = logging.getLogger('init')
 
@@ -82,6 +85,44 @@ def setup_logging(options, loglevel='warning'):
             return logfile_hdler
 
     return None
+
+def get_applications(clients_uuids_path, parser):
+    if not clients_uuids_path:
+        return None
+
+    path = PosixPath(clients_uuids_path)
+    path = path.expanduser()
+    if path.is_file():
+        cfg_parser = CaseConfigParser(default_section=APPS_TITLE,
+                                      delimiters=('->', ),
+                                      empty_lines_in_values=False)
+        try:
+            with open(path) as f:
+                    cfg_parser.read_file(f)
+        except configparser.Error as e:
+            parser.error(f'ConfigParser error: {e}')
+        except OSError as e:
+            parser.error(e)
+
+        # Use the default section of 'cfg_parser' to store the data in
+        # the 'applications' dict.
+        applications = cfg_parser.defaults()
+        if not applications:
+            sections =  cfg_parser.sections()
+            if sections:
+                parser.error(f'Invalid default section header in {path}.\n'
+                             f"Instead of '[{sections[0]}]'"
+                             f" it must be: '[{APPS_TITLE}]'")
+        return applications
+
+    else:
+        # Make sure that path is writable by writing the header.
+        try:
+            with open(path, 'w') as f:
+                f.write(APPS_HEADER)
+                return dict()
+        except OSError as e:
+            parser.error(f'{path} is not writable: {e!r}')
 
 def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
     """Parse the command line.
@@ -160,6 +201,11 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
                             ' configuration used internally by the program on'
                             ' startup after the pa-dlna.conf user'
                             ' configuration file has been parsed')
+        parser.add_argument('--clients-uuids', metavar='PATH',
+                            help='PATH name of a file where are stored the'
+                            ' associations between client applications and'
+                            ' their DLNA device uuid'
+                            )
         parser.add_argument('--loglevel', '-l', default='info',
                             choices=('debug', 'info', 'warning', 'error'),
                             help='set the log level of the stderr logging'
@@ -203,9 +249,17 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
     options['nics'] = [nic for nic in
                        (x.strip() for x in options['nics'].split(',')) if nic]
     logger.info(f'Options {options}')
+
+    if 'clients_uuids' in options:
+        options['applications'] = get_applications(options['clients_uuids'],
+                                                   parser)
     return options, logfile_hdler
 
 # Classes.
+class CaseConfigParser(configparser.ConfigParser):
+    def optionxform(self, optionstr):
+        return optionstr
+
 class ControlPointAbortError(Exception): pass
 class UPnPApplication:
     """An UPnP application."""

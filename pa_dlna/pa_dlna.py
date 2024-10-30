@@ -1,4 +1,4 @@
-"""An UPnP control point forwarding PulseAudio streams to DLNA devices."""
+"An UPnP control point forwarding PulseAudio/Pipewire streams to DLNA devices."
 
 import sys
 import shutil
@@ -201,6 +201,15 @@ class Renderer:
 
     def match(self, uri_path):
         return uri_path == f'{AUDIO_URI_PREFIX}/{self.upnp_device.UDN}'
+
+    async def add_application(self):
+        # Map the application name to the uuid.
+        pulse = self.control_point.pulse
+        client = await pulse.get_client(self.nullsink.sink_input)
+        if client is not None:
+            app_name = client.proplist.get('application.name')
+            if app_name is not None:
+                pulse.add_application(self, app_name, self.upnp_device.UDN)
 
     async def start_track(self, writer):
         await self.stream_sessions.start_track(writer)
@@ -410,6 +419,8 @@ class Renderer:
         return normalize_xml(didl_lite)
 
     async def set_avtransporturi(self, metadata, state):
+        await self.add_application()
+
         action = 'SetAVTransportURI'
         didl_lite = self.didl_lite_metadata(metadata)
         args = {'InstanceID': 0,
@@ -470,7 +481,15 @@ class Renderer:
 
             # Handle the case where pa-dlna is started after streaming has
             # started (no pulse event).
-            sink_input = await self.control_point.pulse.get_sink_input(self)
+            pulse = self.control_point.pulse
+            sink_input = await pulse.get_sink_input(self)
+
+            # Work around the wireplumber bug (issue #15).
+            if sink_input is None:
+                sink_input = await pulse.find_sink_input(self.upnp_device.UDN)
+                if sink_input is not None:
+                    await pulse.move_sink_input(sink_input, self.nullsink.sink)
+
             if sink_input is not None:
                 logger.info(f"Streaming '{sink_input.name}' on {self.name}")
                 self.nullsink.sink_input = sink_input

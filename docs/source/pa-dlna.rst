@@ -63,6 +63,22 @@ Options
    Write to stdout (and exit) the configuration used internally by the program
    on startup after the pa-dlna.conf user configuration file has been parsed.
 
+.. option::  --clients-uuids PATH
+
+   PATH is the name of the file where are stored the associations between client
+   applications and their DLNA device uuid. This is used to work around
+   `Wireplumber issue 511`_ on Pipewire.
+
+   Client applications names that play an audio stream are written by pa-dlna to
+   PATH with the uuid of the DLNA device. In a next pa-dlna session and upon
+   discovering a DLNA device, the list of the playback streams currently being
+   currently run by the sound server  is inspected by pa-dlna and if one of the
+   client applications names matches an entry in PATH that maps to this DLNA
+   device, then the playback stream is moved to the DLNA device by pa-dlna.
+
+   These associations can be removed from PATH or commented out by the user upon
+   becoming irrelevant.
+
 .. option::  --loglevel {debug,info,warning,error}, -l {debug,info,warning,error}
 
    Set the log level of the stderr logging console (default: info).
@@ -85,3 +101,6 @@ Options
    MIME-TYPES is a comma separated list of distinct audio mime types. A
    DLNATestDevice is instantiated for each one of these mime types and
    registered as a virtual DLNA device. Mostly for testing.
+
+.. _Wireplumber issue 511:
+        https://gitlab.freedesktop.org/pipewire/wireplumber/-/issues/511

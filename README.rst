@@ -121,15 +121,22 @@ See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
 .. _configuration: https://pa-dlna.readthedocs.io/en/stable/configuration.html
 .. _pipewire-pulse: https://docs.pipewire.org/page_man_pipewire_pulse_1.html
 .. _libpulse: https://pypi.org/project/libpulse/
+.. _pa-dlna command: https://pa-dlna.readthedocs.io/en/stable/pa-dlna.html
 
 .. [#] When using PipeWire with the Wireplumber session manager, ``pa-dlna``
        must be started before the audio streams that are routed to DLNA
        devices. Re-starting those audio  streams fixes the problem. See `pa-dlna
        issue 15`_ and `Wireplumber issue 511`_.
+
+       A workaround may be used with the ``--clients-uuids`` command line
+       option, see the `pa-dlna command`_ documentation.
+
 .. [#] The ``pa-dlna`` and ``upnp-cmd`` programs can be run simultaneously.
+
 .. [#] The ``parec`` program also uses the ``libpulse`` library which is
        included in ``parec`` 's package or is installed as a dependency. Note
        also that this package includes the ``pactl`` and ``pacmd`` programs.
+
 .. [#] DLNA devices must support the HTTP GET transfer protocol and must support
        HTTP 1.1 as specified by Annex A.1 of the `ConnectionManager:3 Service`_
        UPnP specification.

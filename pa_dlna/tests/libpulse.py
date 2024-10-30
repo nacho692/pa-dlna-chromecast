@@ -189,6 +189,10 @@ class LibPulse():
     async def pa_context_subscribe(self, mask):
         assert mask == PA_SUBSCRIPTION_MASK_SINK_INPUT
 
+    async def pa_context_get_client_info(self, index):
+        if self.sink_inputs:
+            return self.sink_inputs[0].client
+
     async def log_server_info(self):
         return
 

@@ -3,6 +3,7 @@
 import re
 import asyncio
 import contextlib
+import tempfile
 import logging
 from unittest import IsolatedAsyncioTestCase, mock
 
@@ -31,7 +32,9 @@ class Renderer(pa_dlna.DLNATestDevice):
                 self.nullsink.sink_input = sink_input
 
 class ControlPoint(pa_dlna.AVControlPoint):
-    def __init__(self):
+    def __init__(self, clients_uuids=None, applications=None):
+        self.clients_uuids = clients_uuids
+        self.applications = applications
         self.start_event = asyncio.Event()
         self.root_devices = {}
 
@@ -80,6 +83,36 @@ class Pulseaudio(IsolatedAsyncioTestCase):
 
         self.assertTrue(results[0] == ('new', renderer.nullsink.sink,
                                        sink_input))
+
+    async def test_clients_uuids(self):
+        class Client:
+            def __init__(self, proplist):
+                self.proplist = proplist
+
+        uuid = object()
+        client = Client({'application.name': 'Strawberry'})
+        applications = {'Strawberry': uuid}
+
+        control_point = ControlPoint(applications=applications)
+        pulse = pulseaudio.Pulse(control_point)
+        sink_input = SinkInput('sink-input with a client', [])
+        sink_input.client = client
+        LibPulse.add_sink_inputs([sink_input])
+
+        async with LibPulse('pa-dlna') as pulse.lib_pulse:
+            result = await pulse.find_sink_input(uuid)
+
+        self.assertTrue(result is sink_input)
+
+    def test_write_applications(self):
+        with tempfile.NamedTemporaryFile(mode='w+') as f:
+            control_point = ControlPoint(clients_uuids=f.name)
+            pulse = pulseaudio.Pulse(control_point)
+            pulse.applications = {'Strawberry': 'uuid'}
+            pulse.write_applications()
+
+            content = f.read()
+            self.assertTrue('Strawberry          -> uuid' in content)
 
     async def test_ignore_prev_sink_input(self):
         results = []

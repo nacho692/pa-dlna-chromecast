@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 0.14
+  - Add the ``--clients-uuids`` command line option that may be used as a work
+    around to Wireplumber issue 511.
+
 Version 0.13
   - The backtraces of unhandled exceptions that occur in asyncio tasks are
     logged at the debug log level. Otherwise these exceptions are just logged as
