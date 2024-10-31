@@ -510,8 +510,10 @@ class Renderer:
 
         except asyncio.CancelledError:
             pass
-        except (OSError, UPnPSoapFaultError, UPnPClosedDeviceError,
-                ControlPointAbortError) as e:
+        except UPnPSoapFaultError as e:
+            logger.error(f'{e!r}')
+            await self.disable_root_device()
+        except (OSError, UPnPClosedDeviceError, ControlPointAbortError) as e:
             logger.error(f'{e!r}')
         except Exception:
             await self.disable_root_device()
