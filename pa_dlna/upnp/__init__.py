@@ -12,4 +12,4 @@ from .upnp import (UPnPClosedDeviceError, UPnPInvalidSoapError,
 from .network import ipaddr_from_nics
 from .util import (NL_INDENT, shorten, AsyncioTasks, log_exception,
                    log_unhandled_exception)
-from .xml import UPnPXMLError, pformat_xml
+from .xml import UPnPXMLError, pformat_xml, xml_escape

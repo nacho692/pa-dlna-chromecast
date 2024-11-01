@@ -23,13 +23,6 @@ ENVELOPE_NAMESPACE_BEG = "http://schemas.xmlsoap.org/soap/envelope"
 RESP_NAMESPACE_BEG = "urn:schemas-upnp-org:service:"
 CTRL_NAMESPACE_BEG = "urn:schemas-upnp-org:control"
 
-ESCAPED_XML_CHARS = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    "\"": '&quot;',
-}
-
 class UPnPXMLError(UPnPError): pass
 
 # XML helper functions.
@@ -141,6 +134,14 @@ def scpd_servicestatetable(scpd, namespace):
                 result[varname] = params
     return result
 
+def xml_escape(txt):
+    txt = txt.replace('&',  '&amp;')
+    txt = txt.replace('<',  '&lt;')
+    txt = txt.replace('>',  '&gt;')
+    txt = txt.replace("\"", '&quot;')
+    txt = txt.replace('\'', '&apos;')
+    return txt
+
 def dict_to_xml(arguments):
     """Build an xml string from a dict."""
 
@@ -148,9 +149,7 @@ def dict_to_xml(arguments):
     for tag, element in arguments.items():
         # Escape control chars in xml elements.
         if isinstance(element, str):
-            for char, escape in ESCAPED_XML_CHARS.items():
-                if char in element:
-                    element = element.replace(char, escape)
+            element = xml_escape(element)
         xml.append(f'<{tag}>{element}</{tag}>')
 
     return '\n'.join(xml)

@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.14
+  - Fix cannot play on ``upmpdcli`` tracks whose metadata includes the ``&``
+    character.
   - Add the ``--clients-uuids`` command line option that may be used as a work
     around to Wireplumber issue 511.
 

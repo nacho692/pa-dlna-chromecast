@@ -16,7 +16,8 @@ from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPDevice, UPnPClosedDeviceError,
                    UPnPSoapFaultError, NL_INDENT, shorten,
-                   log_unhandled_exception, AsyncioTasks, QUEUE_CLOSED)
+                   log_unhandled_exception, AsyncioTasks, QUEUE_CLOSED,
+                   xml_escape)
 
 logger = logging.getLogger('pa-dlna')
 
@@ -407,10 +408,10 @@ class Renderer:
           xmlns:dc="http://purl.org/dc/elements/1.1/"
           xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
         <item id="0" parentID="0" restricted="0">
-          <dc:title>{metadata.title}</dc:title>
+          <dc:title>{xml_escape(metadata.title)}</dc:title>
           <upnp:class>object.item.audioItem.musicTrack</upnp:class>
-          <dc:publisher>{metadata.publisher}</dc:publisher>
-          <upnp:artist>{metadata.artist}</upnp:artist>
+          <dc:publisher>{xml_escape(metadata.publisher)}</dc:publisher>
+          <upnp:artist>{xml_escape(metadata.artist)}</upnp:artist>
           <res protocolInfo="{self.protocol_info}">
             {self.current_uri}</res>
         </item></DIDL-Lite>
