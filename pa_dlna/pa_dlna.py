@@ -730,9 +730,10 @@ class AVControlPoint(UPnPApplication):
             renderers_list = RenderersList(self, root_device)
             renderers_list.build_list()
             if not renderers_list:
-                logger.info(f"Ignore '{root_device.modelName}': "
-                            f'no MediaRenderer')
-                self.disable_root_device(root_device)
+                if not self.upnp_control_point.is_disabled(root_device):
+                    logger.info(f"Ignore '{root_device}':"
+                                f' no MediaRenderer found')
+                    self.disable_root_device(root_device)
                 continue
 
             is_new_renderer_list = root_device not in self.root_devices

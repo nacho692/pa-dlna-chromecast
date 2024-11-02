@@ -588,6 +588,7 @@ class UPnPControlPoint:
             return
 
         self._faulty_devices.add(udn)
+        root_device.close()
         devname = f'{root_device} UPnP' if name is None else f'{name} DLNA'
         logger.warning(f'Disable the {devname} device permanently')
 
