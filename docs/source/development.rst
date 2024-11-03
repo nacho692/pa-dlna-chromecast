@@ -211,7 +211,7 @@ Releasing
 
 * Tag the release and push::
 
-    $ git tag -a v0.n -m 'Version 0.n'
+    $ git tag -a 0.n -m 'Version 0.n'
     $ git push --tags
 
 * Publish the new version to PyPi::

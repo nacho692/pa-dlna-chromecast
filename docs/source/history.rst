@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.14
+  - pa-dlna versioning conforms to PEP 440.
   - Exit with an error message when the ``libpulse`` version is older than the
     required one. The required libpulse version is currently ``0.5``.
   - Fix cannot play on ``upmpdcli`` tracks whose metadata includes the ``&``

@@ -2,7 +2,7 @@
 
 import sys
 
-__version__ = 'v0.13'
+__version__ = '0.14'
 MIN_PYTHON_VERSION = (3, 8)
 MIN_LIBPULSE_VERSION = '0.5'
 
