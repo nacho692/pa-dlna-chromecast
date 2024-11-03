@@ -16,11 +16,18 @@ try:
 except ImportError:
     termios = None
 
-from . import __version__
+from . import __version__, MIN_LIBPULSE_VERSION
 from .config import DefaultConfig, UserConfig
 from .pulseaudio import APPS_TITLE, APPS_HEADER
 
 logger = logging.getLogger('init')
+
+def require_libpulse_version(version):
+    from libpulse.libpulse import __version__ as libpulse_version
+    if libpulse_version.startswith('v') or libpulse_version < version:
+        sys.exit(f"Error: libpulse version '{version}' or more recent"
+                 f" is required.\n"
+                 f"The libpulse installed version is '{libpulse_version}'.")
 
 def disable_xonxoff(fd):
     """Disable XON/XOFF flow control on output."""
@@ -286,6 +293,8 @@ def padlna_main(clazz, doc, argv=sys.argv):
 
     assert clazz.__name__ in ('AVControlPoint', 'UPnPControlCmd')
     pa_dlna = True if clazz.__name__ == 'AVControlPoint' else False
+    if pa_dlna:
+        require_libpulse_version(MIN_LIBPULSE_VERSION)
 
     # Parse the arguments.
     options, logfile_hdler = parse_args(doc, pa_dlna, argv[1:])

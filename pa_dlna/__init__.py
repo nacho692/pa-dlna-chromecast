@@ -4,6 +4,7 @@ import sys
 
 __version__ = 'v0.13'
 MIN_PYTHON_VERSION = (3, 8)
+MIN_LIBPULSE_VERSION = '0.5'
 
 _version = sys.version_info[:2]
 if _version < MIN_PYTHON_VERSION:

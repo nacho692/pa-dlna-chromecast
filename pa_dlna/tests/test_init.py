@@ -96,6 +96,15 @@ class Init(BaseTestCase):
                 restore_termios()
             os.close(master_fd)
 
+    def test_libpulse_version(self):
+        from ..init import require_libpulse_version
+
+        min_version = '9999'
+        with self.assertRaises(SystemExit) as cm:
+            require_libpulse_version(min_version)
+        self.assertRegex(cm.exception.args[0],
+                    f"Error: libpulse version '{min_version}' .* required")
+
 @requires_resources('os.devnull')
 class Argv(BaseTestCase):
     """Command line tests."""

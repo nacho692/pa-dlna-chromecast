@@ -2,10 +2,12 @@ Release history
 ===============
 
 Version 0.14
+  - Exit with an error message when the ``libpulse`` version is older than the
+    required one. The required libpulse version is currently ``0.5``.
   - Fix cannot play on ``upmpdcli`` tracks whose metadata includes the ``&``
-    character.
+    character (issue #30).
   - Add the ``--clients-uuids`` command line option that may be used as a work
-    around to Wireplumber issue 511.
+    around to Wireplumber issue 511 (issue #15).
 
 Version 0.13
   - The backtraces of unhandled exceptions that occur in asyncio tasks are
@@ -17,7 +19,7 @@ Version 0.13
 
 Version 0.12
   - Rename LibPulse.get_events() to get_events_iterator(). The change has been
-    introduced by version 0.4 of the libpulse package.
+    introduced by version 0.4 of the libpulse package (issue #26).
   - Handle exceptions raised while getting the sink after ``module-null-sink``
     has been loaded.
   - Fix a typo in the installation documentation.
