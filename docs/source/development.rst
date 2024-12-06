@@ -190,7 +190,7 @@ following commands::
 
     $ python -m tools.set_devpt_version_name
     $ make -C docs clean html man latexpdf
-    $ git commit -m "Update version"
+    $ git commit -m "Update development version"
     $ git push
 
 Releasing

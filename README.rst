@@ -11,7 +11,14 @@ servers.
    control of UPnP devices [#]_.
  * The UPnP Python sub-package is used by both commands.
 
-See the **pa-dlna** `documentation`_.
+The documentation is hosted at `Read the Docs`_:
+
+ - The `stable documentation`_ of the last released version.
+ - The `latest documentation`_ of the current GitLab development version.
+
+To access the documentation as a pdf document one must click on the icon at the
+down-right corner of any page. It allows to switch between stable and latest
+versions and to select the corresponding pdf document.
 
 Requirements
 ============
@@ -102,7 +109,7 @@ may be used to:
    ``parec`` program used to forward PulseAudio streams, for a specific device,
    for an encoder type or for all devices.
 
-See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
+See the `configuration`_ section of the pa-dlna documentation.
 
 .. _pa-dlna: https://gitlab.com/xdegaye/pa-dlna
 .. _asyncio: https://docs.python.org/3/library/asyncio.html
@@ -111,7 +118,9 @@ See the `configuration`_ section of the ``pa-dlna`` `documentation`_.
 .. _pa-dlna issue 15: https://gitlab.com/xdegaye/pa-dlna/-/issues/15
 .. _Wireplumber issue 511:
         https://gitlab.freedesktop.org/pipewire/wireplumber/-/issues/511
-.. _documentation: https://pa-dlna.readthedocs.io/en/stable/
+.. _Read the Docs: https://about.readthedocs.com/
+.. _stable documentation: https://pa-dlna.readthedocs.io/en/stable/
+.. _latest documentation: https://pa-dlna.readthedocs.io/en/latest/
 .. _psutil: https://pypi.org/project/psutil/
 .. _ConnectionManager:3 Service:
         http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf

@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath('../..'))
 from pa_dlna import __version__
 
 project = 'pa-dlna'
-copyright = '2023, Xavier de Gaye'
+copyright = '2024, Xavier de Gaye'
 author = 'Xavier de Gaye'
 
 # The short X.Y version
