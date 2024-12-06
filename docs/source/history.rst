@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 0.15
+  - Fix building docs with ``make latexpdf`` fails with ``! LaTeX Error: Unknown
+    graphics extension: .svg.`` (issue #31).
+
 Version 0.14
   - pa-dlna versioning conforms to PEP 440.
   - Exit with an error message when the ``libpulse`` version is older than the

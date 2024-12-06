@@ -159,6 +159,10 @@ Development:
 Documentation:
     * `Sphinx`_ [#]_.
     * `Read the Docs theme`_.
+    * Building the pdf documentation:
+
+      - The latex texlive package group.
+      - Imagemagick needed by the bundled `sphinx.ext.imgconverter`_ extension.
 
 Documentation
 """""""""""""
@@ -175,7 +179,7 @@ To build locally the documentation follow these steps:
 
   - Build the html documentation and the man pages::
 
-      $ make -C docs clean html man
+      $ make -C docs clean html man latexpdf
 
 Updating development version
 """"""""""""""""""""""""""""
@@ -185,7 +189,7 @@ development, after a change in the functionality or in the features, run the
 following commands::
 
     $ python -m tools.set_devpt_version_name
-    $ make -C docs clean html man
+    $ make -C docs clean html man latexpdf
     $ git commit -m "Update version"
     $ git push
 
@@ -224,6 +228,8 @@ Releasing
     https://www.rfc-editor.org/rfc/rfc2616#section-3.6.1
 .. _Read the Docs theme:
     https://docs.readthedocs.io/en/stable/faq.html#i-want-to-use-the-read-the-docs-theme-locally
+.. _sphinx.ext.imgconverter:
+    https://www.sphinx-doc.org/en/master/usage/extensions/imgconverter.html
 .. _Sphinx: https://www.sphinx-doc.org/
 .. _curl: https://curl.se/
 .. _pactl: https://linux.die.net/man/1/pactl
