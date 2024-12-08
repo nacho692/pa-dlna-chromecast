@@ -137,6 +137,8 @@ Development:
       debian container. Follow the instructions written as comments in each of
       the ``Dockerfile.pulse`` and ``Dockerfile.pipewire`` Docker files.
     * `coverage`_ is used to get the test suite coverage.
+    * `python-packaging`_ is used to set the development version name as conform
+      to PEP 440.
     * `flit`_ is used to publish pa-dlna to PyPi and may be used to install
       pa-dlna locally.
 
@@ -190,7 +192,7 @@ following commands::
 
     $ python -m tools.set_devpt_version_name
     $ make -C docs clean html man latexpdf
-    $ git commit -m "Update development version"
+    $ git commit -m "Update development version name"
     $ git push
 
 Releasing
@@ -238,10 +240,9 @@ Releasing
 .. _flit: https://pypi.org/project/flit/
 .. _unittest command line options:
     https://docs.python.org/3/library/unittest.html#command-line-options
-.. _latest documentation:
-    https://pa-dlna.readthedocs.io/en/latest/
-.. _pyclibrary:
-    https://pypi.org/project/pyclibrary/
+.. _latest documentation: https://pa-dlna.readthedocs.io/en/latest/
+.. _pyclibrary: https://pypi.org/project/pyclibrary/
+.. _python-packaging: https://github.com/pypa/packaging
 
 .. rubric:: Footnotes
 

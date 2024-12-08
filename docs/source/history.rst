@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.15
+  - Fix the development version name as PEP 440 conformant (issue #33).
   - Fix building docs with ``make latexpdf`` fails with ``! LaTeX Error: Unknown
     graphics extension: .svg.`` (issue #31).
 
