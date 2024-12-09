@@ -1,3 +1,9 @@
+pa-dlna |version|
+=================
+
+.. image:: _static/coverage.svg
+   :alt: pa-dlna test coverage
+
 `pa-dlna`_ forwards audio streams to DLNA devices.
 
 A Python project based on `asyncio`_, that uses `ctypes`_ to interface with the
@@ -21,12 +27,12 @@ down-right corner of any page. It allows to switch between stable and latest
 versions and to select the corresponding pdf document.
 
 Requirements
-============
+------------
 
 Python version 3.8 or more recent.
 
 psutil
-------
+""""""
 
 The UPnP sub-package  and therefore the ``upnp-cmd`` and ``pa-dlna``
 commands depend on the `psutil`_ Python package. This package is available in
@@ -35,7 +41,7 @@ installed by ``pip`` as a dependency of ``pa-dlna`` if not already installed as
 a package of the distribution.
 
 libpulse
---------
+""""""""
 
 `libpulse`_ is a Python asyncio interface to the Pulseaudio and Pipewire
 ``libpulse`` library. It was a sub-package of ``pa-dlna`` and has become a
@@ -43,7 +49,7 @@ full-fledged package on PyPi. It will be installed by ``pip`` as a dependency of
 ``pa-dlna``.
 
 parec
------
+"""""
 
 `pa-dlna`_ uses the pulseaudio ``parec`` program [#]_. Depending on the linux
 distribution it may be already installed as a dependency of pulseaudio or of
@@ -52,7 +58,7 @@ installed. On archlinux the package name is ``libpulse``, on debian it is
 `pulseaudio-utils`_.
 
 Encoders
---------
+""""""""
 
 No other dependency is required by `pa-dlna`_ when the DLNA devices support raw
 PCM L16 (:rfc:`2586`) [#]_.
@@ -66,16 +72,16 @@ options, is printed by the command that prints the default configuration::
   $ pa-dlna --dump-default
 
 pavucontrol
------------
+"""""""""""
 
 Optionally, one may install the ``pavucontrol`` package for easier management of
 associations between sound sources and DLNA devices.
 
 Installation
-============
+------------
 
 pipewire as a pulseaudio sound server
--------------------------------------
+"""""""""""""""""""""""""""""""""""""
 
 The ``pipewire``, ``pipewire-pulse`` and ``wireplumber`` packages must be
 installed and the corresponding programs started. If you are switching from
@@ -89,15 +95,15 @@ the command::
 
   $ pactl info
 
-pa-dlna
--------
+pa"dlna
+"""""""
 
 Install ``pa-dlna`` with pip::
 
   $ python -m pip install pa-dlna
 
 Configuration
-=============
+-------------
 
 A ``pa-dlna.conf`` user configuration file overriding the default configuration
 may be used to:

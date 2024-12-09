@@ -1,5 +1,7 @@
 /dist/
 /docs/build/
+/docs/source/README.rst
+/docs/source/index.rst
 /.coverage
 .emacs.desktop*
 *.pyc
