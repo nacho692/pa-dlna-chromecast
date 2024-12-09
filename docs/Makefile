@@ -22,7 +22,9 @@ help:
 	for arg in "$@"
 	do
 	    case $$arg in
-		clean | html | man)
+		clean)
+		    clean="clean";;
+		html | man)
 		    if [ -z "$$args" ]; then
 			args=$$arg
 		    else
@@ -34,13 +36,20 @@ help:
 	    esac
 	done
 
+	if [ -n "$$clean" ]; then
+	    $(SPHINXBUILD) -M clean "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+	fi
 	if [ -n "$$args" ]; then
+	    mkdir -p $(BUILDDIR)
+	    cat $(SOURCEDIR)/header.txt > $(BUILDDIR)/README.rst
+	    cat ../README.rst >> $(BUILDDIR)/README.rst
 	    cp $(SOURCEDIR)/index.rst_html $(SOURCEDIR)/index.rst;
 	    rm -f $(SOURCEDIR)/README.rst;
 	    $(SPHINXBUILD) -M $$args "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 	fi
 	if [ -n "$$latexpdf" ]; then
-	    $$(cd $(SOURCEDIR) && ln -sf ../../README.rst README.rst);
+	    cat $(SOURCEDIR)/header.txt > $(SOURCEDIR)/README.rst
+	    cat ../README.rst >> $(SOURCEDIR)/README.rst
 	    cp $(SOURCEDIR)/index.rst_pdf $(SOURCEDIR)/index.rst;
 	    $(SPHINXBUILD) -M latexpdf "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 	fi

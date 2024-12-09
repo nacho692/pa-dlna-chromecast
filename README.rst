@@ -1,9 +1,3 @@
-pa-dlna |version|
-=================
-
-.. image:: _static/coverage.svg
-   :alt: pa-dlna test coverage
-
 `pa-dlna`_ forwards audio streams to DLNA devices.
 
 A Python project based on `asyncio`_, that uses `ctypes`_ to interface with the
