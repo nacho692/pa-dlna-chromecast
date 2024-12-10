@@ -62,7 +62,7 @@ retrieves HTTP files such as curl or wget. Here is an example with the
 
         $ ffplay -f s16be -ac 2 -ar 44100 output
 
-Encoders Configuration
+Encoders configuration
 ----------------------
 
 The encoders configuration is defined by the :ref:`default_config` that may be
@@ -96,7 +96,7 @@ configuration:
 
 .. _user_configuration:
 
-User Configuration
+User configuration
 ------------------
 
 The full path name of the  user's ``pa-dlna.conf`` file is determined by
@@ -196,8 +196,8 @@ Common options
 
     The default is 5 seconds.
 
-Encoder specific options:
--------------------------
+Encoder specific options
+------------------------
 
 Encoder specific options (for example ``bitrate``) are listed in
 :ref:`default_config` with their default value. They are used to build the

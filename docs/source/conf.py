@@ -14,7 +14,7 @@ from pa_dlna import __version__
 
 project = 'pa-dlna'
 copyright = '2024, Xavier de Gaye'
-author = 'Xavier de Gaye'
+author = ''
 
 # The short X.Y version
 version = __version__

@@ -177,7 +177,7 @@ To build locally the documentation follow these steps:
 
   - Fetch the GitLab test coverage badge::
 
-      $ curl -o docs/source/_static/coverage.svg "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=90"
+      $ curl -o images/coverage.svg "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=90"
 
   - Build the html documentation and the man pages::
 

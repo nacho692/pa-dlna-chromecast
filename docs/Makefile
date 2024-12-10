@@ -18,38 +18,14 @@ help:
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 .ONESHELL:
 %: Makefile
-	@args=""
-	for arg in "$@"
-	do
-	    case $$arg in
-		clean)
-		    clean="clean";;
-		html | man)
-		    if [ -z "$$args" ]; then
-			args=$$arg
-		    else
-			args="$$args $$arg"
-		    fi;;
-		latexpdf)
-		    latexpdf="latexpdf";;
-		*) echo -n "Unknown target: $$arg";;
-	    esac
-	done
+	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-	if [ -n "$$clean" ]; then
-	    $(SPHINXBUILD) -M clean "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+	case html in $@)
+	    echo "Makefile: symlink index.html to README.html";
+	    cd "$(BUILDDIR)/html";
+	    if [ -f README.html ]; then
+		ln -sf README.html index.html;
+	    else
+		echo "Makefile: *** error: README.html not found";
 	fi
-	if [ -n "$$args" ]; then
-	    mkdir -p $(BUILDDIR)
-	    cat $(SOURCEDIR)/header.txt > $(BUILDDIR)/README.rst
-	    cat ../README.rst >> $(BUILDDIR)/README.rst
-	    cp $(SOURCEDIR)/index.rst_html $(SOURCEDIR)/index.rst;
-	    rm -f $(SOURCEDIR)/README.rst;
-	    $(SPHINXBUILD) -M $$args "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
-	fi
-	if [ -n "$$latexpdf" ]; then
-	    cat $(SOURCEDIR)/header.txt > $(SOURCEDIR)/README.rst
-	    cat ../README.rst >> $(SOURCEDIR)/README.rst
-	    cp $(SOURCEDIR)/index.rst_pdf $(SOURCEDIR)/index.rst;
-	    $(SPHINXBUILD) -M latexpdf "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
-	fi
+	esac

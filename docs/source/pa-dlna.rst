@@ -1,7 +1,7 @@
 .. _pa-dlna:
 
-pa-dlna
-=======
+pa-dlna command
+===============
 
 Synopsis
 --------

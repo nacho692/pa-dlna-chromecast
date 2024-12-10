@@ -1,7 +1,7 @@
 .. _upnp-cmd:
 
-upnp-cmd
-========
+upnp-cmd command
+================
 
 Synopsis
 --------
