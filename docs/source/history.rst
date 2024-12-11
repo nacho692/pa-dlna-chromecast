@@ -2,9 +2,12 @@ Release history
 ===============
 
 Version 0.15
+  - A pdf document is part of the pa-dlna documentation. To access the
+    documentation as a pdf document one must click on the icon at the down-right
+    corner of any page of the documentation on the web. It allows to switch
+    between stable and latest versions and to select the corresponding pdf
+    document.
   - Fix the development version name as PEP 440 conformant (issue #33).
-  - Fix building docs with ``make latexpdf`` fails with ``! LaTeX Error: Unknown
-    graphics extension: .svg.`` (issue #31).
 
 Version 0.14
   - pa-dlna versioning conforms to PEP 440.
