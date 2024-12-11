@@ -1,5 +1,5 @@
-pa-dlna
-=======
+pa-dlna |version|
+=================
 
 .. image:: images/coverage.svg
    :alt: [pa-dlna test coverage]
