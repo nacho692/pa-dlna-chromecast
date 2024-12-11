@@ -11,7 +11,7 @@ build:
   jobs:
     post_build:
       - echo "Create the READTHEDOCS_OUTPUT/html/index.html symlink at $READTHEDOCS_OUTPUT/html"
-      - cd "$READTHEDOCS_OUTPUT/html"; if [ -f README.html ]; then ln -sf README.html index.html; else echo "README.html not found"; fi
+      - cd "$READTHEDOCS_OUTPUT/html"; if [ -f README.html ]; then cp README.html index.html; else echo "README.html not found"; fi
 
 sphinx:
    configuration: docs/source/conf.py
