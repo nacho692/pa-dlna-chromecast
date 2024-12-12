@@ -6,22 +6,25 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-import contextlib
+import sys
 from pathlib import Path
 
 __version__ = 'Unknown version'
 def conf_py_setup():
     global __version__
 
-    cur_path = Path(__file__).parent
-    root_path = cur_path.parent.parent
-    with contextlib.chdir(str(root_path)):
+    cur_dir = Path(__file__).parent
+    root_dir = cur_dir.parent.parent
+    try:
+        sys.path.append(str(root_dir))
         from pa_dlna import __version__
+    finally:
+        sys.path.pop()
 
-    with open(cur_path / 'README.rst', 'w') as fdest:
+    with open(cur_dir / 'README.rst', 'w') as fdest:
         fdest.write('pa-dlna |version|\n')
         fdest.write('=================\n\n')
-        with open(root_path / 'README.rst') as fsrc:
+        with open(root_dir / 'README.rst') as fsrc:
             content = fsrc.read()
             fdest.write(content)
 
