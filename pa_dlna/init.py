@@ -10,7 +10,7 @@ import threading
 import struct
 import atexit
 import configparser
-from pathlib import PosixPath
+from pathlib import Path
 try:
     import termios
 except ImportError:
@@ -97,7 +97,7 @@ def get_applications(clients_uuids_path, parser):
     if not clients_uuids_path:
         return None
 
-    path = PosixPath(clients_uuids_path)
+    path = Path(clients_uuids_path)
     path = path.expanduser()
     if path.is_file():
         cfg_parser = CaseConfigParser(default_section=APPS_TITLE,

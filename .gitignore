@@ -2,4 +2,5 @@
 /docs/build/
 /.coverage
 .emacs.desktop*
+docs/source/README.rst
 *.pyc

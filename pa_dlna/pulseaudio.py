@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from pathlib import PosixPath
+from pathlib import Path
 
 from libpulse.libpulse import (LibPulse, PA_SUBSCRIPTION_MASK_SINK_INPUT,
                                LibPulseStateError)
@@ -266,7 +266,7 @@ class Pulse:
         if not self.clients_uuids:
             return
 
-        path = PosixPath(self.clients_uuids)
+        path = Path(self.clients_uuids)
         path = path.expanduser()
         try:
             with open(path, 'w') as f:

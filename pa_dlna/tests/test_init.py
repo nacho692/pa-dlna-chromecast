@@ -195,7 +195,7 @@ class Argv(BaseTestCase):
                 redirect_stderr(io.StringIO()) as output,\
                 self.assertRaises(SystemExit) as cm:
 
-            path = pathlib.PosixPath(f.name)
+            path = pathlib.Path(f.name)
             path.chmod(0o222)
             options, _ = parse_args(self.__doc__,
                                     argv=['--clients-uuids', str(path)])

@@ -6,11 +6,26 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-import os
-import sys
+import contextlib
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath('../..'))
-from pa_dlna import __version__
+__version__ = 'Unknown version'
+def conf_py_setup():
+    global __version__
+
+    cur_path = Path(__file__).parent
+    root_path = cur_path.parent.parent
+    with contextlib.chdir(str(root_path)):
+        from pa_dlna import __version__
+
+    with open(cur_path / 'README.rst', 'w') as fdest:
+        fdest.write('pa-dlna |version|\n')
+        fdest.write('=================\n\n')
+        with open(root_path / 'README.rst') as fsrc:
+            content = fsrc.read()
+            fdest.write(content)
+
+conf_py_setup()
 
 project = 'pa-dlna'
 copyright = '2024, Xavier de Gaye'
