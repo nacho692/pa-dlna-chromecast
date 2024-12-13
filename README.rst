@@ -1,4 +1,4 @@
-.. image:: images/coverage.svg
+.. image:: images/coverage.png
    :alt: [pa-dlna test coverage]
 
 `pa-dlna`_ forwards audio streams to DLNA devices.

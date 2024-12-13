@@ -164,7 +164,7 @@ Documentation:
     * Building the pdf documentation:
 
       - The latex texlive package group.
-      - Imagemagick needed by the bundled `sphinx.ext.imgconverter`_ extension.
+      - Imagemagick version 7 or more recent.
 
 Documentation
 """""""""""""
@@ -178,6 +178,7 @@ To build locally the documentation follow these steps:
   - Fetch the GitLab test coverage badge::
 
       $ curl -o images/coverage.svg "https://gitlab.com/xdegaye/pa-dlna/badges/master/coverage.svg?min_medium=85&min_acceptable=90&min_good=90"
+      $ magick images/coverage.svg images/coverage.png
 
   - Build the html documentation and the man pages::
 
