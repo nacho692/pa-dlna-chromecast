@@ -187,9 +187,8 @@ To build locally the documentation follow these steps:
 Updating development version
 """"""""""""""""""""""""""""
 
-In order to update the version at the `latest documentation`_ during
-development, after a change in the functionality or in the features, run the
-following commands::
+Run the following commands to update the version name at `latest documentation`_
+after a bug fix or a change in the features::
 
     $ python -m tools.set_devpt_version_name
     $ make -C docs clean html man latexpdf
@@ -231,8 +230,6 @@ Releasing
     https://www.rfc-editor.org/rfc/rfc2616#section-3.6.1
 .. _Read the Docs theme:
     https://docs.readthedocs.io/en/stable/faq.html#i-want-to-use-the-read-the-docs-theme-locally
-.. _sphinx.ext.imgconverter:
-    https://www.sphinx-doc.org/en/master/usage/extensions/imgconverter.html
 .. _Sphinx: https://www.sphinx-doc.org/
 .. _curl: https://curl.se/
 .. _pactl: https://linux.die.net/man/1/pactl
@@ -242,7 +239,6 @@ Releasing
 .. _unittest command line options:
     https://docs.python.org/3/library/unittest.html#command-line-options
 .. _latest documentation: https://pa-dlna.readthedocs.io/en/latest/
-.. _pyclibrary: https://pypi.org/project/pyclibrary/
 .. _python-packaging: https://github.com/pypa/packaging
 
 .. rubric:: Footnotes
