@@ -128,13 +128,23 @@ Requirements
 """"""""""""
 
 Development:
-    * `curl`_ is used to run the full test suite. When missing, the tests
-      using curl are skipped. It is also needed when releasing a new version to
-      fetch the GitLab test coverage badge.
-    * `ffmpeg`_, the `upmpdcli`_ DLNA Media Renderer, the `MPD`_ Music Player
+    * `curl`_ and `ffmpeg`_ are used by some tests of the test suite. When
+      missing, those tests are skipped. `curl`_ is also needed when releasing a
+      new version to fetch the GitLab test coverage badge.
+    * `ffmpeg`_, the `Upmpdcli`_ DLNA Media Renderer, the `MPD`_ Music Player
       Daemon and a running Pulseaudio or PipeWire sound server are needed to run
-      the tests of the ``test_tracks`` Python module. Otherwise those tests are
-      skipped.
+      the tests of the ``test_tracks`` Python module (otherwise those tests are
+      skipped).
+
+      An audio track sourced by ffmpeg is streamed by pa-dlna to the Upmpdcli
+      DLNA that outputs the stream to MPD, which in turn outputs the stream to a
+      PulseAudio/PipeWire sink created by ``test_tracks``. Monitoring the state
+      of this sink allows checking that the audio track does follow this
+      path. This scenario may be run at the debug log level with the following
+      command::
+
+        $ python -m pa_dlna.tests.test_tracks [EncoderName]
+
     * `pactl`_ is needed to run the tests that connect to the pulseaudio or
       pipewire sound server. When missing, those tests are skipped.
     * `docker`_ may be used to run the test suite in a pulseaudio or pipewire
@@ -245,7 +255,7 @@ Releasing
 .. _latest documentation: https://pa-dlna.readthedocs.io/en/latest/
 .. _python-packaging: https://github.com/pypa/packaging
 .. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html
-.. _upmpdcli: https://www.lesbonscomptes.com/upmpdcli/
+.. _Upmpdcli: https://www.lesbonscomptes.com/upmpdcli/
 .. _MPD: https://mpd.readthedocs.io/en/latest/user.html
 
 .. rubric:: Footnotes

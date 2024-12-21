@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.15
+  - Added a test framework that runs tests with Upmpdcli (a software DLNA
+    MediaRenderer) and MPD on the PulseAudio or Pipewire sound server.
   - A pdf document is part of the pa-dlna documentation. To access the
     documentation as a pdf document one must click on the icon at the down-right
     corner of any page of the documentation on the web. It allows to switch

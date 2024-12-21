@@ -289,7 +289,7 @@ class UpmpdcliMpd:
         return renderer
 
     async def start_track(self, track_path):
-        # Play a track with ffmpeg.
+        # ffmpeg plays a track to the sink of the upmpdcli renderer.
         renderer_sink = self.renderer.nullsink.sink
         args = ['-hide_banner', '-nostats', '-i', str(track_path),
                 '-f', 'pulse', '-device', str(renderer_sink.index),
@@ -331,8 +331,8 @@ class UpmpdcliMpd:
                                                        self.mpd_sink_name))
             self.control_point = await run_control_point(config_home,
                                                             self.loglevel)
-            # Add the signal handlers.
-            # This overrides the AVControlPoint signal handlers.
+            # Add the signal handlers (overridding the AVControlPoint
+            # signal handlers).
             end_event = asyncio.Event()
             asyncio.create_task(self.shutdown(end_event), name='shutdown')
             loop = asyncio.get_running_loop()
