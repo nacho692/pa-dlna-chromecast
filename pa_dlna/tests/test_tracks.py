@@ -1,7 +1,4 @@
-"""Tests playing tracks with upmpdcli and mpd."""
-
-# XXX
-# requires_resources
+"""Tests that stream tracks to upmpdcli and mpd."""
 
 import sys
 import os
@@ -9,11 +6,14 @@ import time
 import asyncio
 import tempfile
 import pathlib
-import signal
 import subprocess
-from contextlib import asynccontextmanager, AsyncExitStack
 from textwrap import dedent
+from signal import SIGINT, SIGTERM
+from contextlib import asynccontextmanager, AsyncExitStack
+from unittest import IsolatedAsyncioTestCase
+from libpulse import libpulse
 
+from . import requires_resources
 from ..init import parse_args
 from ..config import UserConfig
 from ..pa_dlna import AVControlPoint
@@ -21,18 +21,31 @@ from ..pa_dlna import AVControlPoint
 import logging
 logger = logging.getLogger('tsample')
 
+TRACK_TIMEOUT = 20
+DEFAULT_ENCODER = 'FFMpegAacEncoder'
+
 # Courtesy of https://espressif-docs.readthedocs-hosted.com/projects/esp-adf/
 # en/latest/design-guide/audio-samples.html.
-TRACK_PATH = pathlib.Path(__file__).parent / 'gs-16b-1c-44100hz.mp3'
-TRACK_NAME = TRACK_PATH.stem
+# A 16 seconds track: Duration: 00:00:15.88, start: 0.025057, bitrate: 64 kb/s
+TRACK_16 = pathlib.Path(__file__).parent / 'gs-16b-1c-44100hz.mp3'
+
+# Map values to their name.
+SINK_STATES = dict((eval(f'libpulse.{state}'), state) for state in
+                  ('PA_SINK_IDLE',
+                   'PA_SINK_INIT',
+                   'PA_SINK_INVALID_STATE',
+                   'PA_SINK_RUNNING',
+                   'PA_SINK_SUSPENDED',
+                   'PA_SINK_UNLINKED'))
 
 class TrackRuntimeError(Exception): pass
 
 @asynccontextmanager
-async def create_config_home(sink_name):
+async def create_config_home(encoder, sink_name):
     "Yield temporary directory to be used as the value of XDG_CONFIG_HOME"
 
     with tempfile.TemporaryDirectory(dir='.') as tmpdirname:
+        # Create the minimum set of mpd files.
         dirpath = pathlib.Path(tmpdirname) / 'mpd'
         dirpath.mkdir()
         state_path = dirpath / 'state'
@@ -53,9 +66,20 @@ async def create_config_home(sink_name):
                             sink            "{sink_name}"
                         }}
                         '''))
+
+        # Create the pa-dlna configuration file.
+        dirpath = pathlib.Path(tmpdirname) / 'pa-dlna'
+        dirpath.mkdir()
+        pa_dlna_conf = dirpath / 'pa-dlna.conf'
+        with open(pa_dlna_conf, 'w') as f:
+            f.write(dedent(f'''\
+                        [DEFAULT]
+                        selection =
+                            {encoder},
+            '''))
+
         yield tmpdirname
 
-@asynccontextmanager
 async def run_control_point(config_home, loglevel):
     async def cp_connected():
         # Wait for the connection to LibPulse.
@@ -64,7 +88,7 @@ async def run_control_point(config_home, loglevel):
         logger.debug('Connected to libpulse')
         return  cp
 
-    argv = ['--loglevel', loglevel]
+    argv = ['--nics', 'lo', '--loglevel', loglevel]
     options, _ = parse_args('pa-dlna sample tests', argv=argv)
 
     # Override any existing pa-dlna user configuration with no user
@@ -73,18 +97,16 @@ async def run_control_point(config_home, loglevel):
     try:
         os.environ.update({'XDG_CONFIG_HOME': config_home})
         config = UserConfig()
+        cp = AVControlPoint(config=config, **options)
+        asyncio.create_task(cp.run_control_point())
     finally:
         os.environ.clear()
         os.environ.update(_environ)
-    cp = AVControlPoint(config=config, **options)
-    asyncio.create_task(cp.run_control_point())
 
     try:
-        yield await asyncio.wait_for(cp_connected(), 5)
+        return await asyncio.wait_for(cp_connected(), 5)
     except TimeoutError:
         raise TrackRuntimeError('Cannot connect to libpulse') from None
-    finally:
-        await cp.close()
 
 async def proc_terminate(proc, signal=None, timeout=0.2):
     async def _terminate(funcname, delay):
@@ -125,7 +147,7 @@ async def proc_run(cmd, *args, env=None):
     yield proc
 
     if cmd == 'upmpdcli':
-        await proc_terminate(proc, signal=signal.SIGINT)
+        await proc_terminate(proc, signal=SIGINT)
     else:
         await proc_terminate(proc)
     await proc.wait()
@@ -139,11 +161,27 @@ async def proc_run(cmd, *args, env=None):
         if stderr:
             logger.debug(f'[stderr]\n{stderr.decode()}')
 
-async def play_track_ffmpeg(upmpdcli, path, name):
-        args = ['-hide_banner', '-nostats', '-i', path, '-f', 'pulse',
-                '-device', str(upmpdcli.renderer.nullsink.sink.index), name]
-        return await upmpdcli.exit_stack.enter_async_context(
-                                                proc_run('ffmpeg', *args))
+async def get_sink_state(lib_pulse, sink):
+    for _sink in await lib_pulse.pa_context_get_sink_info_list():
+        if _sink.index == sink.index:
+            return SINK_STATES[_sink.state]
+    else:
+        raise TrackRuntimeError(f"'Cannot find sink '{sink.name}'")
+
+async def sink_is_running(lib_pulse, sink):
+    # Loop for ever.
+    while True:
+        state = await get_sink_state(lib_pulse, sink)
+        if state == 'PA_SINK_RUNNING':
+            return True
+        await asyncio.sleep(0)
+
+async def http_transfer_end(renderer):
+    # Wait for the termination of the HTTP 1.1 chunked transfer encoding.
+    while True:
+        if renderer.stream_sessions.track_count == 0:
+            return
+        await asyncio.sleep(0.1)
 
 class UpmpdcliMpd:
     """Set up the environment to play tracks with upmpdcli and mpd.
@@ -157,17 +195,63 @@ class UpmpdcliMpd:
     UpmpdcliMpd must be instantiated in an 'async with' statement.
     """
 
-    def __init__(self, mpd_sink_name='MPD-sink', loglevel='info'):
+    def __init__(self, encoder=DEFAULT_ENCODER, mpd_sink_name='MPD-sink',
+                                                            loglevel='error'):
+        self.encoder = encoder
         self.mpd_sink_name = mpd_sink_name
         self.loglevel = loglevel
         self.mpd_sink = None
         self.control_point = None
         self.lib_pulse = None
         self.renderer = None
+
+        self.closed = False
+        self.curtask = asyncio.current_task()
         self.exit_stack = AsyncExitStack()
+
+    async def shutdown(self, end_event):
+        # Run by the 'shutdown' task.
+        await end_event.wait()
+        await self.close('Got SIGINT or SIGTERM')
+
+    async def close(self, msg=None):
+        if self.closed:
+            return
+
+        self.closed = True
+        try:
+            # Close the UPnP control point to avoid annoying logs from the
+            # _ssdp_notify task.
+            # This will close the AVControlPoint instance.
+            if (self.control_point is not None and
+                    self.control_point.upnp_control_point is not None):
+                self.control_point.upnp_control_point.close()
+
+            await self.exit_stack.aclose()
+        finally:
+            if self.curtask != asyncio.current_task():
+                if sys.version_info[:2] >= (3, 9):
+                    self.curtask.cancel(msg)
+                else:
+                    self.curtask.cancel()
+
+            loop = asyncio.get_running_loop()
+            for sig in (SIGINT, SIGTERM):
+                loop.remove_signal_handler(sig)
 
     @asynccontextmanager
     async def create_sink(self):
+        # Refuse to create the sink if it already exists.
+        for sink in await self.lib_pulse.pa_context_get_sink_info_list():
+            if sink.name == self.mpd_sink_name:
+                raise TrackRuntimeError(
+                dedent(f"""\
+                The '{sink.name}' sink already exists.
+                To remove this sink run the command 'pactl list sinks' to get
+                the <index> of the 'Owner Module' of '{sink.name}' and unload
+                this module with the command 'pactl unload-module <index>'"""
+                ))
+
         logger.debug(f"Create sink '{self.mpd_sink_name}'")
         module_index = await self.lib_pulse.pa_context_load_module(
             'module-null-sink',
@@ -180,9 +264,10 @@ class UpmpdcliMpd:
                     break
             else:
                 raise TrackRuntimeError(
-                    f"Cannot find sink '{self.mpd_sink_name}'") from None
+                    f"Cannot find sink '{self.mpd_sink_name}'")
         finally:
             await self.lib_pulse.pa_context_unload_module(module_index)
+            logger.debug(f'Unload null-sink module of {self.mpd_sink_name}')
 
     async def get_renderer(self):
         renderer = None
@@ -203,14 +288,57 @@ class UpmpdcliMpd:
         logger.debug(f'Found renderer {renderer.name}')
         return renderer
 
+    async def start_track(self, track_path):
+        # Play a track with ffmpeg.
+        renderer_sink = self.renderer.nullsink.sink
+        args = ['-hide_banner', '-nostats', '-i', str(track_path),
+                '-f', 'pulse', '-device', str(renderer_sink.index),
+                track_path.stem]
+        track_proc = await self.exit_stack.enter_async_context(
+                                                proc_run('ffmpeg', *args))
+
+        # Wait for the MPD sink to be running.
+        try:
+            await asyncio.wait_for(sink_is_running(self.lib_pulse,
+                                                self.mpd_sink), TRACK_TIMEOUT)
+        except TimeoutError:
+            try:
+                state = await get_sink_state(self.lib_pulse, self.mpd_sink)
+                logger.error(f"MPD sink state is '{state}'"
+                             f" after {TRACK_TIMEOUT} seconds")
+            finally:
+                await self.stop_track(track_proc)
+                return
+
+        return track_proc
+
+    async def stop_track(self, track_proc):
+        # Stop the stream.
+        await proc_terminate(track_proc)
+
+        timeout = 2
+        try:
+            await asyncio.wait_for(http_transfer_end(self.renderer), timeout)
+        except TimeoutError:
+            logger.error(f'Http transfer still running {timeout} seconds '
+                         f'after the audio stream source has been terminated')
+
     async def __aenter__(self):
         try:
             # Run the AVControlPoint.
             config_home = await self.exit_stack.enter_async_context(
-                                    create_config_home(self.mpd_sink_name))
-            self.control_point = await self.exit_stack.enter_async_context(
-                                    run_control_point(config_home,
-                                                      self.loglevel))
+                                    create_config_home(self.encoder,
+                                                       self.mpd_sink_name))
+            self.control_point = await run_control_point(config_home,
+                                                            self.loglevel)
+            # Add the signal handlers.
+            # This overrides the AVControlPoint signal handlers.
+            end_event = asyncio.Event()
+            asyncio.create_task(self.shutdown(end_event), name='shutdown')
+            loop = asyncio.get_running_loop()
+            for sig in (SIGINT, SIGTERM):
+                loop.add_signal_handler(sig, end_event.set)
+
             self.lib_pulse = self.control_point.pulse.lib_pulse
             logger.debug(f"XDG_CONFIG_HOME is '{config_home}'")
 
@@ -237,26 +365,78 @@ class UpmpdcliMpd:
         except Exception as e:
             await self.exit_stack.aclose()
             if isinstance(e, TrackRuntimeError):
-                sys.exit(f'*** error: {e!r}')
+                sys.exit(f'*** error: {e}')
             else:
                 raise
 
     async def __aexit__(self, exc_type, exc_value, traceback):
-        # Prevent the upmpdcli process to send a new SSDP notification while
-        # we are closing the control point to avoid harmless and annoying
-        # logs.
-        await self.control_point.close()
+        await self.close()
 
-        await self.exit_stack.aclose()
+@requires_resources(('libpulse', 'ffmpeg', 'upmpdcli', 'mpd'))
+class PlayTracks(IsolatedAsyncioTestCase):
+
+    async def test_play_track(self):
+        async with UpmpdcliMpd() as upmpdcli:
+            proc = None
+            cancelled = False
+            try:
+                proc = await upmpdcli.start_track(TRACK_16)
+                self.assertTrue(proc is not None)
+
+                lib_pulse = upmpdcli.lib_pulse
+                mpd_state = await get_sink_state(lib_pulse, upmpdcli.mpd_sink)
+                self.assertEqual(mpd_state, 'PA_SINK_RUNNING')
+
+                renderer_sink = upmpdcli.renderer.nullsink.sink
+                renderer_state = await get_sink_state(lib_pulse,
+                                                                renderer_sink)
+                self.assertEqual(renderer_state, 'PA_SINK_RUNNING')
+
+                state = await upmpdcli.renderer.get_transport_state()
+                self.assertEqual(state, 'PLAYING')
+
+            except asyncio.CancelledError as e:
+                logger.info(f'Got {e!r}')
+                cancelled = True
+            finally:
+                if proc is not None:
+                    await upmpdcli.stop_track(proc)
+                if cancelled:
+                    self.fail('The test has been cancelled')
 
 async def main():
-    async with UpmpdcliMpd(loglevel='debug') as upmpdcli:
-        # Play a track.
-        ffmpeg_proc = await play_track_ffmpeg(upmpdcli, str(TRACK_PATH),
-                                                                TRACK_NAME)
+    encoder = DEFAULT_ENCODER
+    if len(sys.argv) == 2:
+        encoder = sys.argv[1]
 
-        # XXX
-        await asyncio.sleep(20)
+    async with UpmpdcliMpd(encoder=encoder, loglevel='debug') as upmpdcli:
+        logger.info(f"Using '{encoder}' encoder")
+
+        proc = None
+        try:
+            proc = await upmpdcli.start_track(TRACK_16)
+            if proc is None:
+                return
+
+            lib_pulse = upmpdcli.lib_pulse
+            mpd_state = await get_sink_state(lib_pulse, upmpdcli.mpd_sink)
+            logger.info(f'MPD sink state: {mpd_state}')
+
+            renderer_sink = upmpdcli.renderer.nullsink.sink
+            renderer_state = await get_sink_state(lib_pulse,
+                                                            renderer_sink)
+            logger.info(f'upmpdcli sink state: {renderer_state}')
+
+            # Get the upmpdcli MediaRenderer state using a
+            # 'GetTransportInfo' soap action.
+            state = await upmpdcli.renderer.get_transport_state()
+            logger.info(f'upmpdcli MediaRenderer state: {state}')
+
+        except asyncio.CancelledError as e:
+            logger.info(f'Got {e!r}')
+        finally:
+            if proc is not None:
+                await upmpdcli.stop_track(proc)
 
 if __name__ == '__main__':
     asyncio.run(main())

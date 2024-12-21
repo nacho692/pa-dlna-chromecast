@@ -131,6 +131,10 @@ Development:
     * `curl`_ is used to run the full test suite. When missing, the tests
       using curl are skipped. It is also needed when releasing a new version to
       fetch the GitLab test coverage badge.
+    * `ffmpeg`_, the `upmpdcli`_ DLNA Media Renderer, the `MPD`_ Music Player
+      Daemon and a running Pulseaudio or PipeWire sound server are needed to run
+      the tests of the ``test_tracks`` Python module. Otherwise those tests are
+      skipped.
     * `pactl`_ is needed to run the tests that connect to the pulseaudio or
       pipewire sound server. When missing, those tests are skipped.
     * `docker`_ may be used to run the test suite in a pulseaudio or pipewire
@@ -240,6 +244,9 @@ Releasing
     https://docs.python.org/3/library/unittest.html#command-line-options
 .. _latest documentation: https://pa-dlna.readthedocs.io/en/latest/
 .. _python-packaging: https://github.com/pypa/packaging
+.. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html
+.. _upmpdcli: https://www.lesbonscomptes.com/upmpdcli/
+.. _MPD: https://mpd.readthedocs.io/en/latest/user.html
 
 .. rubric:: Footnotes
 

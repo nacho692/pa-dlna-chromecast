@@ -65,7 +65,7 @@ class DefaultConfig(BaseTestCase):
         self.assertEqual(cm.exception.args[0],
                          f"'{name}' is not a valid class name")
 
-@requires_resources('os.devnull')
+@requires_resources(('os.devnull', 'ffmpeg'))
 class UserConfigTests(BaseTestCase):
     """User configuration tests."""
 

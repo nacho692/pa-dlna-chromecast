@@ -5,6 +5,7 @@ import logging
 import subprocess
 import unittest
 import functools
+import shutil
 import asyncio
 
 from ..upnp.tests import load_ordered_tests, find_in_logs, search_in_logs
@@ -31,11 +32,10 @@ def requires_resources(resources):
                 # Check that os.devnull is writable.
                 with open(os.devnull, 'w'):
                     pass
-            elif res == 'curl':
-                # Check that curl is installed.
-                subprocess.run(['curl', '--version'],
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, check=True)
+            elif res in ('curl', 'ffmpeg', 'upmpdcli', 'mpd'):
+                path = shutil.which(res)
+                if path is None:
+                    raise Exception
             elif res == 'libpulse':
                 # Check that pulseaudio or pipewire-pulse is running.
                 subprocess.run(['pactl', 'info'], stdout=subprocess.DEVNULL,
