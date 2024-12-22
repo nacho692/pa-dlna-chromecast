@@ -176,7 +176,7 @@ Common options
     option is None, the encoder command line is built from the Pulseaudio
     options and the encoder's specific options.
 
-    As all the other options (except ``sample_rate`` in some cases, see above)
+    As all the other options (except ``sample_format`` in some cases, see above)
     it may be overriden by the user.
 
   *track_metadata*

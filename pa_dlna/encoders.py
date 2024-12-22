@@ -35,6 +35,11 @@ def select_encoder(config, renderer_name, pinfo, udn):
 
     logger = logging.getLogger('encoder')
 
+    def found_encoder(encoder, proto):
+        if encoder.has_mime_type(proto[2]):
+            logger.info(f"Selected encoder mime type: '{encoder.mime_type}'")
+            return encoder, encoder.mime_type, ':'.join(proto)
+
     # The ProtocolInfo format is:
     #   <protocol>“:”<network>“:”<contentFormat>“:”<additionalInfo>
     # We are interested in the HTTP streaming entries:
@@ -52,8 +57,9 @@ def select_encoder(config, renderer_name, pinfo, udn):
             # Check that the list of mime_types holds one of the  mime types
             # supported by this encoder.
             for proto in protocol_infos:
-                if encoder.has_mime_type(proto[2]):
-                    return encoder, encoder.mime_type, ':'.join(proto)
+                result = found_encoder(encoder, proto)
+                if result is not None:
+                    return result
             else:
                 logger.error(f'No matching mime type for the udn configured'
                              f' on the {encoder} encoder')
@@ -62,8 +68,9 @@ def select_encoder(config, renderer_name, pinfo, udn):
     # Then the encoders proper.
     for encoder in config.encoders.values():
         for proto in protocol_infos:
-            if encoder.has_mime_type(proto[2]):
-                return encoder, encoder.mime_type, ':'.join(proto)
+            result = found_encoder(encoder, proto)
+            if result is not None:
+                return result
 
 class Encoder:
     """The pa-dlna default configuration.
@@ -151,7 +158,7 @@ class L16Mixin():
         if mtype[0] != self._mime_types[0]:
             return False
 
-        rate_channels = [0, 0]          # list of [rate, channels]
+        rate_channels = [None, None]            # list of [rate, channels]
         for param in mtype[1:]:
             for (n, prefix) in enumerate(['rate=', 'channels=']):
                 if param.startswith(prefix):
@@ -161,11 +168,21 @@ class L16Mixin():
                         return False
                     break
 
-        # The rate parameter is required.
-        if rate_channels[0] == self.rate:
-            if rate_channels[1] in (0, self.channels):
-                self.requested_mtype = mime_type
-                return True
+        if (rate_channels[0] not in (None, self.rate) or
+                rate_channels[1] not in (None, self.channels)):
+            return False
+
+        if rate_channels[0] is None:
+            # The DLNA answer to GetProtocolInfo includes 'audio/L16' without
+            # the rate which is required in the 'Content-type' field of the
+            # HTTP '200 OK' response sent to the DLNA.
+            mime_type = f'{mime_type};rate={self.rate}'
+
+        if rate_channels[1] is None:
+            mime_type = f'{mime_type};channels={self.channels}'
+
+        self.requested_mtype = mime_type
+        return True
 
 class FlacEncoder(StandAloneEncoder):
     """Lossless Flac encoder.

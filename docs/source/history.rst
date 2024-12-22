@@ -2,6 +2,9 @@ Release history
 ===============
 
 Version 0.15
+  - Fix L16Encoder failing to set the correct mime type when the ``ProtocolInfo
+    <contentFormat>`` entry is simply ``audio/L16`` without the rate parameter
+    (issue #36).
   - Added a test framework that runs tests with Upmpdcli (a software DLNA
     MediaRenderer) and MPD on the PulseAudio or Pipewire sound server.
   - A pdf document is part of the pa-dlna documentation. To access the

@@ -22,7 +22,7 @@ import logging
 logger = logging.getLogger('tsample')
 
 TRACK_TIMEOUT = 20
-DEFAULT_ENCODER = 'FFMpegAacEncoder'
+DEFAULT_ENCODER = 'L16Encoder'
 
 # Courtesy of https://espressif-docs.readthedocs-hosted.com/projects/esp-adf/
 # en/latest/design-guide/audio-samples.html.
@@ -316,7 +316,7 @@ class UpmpdcliMpd:
         # Stop the stream.
         await proc_terminate(track_proc)
 
-        timeout = 2
+        timeout = 5
         try:
             await asyncio.wait_for(http_transfer_end(self.renderer), timeout)
         except TimeoutError:
@@ -375,34 +375,41 @@ class UpmpdcliMpd:
 @requires_resources(('libpulse', 'ffmpeg', 'upmpdcli', 'mpd'))
 class PlayTracks(IsolatedAsyncioTestCase):
 
-    async def test_play_track(self):
-        async with UpmpdcliMpd() as upmpdcli:
-            proc = None
-            cancelled = False
-            try:
-                proc = await upmpdcli.start_track(TRACK_16)
-                self.assertTrue(proc is not None)
+    async def play_track(self, upmpdcli):
+        proc = None
+        cancelled = False
+        try:
+            proc = await upmpdcli.start_track(TRACK_16)
+            self.assertTrue(proc is not None)
 
-                lib_pulse = upmpdcli.lib_pulse
-                mpd_state = await get_sink_state(lib_pulse, upmpdcli.mpd_sink)
-                self.assertEqual(mpd_state, 'PA_SINK_RUNNING')
+            lib_pulse = upmpdcli.lib_pulse
+            mpd_state = await get_sink_state(lib_pulse, upmpdcli.mpd_sink)
+            self.assertEqual(mpd_state, 'PA_SINK_RUNNING')
 
-                renderer_sink = upmpdcli.renderer.nullsink.sink
-                renderer_state = await get_sink_state(lib_pulse,
-                                                                renderer_sink)
-                self.assertEqual(renderer_state, 'PA_SINK_RUNNING')
+            renderer_sink = upmpdcli.renderer.nullsink.sink
+            renderer_state = await get_sink_state(lib_pulse,
+                                                            renderer_sink)
+            self.assertEqual(renderer_state, 'PA_SINK_RUNNING')
 
-                state = await upmpdcli.renderer.get_transport_state()
-                self.assertEqual(state, 'PLAYING')
+            state = await upmpdcli.renderer.get_transport_state()
+            self.assertEqual(state, 'PLAYING')
 
-            except asyncio.CancelledError as e:
-                logger.info(f'Got {e!r}')
-                cancelled = True
-            finally:
-                if proc is not None:
-                    await upmpdcli.stop_track(proc)
-                if cancelled:
-                    self.fail('The test has been cancelled')
+        except asyncio.CancelledError as e:
+            logger.info(f'Got {e!r}')
+            cancelled = True
+        finally:
+            if proc is not None:
+                await upmpdcli.stop_track(proc)
+            if cancelled:
+                self.fail('The test has been cancelled')
+
+    async def test_play_track_aac(self):
+        async with UpmpdcliMpd(encoder='FFMpegAacEncoder') as upmpdcli:
+            await self.play_track(upmpdcli)
+
+    async def test_play_track_l16(self):
+        async with UpmpdcliMpd(encoder='L16Encoder') as upmpdcli:
+            await self.play_track(upmpdcli)
 
 async def main():
     encoder = DEFAULT_ENCODER
