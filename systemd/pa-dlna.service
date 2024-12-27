@@ -1,0 +1,22 @@
+[Unit]
+Description=Pa-dlna Service
+Documentation=https://pa-dlna.readthedocs.io/en/stable/
+
+Wants=pipewire-session-manager.service pulseaudio.service
+After=pipewire-session-manager.service pulseaudio.service
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/pa-dlna --systemd
+Slice=session.slice
+
+Restart=on-success
+RestartSec=10
+RestartMaxDelaySec=120
+RestartSteps=12
+
+NoNewPrivileges=yes
+UMask=0077
+
+[Install]
+WantedBy=default.target

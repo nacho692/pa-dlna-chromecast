@@ -193,6 +193,9 @@ class LibPulse():
         if self.sink_inputs:
             return self.sink_inputs[0].client
 
+    async def pa_context_get_client_info_list(self):
+        return []
+
     async def log_server_info(self):
         return
 

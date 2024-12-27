@@ -304,6 +304,15 @@ class Pulse:
     async def run(self):
         try:
             async with LibPulse('pa-dlna') as self.lib_pulse:
+                # Only one instance of pa-dlna is allowed to run.
+                n = len([client for client in
+                        await self.lib_pulse.pa_context_get_client_info_list()
+                                                if client.name == 'pa-dlna'])
+                if n > 1:
+                    logger.warning(
+                        'There is already one instance of pa-dlna running')
+                    return
+
                 await self.lib_pulse.log_server_info()
 
                 # Start the iteration on sink-input events.
