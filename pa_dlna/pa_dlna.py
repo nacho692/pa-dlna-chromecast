@@ -10,6 +10,7 @@ import time
 from signal import SIGINT, SIGTERM
 from collections import namedtuple, UserList
 
+from . import SYSTEMD_LOG_LEVEL
 from .init import padlna_main, UPnPApplication, ControlPointAbortError
 from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer
@@ -795,7 +796,8 @@ class AVControlPoint(UPnPApplication):
                 await self.handle_upnp_notifications()
 
         except asyncio.CancelledError as e:
-            logger.info(f'Main task got: {e!r}')
+            level = SYSTEMD_LOG_LEVEL if self.systemd else logging.INFO
+            logger.log(level, f'Main task got: {e!r}')
         finally:
             await self.close()
 

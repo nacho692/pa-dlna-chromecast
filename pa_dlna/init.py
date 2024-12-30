@@ -12,11 +12,16 @@ import atexit
 import configparser
 from pathlib import Path
 try:
+    import systemd as systemd_module
+    from systemd import journal, daemon
+except ImportError:
+    systemd_module = None
+try:
     import termios
 except ImportError:
     termios = None
 
-from . import __version__, MIN_LIBPULSE_VERSION
+from . import __version__, MIN_LIBPULSE_VERSION, SYSTEMD_LOG_LEVEL
 from .config import DefaultConfig, UserConfig
 from .pulseaudio import APPS_TITLE, APPS_HEADER
 
@@ -57,18 +62,31 @@ class FilterDebug:
         if record.levelno != logging.DEBUG:
             return True
 
-def setup_logging(options, loglevel='warning'):
+def setup_logging(options):
 
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
     options_loglevel = options.get('loglevel')
-    loglevel = options_loglevel if options_loglevel else 'error'
-    stream_hdler = logging.StreamHandler()
-    stream_hdler.setLevel(getattr(logging, loglevel.upper()))
-    formatter = logging.Formatter(fmt='%(name)-7s %(levelname)-7s %(message)s')
-    stream_hdler.setFormatter(formatter)
-    root.addHandler(stream_hdler)
+    options_systemd = options.get('systemd')
+    if options_systemd and systemd_module is not None:
+        handler = journal.JournalHandler(SYSLOG_IDENTIFIER='pa-dlna')
+        formatter = logging.Formatter(fmt='%(name)-7s %(message)s')
+    else:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+                            fmt='%(name)-7s %(levelname)-7s'' %(message)s')
+
+    # For systemd, the default is to log ERROR, WARNING messages and the few
+    # messages that are entered at a log level above INFO.
+    if options_systemd and not options_loglevel:
+        handler.setLevel(SYSTEMD_LOG_LEVEL)
+    else:
+        loglevel = options_loglevel if options_loglevel else 'info'
+        handler.setLevel(getattr(logging, loglevel.upper()))
+
+    handler.setFormatter(formatter)
+    root.addHandler(handler)
 
     if options['nolog_upnp']:
         logging.getLogger('upnp').addFilter(FilterDebug())
@@ -213,10 +231,12 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
                             ' associations between client applications and'
                             ' their DLNA device uuid'
                             )
-        parser.add_argument('--loglevel', '-l', default='info',
+        parser.add_argument('--loglevel', '-l',
                             choices=('debug', 'info', 'warning', 'error'),
                             help='set the log level of the stderr logging'
-                            ' console (default: %(default)s)')
+                            ' console (default: info)')
+        parser.add_argument('--systemd', action='store_true',
+                            help='run as a systemd service unit')
     parser.add_argument('--logfile', '-f', metavar='PATH',
                         help='add a file logging handler set at '
                         "'debug' log level whose path name is PATH")
@@ -299,6 +319,11 @@ def padlna_main(clazz, doc, argv=sys.argv):
     # Parse the arguments.
     options, logfile_hdler = parse_args(doc, pa_dlna, argv[1:])
 
+    systemd = options.get('systemd')
+    if systemd and systemd_module is None:
+        raise RuntimeError('Cannot import the systemd module, the'
+                           " 'python-systemd' package is missing")
+
     # Instantiate the UPnPApplication.
     if pa_dlna:
         # Get the encoders configuration.
@@ -307,7 +332,7 @@ def padlna_main(clazz, doc, argv=sys.argv):
                 DefaultConfig().write(sys.stdout)
                 sys.exit(0)
 
-            config = UserConfig()
+            config = UserConfig(systemd=systemd)
             if options['dump_internal']:
                 config.print_internal_config()
                 sys.exit(0)
@@ -319,22 +344,30 @@ def padlna_main(clazz, doc, argv=sys.argv):
         app = clazz(**options)
 
     # Run the UPnPApplication instance.
-    logger.info(f'Start {app}')
+    loglevel = SYSTEMD_LOG_LEVEL if systemd else logging.INFO
+    logger.log(loglevel, f'Starting {app}')
     exit_code = 1
     try:
         if pa_dlna:
-            fd = sys.stdin.fileno()
-            restore_termios = disable_xonxoff(fd)
-            if restore_termios is not None:
-                atexit.register(restore_termios)
-            exit_code = asyncio.run(app.run_control_point())
+            try:
+                if systemd:
+                    daemon.notify('READY=1')
+                else:
+                    fd = sys.stdin.fileno()
+                    restore_termios = disable_xonxoff(fd)
+                    if restore_termios is not None:
+                        atexit.register(restore_termios)
+                exit_code = asyncio.run(app.run_control_point())
+            finally:
+                if systemd:
+                    daemon.notify('STOPPING=1')
         else:
             # Run the control point of upnp-cmd in a thread.
             event = threading.Event()
             cp_thread = run_in_thread(app.run_control_point(event))
             exit_code = app.run(cp_thread, event)
     finally:
-        logger.info(f'End of {app}')
+        logger.log(loglevel, f'End of {app}')
         if logfile_hdler is not None:
             logfile_hdler.flush()
         logging.shutdown()

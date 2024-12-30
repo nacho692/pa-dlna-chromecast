@@ -7,6 +7,7 @@ import textwrap
 import logging
 from configparser import ConfigParser, ParsingError
 
+from . import SYSTEMD_LOG_LEVEL
 from . import encoders as encoders_module
 
 logger = logging.getLogger('config')
@@ -176,7 +177,7 @@ class UserConfig(DefaultConfig):
     'pa-dlna.conf' file. Only the encoders selected by the user are listed.
     """
 
-    def __init__(self):
+    def __init__(self, systemd=False):
         super().__init__()
         assert self.parser is not None
         self.udns = {}
@@ -190,7 +191,9 @@ class UserConfig(DefaultConfig):
             pass
         else:
             with fileobject:
-                logger.info(f'Using encoders configuration at {user_config}')
+                loglevel = SYSTEMD_LOG_LEVEL if systemd else logging.INFO
+                logger.log(loglevel,
+                           f'Using encoders configuration at {user_config}')
                 self.parser.read_file(fileobject)
 
         self.build_dictionaries()

@@ -17,6 +17,7 @@ pa-dlna
    default-config
    upnp-cmd
    pa-dlna
+   systemd
    development
    history
    Repository <https://gitlab.com/xdegaye/pa-dlna>

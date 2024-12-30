@@ -1,8 +1,29 @@
+# When enabled, the pa-dlna service unit is started automatically after the
+# pulseaudio or pipewire service unit is started. It will also stop when the
+# pulseaudio or pipewire service unit stops. However it will stop when the
+# pulseaudio or pipewire service unit is restarted but it will not start.
+#
+# Both pa-dlna and pulseaudio service units are of 'Type=notify'. This means
+# that pa-dlna will only start after pulseaudio has notified systemd that it
+# is ready and pa-dlna may connect successfully to libpulse.
+#
+# However the pipewire service unit is of 'Type=simple'. In that case and if
+# pa-dlna fails to start with the error:
+#       LibPulseStateError(('PA_CONTEXT_FAILED', 'Connection refused'))
+# add a delay to the pa-dlna start up sequence with the directive:
+#       ExecStartPre=/bin/sleep 1
+#
+# Any pa-dlna option may be added to the 'ExecStart' directive, for example to
+# restrict the allowed NICs or IP addresses (recommended) or to change the
+# log level.
+# The '--systemd' option is required.
+#
+# The 'python-systemd' package is required.
+
 [Unit]
 Description=Pa-dlna Service
 Documentation=https://pa-dlna.readthedocs.io/en/stable/
 
-Wants=pipewire-session-manager.service pulseaudio.service
 After=pipewire-session-manager.service pulseaudio.service
 
 [Service]
@@ -10,13 +31,8 @@ Type=notify
 ExecStart=/usr/bin/pa-dlna --systemd
 Slice=session.slice
 
-Restart=on-success
-RestartSec=10
-RestartMaxDelaySec=120
-RestartSteps=12
-
 NoNewPrivileges=yes
 UMask=0077
 
 [Install]
-WantedBy=default.target
+WantedBy=pipewire-session-manager.service pulseaudio.service
