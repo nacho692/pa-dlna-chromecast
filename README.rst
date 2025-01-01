@@ -54,6 +54,12 @@ pipewire-pulse. If not, then the package that owns ``parec`` must be
 installed. On archlinux the package name is ``libpulse``, on debian it is
 `pulseaudio-utils`_.
 
+systemd
+"""""""
+
+The `python-systemd`_ package is required to run the pa-dlna systemd service
+unit.
+
 Encoders
 """"""""
 
@@ -134,6 +140,7 @@ See the `configuration`_ section of the pa-dlna documentation.
 .. _pipewire-pulse: https://docs.pipewire.org/page_man_pipewire_pulse_1.html
 .. _libpulse: https://pypi.org/project/libpulse/
 .. _pa-dlna command: https://pa-dlna.readthedocs.io/en/stable/pa-dlna.html
+.. _python-systemd: https://www.freedesktop.org/software/systemd/python-systemd/
 
 .. [#] When using PipeWire with the Wireplumber session manager, ``pa-dlna``
        must be started before the audio streams that are routed to DLNA

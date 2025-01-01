@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.15
+  - Add the pa-dlna systemd service unit.
   - Fix L16Encoder failing to set the correct mime type when the ``ProtocolInfo
     <contentFormat>`` entry is simply ``audio/L16`` without the rate parameter
     (issue #36).

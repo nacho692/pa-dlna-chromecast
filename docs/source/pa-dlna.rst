@@ -83,6 +83,10 @@ Options
 
    Set the log level of the stderr logging console (default: info).
 
+.. option:: --systemd
+
+   Run as a systemd service unit.
+
 .. option::  --logfile PATH, -f PATH
 
    Add a file logging handler set at ``debug`` log level whose path name is PATH.
