@@ -132,7 +132,9 @@ class Renderer:
     async def close(self):
         if not self.closing:
             self.closing = True
-            logger.info(f'Close {self.name} renderer')
+            level = (SYSTEMD_LOG_LEVEL if self.control_point.systemd else
+                                                                logging.INFO)
+            logger.log(level, f'Closing {self.name} renderer')
 
             # Close the root device and all of its renderers.
             await self.renderers_list.close()
@@ -477,9 +479,11 @@ class Renderer:
             if not await self.select_encoder(self.upnp_device.UDN):
                 return
             self.set_current_uri()
-            logger.info(f'New {self.name} renderer with {self.encoder}'
-                        f" handling '{self.mime_type}'"
-                        f'{NL_INDENT}URL: {self.current_uri}')
+            level = (SYSTEMD_LOG_LEVEL if self.control_point.systemd else
+                                                                logging.INFO)
+            logger.log(level, f'New {self.name} renderer with {self.encoder}'
+                              f" handling '{self.mime_type}'")
+            logger.info(f'{NL_INDENT}URL: {self.current_uri}')
 
             # Handle the case where pa-dlna is started after streaming has
             # started (no pulse event).

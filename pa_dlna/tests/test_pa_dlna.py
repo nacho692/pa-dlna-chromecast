@@ -56,7 +56,7 @@ async def wait_for(awaitable, timeout=2):
 def get_control_point(sink_inputs):
     upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
     control_point = AVControlPoint(nics=['lo'], port=8080, clients_uuids=None,
-                                   applications=None)
+                                   applications=None, systemd=False)
     control_point.upnp_control_point = upnp_control_point
 
     # LibPulse must be instantiated after the call to the
@@ -379,7 +379,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile("Got 'byebye' notification")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('Close RootDevice_mp3')))
+                re.compile('Closing RootDevice_mp3')))
         self.assertTrue(search_in_logs(logs.output, 'pulse',
                 re.compile('Unload null-sink module RootDevice_mp3')))
 
@@ -423,7 +423,7 @@ class PulseEventContext:
         # Build the renderer.
         upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
         control_point = AVControlPoint(clients_uuids=clients_uuids,
-                                       applications=applications)
+                                    applications=applications, systemd=False)
         control_point.pulse = pulseaudio.Pulse(control_point)
         LibPulse.add_sink_inputs([])
         control_point.pulse.lib_pulse = LibPulse('pa-dlna')

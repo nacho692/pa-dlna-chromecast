@@ -6,7 +6,9 @@ import logging
 __version__ = '0.14.post10'
 MIN_PYTHON_VERSION = (3, 8)
 MIN_LIBPULSE_VERSION = '0.5'
-SYSTEMD_LOG_LEVEL = logging.INFO + 5
+
+# Systemd log level set between WARNING and ERROR.
+SYSTEMD_LOG_LEVEL = logging.WARNING + 5
 
 _version = sys.version_info[:2]
 if _version < MIN_PYTHON_VERSION:

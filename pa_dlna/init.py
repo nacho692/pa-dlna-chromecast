@@ -71,14 +71,12 @@ def setup_logging(options):
     options_systemd = options.get('systemd')
     if options_systemd and systemd_module is not None:
         handler = journal.JournalHandler(SYSLOG_IDENTIFIER='pa-dlna')
-        formatter = logging.Formatter(fmt='%(name)-7s %(message)s')
+        formatter = logging.Formatter(fmt='%(message)s')
     else:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
-                            fmt='%(name)-7s %(levelname)-7s'' %(message)s')
+                            fmt='%(name)-7s %(levelname)-7s %(message)s')
 
-    # For systemd, the default is to log ERROR, WARNING messages and the few
-    # messages that are entered at a log level above INFO.
     if options_systemd and not options_loglevel:
         handler.setLevel(SYSTEMD_LOG_LEVEL)
     else:
