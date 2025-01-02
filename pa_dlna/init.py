@@ -62,12 +62,11 @@ class FilterDebug:
         if record.levelno != logging.DEBUG:
             return True
 
-def setup_logging(options):
+def setup_logging(options, default_loglevel):
 
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
-    options_loglevel = options.get('loglevel')
     options_systemd = options.get('systemd')
     if options_systemd and systemd_module is not None:
         handler = journal.JournalHandler(SYSLOG_IDENTIFIER='pa-dlna')
@@ -77,10 +76,11 @@ def setup_logging(options):
         formatter = logging.Formatter(
                             fmt='%(name)-7s %(levelname)-7s %(message)s')
 
+    options_loglevel = options.get('loglevel')
     if options_systemd and not options_loglevel:
         handler.setLevel(SYSTEMD_LOG_LEVEL)
     else:
-        loglevel = options_loglevel if options_loglevel else 'info'
+        loglevel = options_loglevel if options_loglevel else default_loglevel
         handler.setLevel(getattr(logging, loglevel.upper()))
 
     handler.setFormatter(formatter)
@@ -264,7 +264,8 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
     if dump_default or dump_internal:
         return options, None
 
-    logfile_hdler = setup_logging(options)
+    default_loglevel = 'info' if pa_dlna else 'error'
+    logfile_hdler = setup_logging(options, default_loglevel)
     if options['logfile'] is not None and logfile_hdler is None:
         logging.shutdown()
         sys.exit(2)
