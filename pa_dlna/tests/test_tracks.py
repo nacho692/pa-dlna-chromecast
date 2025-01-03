@@ -80,6 +80,7 @@ async def create_config_home(encoder, sink_name):
 
         yield tmpdirname
 
+@asynccontextmanager
 async def run_control_point(config_home, loglevel):
     async def cp_connected():
         # Wait for the connection to LibPulse.
@@ -104,9 +105,11 @@ async def run_control_point(config_home, loglevel):
         os.environ.update(_environ)
 
     try:
-        return await asyncio.wait_for(cp_connected(), 5)
+        yield await asyncio.wait_for(cp_connected(), 5)
     except TimeoutError:
         raise TrackRuntimeError('Cannot connect to libpulse') from None
+    finally:
+        await cp.close()
 
 async def proc_terminate(proc, signal=None, timeout=0.2):
     async def _terminate(funcname, delay):
@@ -273,7 +276,7 @@ class UpmpdcliMpd:
         renderer = None
         while renderer is None:
             for rndrer in self.control_point.renderers():
-                if rndrer.name.startswith('UpMPD-'):
+                if rndrer.name.startswith('UpMpd-'):
                     renderer = rndrer
                     break
             await asyncio.sleep(0)
@@ -329,8 +332,9 @@ class UpmpdcliMpd:
             config_home = await self.exit_stack.enter_async_context(
                                     create_config_home(self.encoder,
                                                        self.mpd_sink_name))
-            self.control_point = await run_control_point(config_home,
-                                                            self.loglevel)
+            self.control_point = await self.exit_stack.enter_async_context(
+                                    run_control_point(config_home,
+                                                        self.loglevel))
             # Add the signal handlers (overridding the AVControlPoint
             # signal handlers).
             end_event = asyncio.Event()

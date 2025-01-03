@@ -74,6 +74,14 @@ def normalize_xml(xml):
         lines.append(line)
     return ''.join(lines)
 
+def shorten_udn(udn):
+    span = 5
+    start = udn.find(':') + 1
+    if start != len('uuid:'):
+        return udn[:13]
+
+    return udn[start:start+span] + '...' + udn[len(udn)-span:]
+
 # Classes.
 class MetaData(namedtuple('MetaData', ['publisher', 'artist', 'title'])):
     def __str__(self):
@@ -110,9 +118,9 @@ class Renderer:
         self.renderers_list = renderers_list
         self.root_device = renderers_list.root_device
 
-        udn_tail = upnp_device.UDN[-5:]
-        self.name = f'{self.getattr("modelName")}-{udn_tail}'
-        self.description = f'{self.getattr("friendlyName")} - {udn_tail}'
+        self.description = (f'{self.getattr("friendlyName")} - '
+                            f'{shorten_udn(upnp_device.UDN)}')
+        self.name = self.description
         self.root_device_name = (f'{self.root_device.modelName}-'
                                  f'{self.root_device.udn[-5:]}')
         self.curtask = None             # Renderer.run() task
@@ -134,7 +142,7 @@ class Renderer:
             self.closing = True
             level = (SYSTEMD_LOG_LEVEL if self.control_point.systemd else
                                                                 logging.INFO)
-            logger.log(level, f'Closing {self.name} renderer')
+            logger.log(level, f"Closing '{self.name}' renderer")
 
             # Close the root device and all of its renderers.
             await self.renderers_list.close()
@@ -481,7 +489,7 @@ class Renderer:
             self.set_current_uri()
             level = (SYSTEMD_LOG_LEVEL if self.control_point.systemd else
                                                                 logging.INFO)
-            logger.log(level, f'New {self.name} renderer with {self.encoder}'
+            logger.log(level, f"New '{self.name}' renderer with {self.encoder}"
                               f" handling '{self.mime_type}'")
             logger.info(f'{NL_INDENT}URL: {self.current_uri}')
 

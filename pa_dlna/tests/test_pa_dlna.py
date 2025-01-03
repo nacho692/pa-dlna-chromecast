@@ -200,7 +200,7 @@ class DLNAControlPoint(PaDlnaTestCase):
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                    re.compile(r"Got exception closing DLNATest_\S+"
+                    re.compile(r"Got exception closing DLNATest_\S+ - \S+"
                                fr" OSError\('foo'\)")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                                        re.compile(r'Close \S+ root device')))
@@ -246,7 +246,7 @@ class DLNARenderer(PaDlnaTestCase):
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna', "OSError('foo')"),
                         msg=_logs)  # Print the logs if the assertion fails.
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                    re.compile('New DLNATest_.* renderer with Mp3Encoder')))
+                    re.compile("New 'DLNATest_.*' renderer with Mp3Encoder")))
 
     async def test_unknown_encoder(self):
         async def handle_pulse_event(renderer):
@@ -337,7 +337,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         renderer = list(self.control_point.root_devices.values())[0][0]
         self.assertEqual(renderer.root_device, root_device)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('New RootDevice_mp3.* renderer with Mp3Encoder')))
+                re.compile("New 'RootDevice_mp3.*' renderer with Mp3Encoder")))
 
     async def test_missing_deviceType(self):
         root_device = RootDevice(self.upnp_control_point, device_type=None)
@@ -379,7 +379,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile("Got 'byebye' notification")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('Closing RootDevice_mp3')))
+                re.compile("Closing 'RootDevice_mp3 - \S+'")))
         self.assertTrue(search_in_logs(logs.output, 'pulse',
                 re.compile('Unload null-sink module RootDevice_mp3')))
 
