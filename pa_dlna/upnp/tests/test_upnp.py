@@ -421,29 +421,36 @@ class RootDevice(IsolatedAsyncioTestCase):
                 {'errorCode': '401', 'errorDescription': 'Invalid Action'})
 
     async def test_icons(self):
-        icons = """<iconList>
-                     <icon>
-                       <mimetype>image/jpeg</mimetype>
-                       <width>48</width>
-                       <height>48</height>
-                       <depth>24</depth>
-                       <url>/Icons/48x48.jpg</url>
-                     </icon>
-                   </iconList>"""
+        # Testing a valid iconList and an invalid one.
+        for element in ('',
+                        '<id>0</id>'):
+            with self.subTest(element=element):
+                icons = f"""<iconList>
+                             <icon>
+                               {element}
+                               <mimetype>image/jpeg</mimetype>
+                               <width>48</width>
+                               <height>48</height>
+                               <depth>24</depth>
+                               <url>/Icons/48x48.jpg</url>
+                             </icon>
+                           </iconList>"""
 
-        with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
-            # Make the UPnPRootDevice._run() coroutine terminate.
-            age.side_effect = [None]
-            await start_http_server(icons=icons)
-            await self.root_device._run()
+                with mock.patch.object(
+                        self.root_device, '_age_root_device') as age,\
+                        self.assertLogs(level=logging.DEBUG) as m_logs:
+                    # Make the UPnPRootDevice._run() coroutine terminate.
+                    age.side_effect = [None]
+                    task = await start_http_server(icons=icons)
+                    await self.root_device._run()
+                    task.cancel()
 
-        self.assertEqual(self.root_device.iconList[0]._asdict(),
-                         {'mimetype': 'image/jpeg',
-                          'width': '48',
-                          'height': '48',
-                          'depth': '24'
-                          , 'url': '/Icons/48x48.jpg'})
+                self.assertEqual(self.root_device.iconList[0]._asdict(),
+                                 {'mimetype': 'image/jpeg',
+                                  'width': '48',
+                                  'height': '48',
+                                  'depth': '24'
+                                  , 'url': '/Icons/48x48.jpg'})
 
     async def test_icons_namespace(self):
         icons = """<iconList>

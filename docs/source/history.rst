@@ -2,6 +2,7 @@ Release history
 ===============
 
 Version 0.15
+  - Ignore invalid subelements in ``Icons`` (issue #40).
   - Use ``friendlyName``, the name displayed by pavucontrol, as Renderer's name.
   - Add the pa-dlna systemd service unit.
   - Fix L16Encoder failing to set the correct mime type when the ``ProtocolInfo

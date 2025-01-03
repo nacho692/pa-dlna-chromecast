@@ -275,7 +275,9 @@ class UPnPDevice(UPnPElement):
                 raise UPnPXMLError(f"Found '{element.tag}' instead"
                                    f" of '{namespace!r}icon'")
 
-            d = findall_childless(element, namespace)
+            d = dict((k, val) for (k, val) in
+                            findall_childless(element, namespace).items() if
+                            k in ICON_ELEMENTS)
             if all(d.get(tag) for tag in ICON_ELEMENTS):
                 self.iconList.append(Icon(**d))
             else:
