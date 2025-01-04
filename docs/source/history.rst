@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.15
+  - The ``Transfer-Encoding`` HTTP 1.1 header in response to HTTP 1.0 GET
+    requests is not supported (issue #47).
   - Ignore invalid subelements in ``Icons`` (issue #40).
   - Use ``friendlyName``, the name displayed by pavucontrol, as Renderer's name.
   - Add the pa-dlna systemd service unit.

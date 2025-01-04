@@ -50,7 +50,8 @@ snicstats = namedtuple('snicstats', ['isup'])
 NICS_STAT = {'lo': snicstats(True)}
 
 class HTTPServer:
-    def __init__(self, body, content_length=None, start_line=None):
+    def __init__(self, body, content_length=None, transfer_encoding=None,
+                 start_line=None):
         self.body = body.encode()
         self.body_length = len(self.body)
 
@@ -58,6 +59,8 @@ class HTTPServer:
                   start_line]
         if content_length is not None:
             header.append(f'Content-Length: {content_length}')
+        if transfer_encoding is not None:
+            header.append(f'Transfer-Encoding: {transfer_encoding}')
         header.extend(['', ''])
         self.header = '\r\n'.join(header).encode('latin-1')
 
@@ -315,10 +318,12 @@ class SSDP_http(IsolatedAsyncioTestCase):
     """Http test cases."""
 
     @staticmethod
-    async def _loopback_get(body, content_length=None, start_line=None):
+    async def _loopback_get(body, content_length=None, transfer_encoding=None,
+                            start_line=None):
         """Start the http server and send the query."""
 
-        http_server = HTTPServer(body, content_length, start_line)
+        http_server = HTTPServer(body, content_length, transfer_encoding,
+                                                                start_line)
         asyncio.create_task(http_server.run())
         await http_server.startup
         return await asyncio.wait_for(http_get(URL), 1)
@@ -374,6 +379,15 @@ class SSDP_http(IsolatedAsyncioTestCase):
                                                      start_line=start_line)
 
         self.assertIn(start_line, cm.exception.args[0])
+
+    async def test_transfer_encoding(self):
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            body = 'Some content.'
+            received_body = await self._loopback_get(body,
+                                                transfer_encoding='chunked')
+
+        self.assertTrue(search_in_logs(m_logs.output, 'network',
+                            re.compile(r"not support.*'Transfer-Encoding'")))
 
     async def test_http_soap(self):
         body = 'soap response'

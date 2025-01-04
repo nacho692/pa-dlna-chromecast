@@ -242,6 +242,11 @@ async def http_query(method, url, header='', body=''):
             raise UPnPInvalidHttpError(f'Empty http header from {host}')
 
         header_dict = http_header_as_dict(header[1:])
+        if header_dict.get('TRANSFER-ENCODING') is not None:
+            logger.error(
+                "HTTP 1.0 does not support the 'Transfer-Encoding' header")
+            return header, b'', host
+
         content_length = header_dict.get('CONTENT-LENGTH')
         if content_length is not None:
             content_length = int(content_length)

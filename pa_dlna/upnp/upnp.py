@@ -462,6 +462,8 @@ class UPnPRootDevice(UPnPDevice):
         try:
             description = await http_get(self.location)
             description = description.decode()
+            if not description:
+                raise UPnPError(f"The 'description' of {self} is empty")
 
             # Find the 'URLBase' subelement (UPnP version 1.1).
             root, namespace = upnp_org_etree(description)
