@@ -46,15 +46,17 @@ async def create_config_home(encoder, sink_name):
 
     with tempfile.TemporaryDirectory(dir='.') as tmpdirname:
         # Create the minimum set of mpd files.
-        dirpath = pathlib.Path(tmpdirname) / 'mpd'
-        dirpath.mkdir()
-        state_path = dirpath / 'state'
+        config_home = pathlib.Path(tmpdirname).absolute()
+        mpd_path = config_home / 'mpd'
+
+        mpd_path.mkdir()
+        state_path = mpd_path / 'state'
         with open(state_path, 'w'):
             pass
-        sticker_path = dirpath / 'sticker.sql'
+        sticker_path = mpd_path / 'sticker.sql'
         with open(sticker_path, 'w'):
             pass
-        mpd_conf = dirpath / 'mpd.conf'
+        mpd_conf = mpd_path / 'mpd.conf'
         with open(mpd_conf, 'w') as f:
             f.write(dedent(f'''\
                         state_file      "{state_path}"
@@ -68,9 +70,9 @@ async def create_config_home(encoder, sink_name):
                         '''))
 
         # Create the pa-dlna configuration file.
-        dirpath = pathlib.Path(tmpdirname) / 'pa-dlna'
-        dirpath.mkdir()
-        pa_dlna_conf = dirpath / 'pa-dlna.conf'
+        padlna_path = config_home / 'pa-dlna'
+        padlna_path.mkdir()
+        pa_dlna_conf = padlna_path / 'pa-dlna.conf'
         with open(pa_dlna_conf, 'w') as f:
             f.write(dedent(f'''\
                         [DEFAULT]
@@ -78,7 +80,7 @@ async def create_config_home(encoder, sink_name):
                             {encoder},
             '''))
 
-        yield tmpdirname
+        yield str(config_home)
 
 @asynccontextmanager
 async def run_control_point(config_home, loglevel):
