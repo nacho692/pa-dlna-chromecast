@@ -422,9 +422,11 @@ class RootDevice(IsolatedAsyncioTestCase):
 
     async def test_icons(self):
         # Testing a valid iconList and an invalid one.
-        for element in ('',
-                        '<id>0</id>'):
+        for element in ('', '<id>0</id>'):
             with self.subTest(element=element):
+                # Reset self.root_device on each iteration.
+                self.setUp()
+
                 icons = f"""<iconList>
                              <icon>
                                {element}
@@ -503,31 +505,42 @@ class RootDevice(IsolatedAsyncioTestCase):
         # module.
         root_device_udn = 'uuid:ffffffff-ffff-ffff-ffff-ffffffffffff'
         udn = 'uuid:embedded-ffff-ffff-ffff-ffffffffffff'
-        devices = f"""<deviceList>
-                        <device>
-                          <deviceType>{device_type}</deviceType>
-                          <UDN>{udn}</UDN>
-                          <friendlyName>{device_name}</friendlyName>
-                        </device>
-                      </deviceList>"""
 
-        with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
-            # Make the UPnPRootDevice._run() coroutine terminate.
-            age.side_effect = [None]
-            await start_http_server(devices=devices)
-            await self.root_device._run()
+        # Testing a valid deviceList and xml namespaces with same prefix
+        # within the same scope.
+        for nested in ('',
+                       '<X_Rhapsody-Extension xmlns="http://www.real.com"/>'):
+            with self.subTest(nested=nested):
+                # Reset self.root_device on each iteration.
+                self.setUp()
 
-        embedded = self.root_device.deviceList[0]
-        self.assertEqual(embedded.friendlyName, device_name)
+                devices = f"""<deviceList>
+                                <device>
+                                  <deviceType>{device_type}</deviceType>
+                                  <UDN>{udn}</UDN>
+                                  <friendlyName>{device_name}</friendlyName>
+                                  {nested}
+                                </device>
+                              </deviceList>"""
 
-        self.assertEqual(embedded.UDN, udn)
-        self.assertTrue(not hasattr(embedded, 'udn'))
-        self.assertEqual(self.root_device.UDN, root_device_udn)
+                with mock.patch.object(self.root_device, '_age_root_device') as age,\
+                        self.assertLogs(level=logging.DEBUG) as m_logs:
+                    # Make the UPnPRootDevice._run() coroutine terminate.
+                    age.side_effect = [None]
+                    task = await start_http_server(devices=devices)
+                    await self.root_device._run()
+                    task.cancel()
 
-        all_devices = list(
-                    UPnPDevice.embedded_devices_generator(self.root_device))
-        self.assertEqual(all_devices, [self.root_device, embedded])
+                embedded = self.root_device.deviceList[0]
+                self.assertEqual(embedded.friendlyName, device_name)
+
+                self.assertEqual(embedded.UDN, udn)
+                self.assertTrue(not hasattr(embedded, 'udn'))
+                self.assertEqual(self.root_device.UDN, root_device_udn)
+
+                all_devices = list(
+                            UPnPDevice.embedded_devices_generator(self.root_device))
+                self.assertEqual(all_devices, [self.root_device, embedded])
 
     async def test_empty_device_list(self):
         empty_list = '<deviceList></deviceList>'

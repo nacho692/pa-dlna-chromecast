@@ -28,7 +28,7 @@ class UPnPXMLError(UPnPError): pass
 # XML helper functions.
 @functools_cache
 def namespace_as_dict(xml):
-    return dict(elem for (event, elem) in ET.iterparse(
+    return dict(reversed(elem) for (event, elem) in ET.iterparse(
             io.StringIO(xml), events=['start-ns']))
 
 def upnp_org_etree(xml):
@@ -210,7 +210,7 @@ class UPnPNamespace:
         """The first namespace in 'xml' starting with 'prefix'."""
 
         ns = namespace_as_dict(xml)
-        for uri in ns.values():
+        for uri in ns:
             if uri.startswith(prefix):
                 self.uri = uri
                 return
