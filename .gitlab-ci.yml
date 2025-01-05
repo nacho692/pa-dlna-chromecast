@@ -81,5 +81,12 @@ py312:
     script:
         - *pulseaudio
         - *unittest-scripts
+
+py313:
+    image: python:3.13
+    stage: test
+    script:
+        - *pulseaudio
+        - *unittest-scripts
         - *coverage-scripts
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'
