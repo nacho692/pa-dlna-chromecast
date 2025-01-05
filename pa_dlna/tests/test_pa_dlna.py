@@ -379,7 +379,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile("Got 'byebye' notification")))
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile("Closing 'RootDevice_mp3 - \S+'")))
+                re.compile(r"Closing 'RootDevice_mp3 - \S+'")))
         self.assertTrue(search_in_logs(logs.output, 'pulse',
                 re.compile('Unload null-sink module RootDevice_mp3')))
 
