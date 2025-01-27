@@ -5,6 +5,7 @@ import socket
 import struct
 import time
 import re
+import io
 import logging
 import urllib.parse
 import psutil
@@ -33,6 +34,19 @@ MSEARCH = '\r\n'.join([
         f'',
         f'',
         ])
+
+# Chunked transfer encoding.
+HTTP_CHUNK_SIZE = 512
+SEP = b'\r\n'
+CHUNK_EXT = b';'
+HEXDIGITS = re.compile(b'[0-9a-fA-F]+')
+
+class ChunkState:
+    PARSE_CHUNKED_SIZE = 0
+    PARSE_CHUNKED_CHUNK = 1
+    PARSE_CHUNKED_CHUNK_EOF = 2
+    PARSE_MAYBE_TRAILERS = 3
+    PARSE_TRAILERS = 4
 
 class UPnPInvalidSsdpError(UPnPError): pass
 class UPnPInvalidHttpError(UPnPError): pass
@@ -204,6 +218,123 @@ async def send_mcast(ip, port, ttl=2, coro=msearch):
         # Needed when OSError is raised upon binding the socket.
         sock.close()
 
+def trim_bytes_to_string(source, size=80):
+    text = source.decode("ascii", "surrogateescape")
+    trailer = '...' if len(text) > size else ''
+    return text[:size] + trailer
+
+async def parse_chunked_body(reader, url='', http_chunk_size=HTTP_CHUNK_SIZE):
+    """Parse a chunked encoding body.
+
+    This is mostly code from aiohttp.htt_parser.HttpPayloadParser after fixing
+    issue https://github.com/aio-libs/aiohttp/issues/10355.
+    """
+
+    state = ChunkState.PARSE_CHUNKED_SIZE
+    chunk_size = 0
+    chunk_tail = b''
+    body = io.BytesIO()
+
+    # RFC 2616 https://datatracker.ietf.org/doc/html/rfc2616#section-3.6.1.
+    while True:
+        chunk = await reader.read(http_chunk_size)
+        if chunk == b'':
+            if state not in (ChunkState.PARSE_MAYBE_TRAILERS,
+                             ChunkState.PARSE_TRAILERS):
+                logger.warning(f"Missing last-chunk from '{url}'")
+            if chunk_tail:
+                tail = trim_bytes_to_string(chunk_tail)
+                logger.warning(f'Trailing chunk from {url}: {tail}')
+            break
+
+        if chunk_tail:
+            chunk = chunk_tail + chunk
+            chunk_tail = b''
+
+        while chunk:
+
+            # Read next chunk size.
+            if state == ChunkState.PARSE_CHUNKED_SIZE:
+                pos = chunk.find(SEP)
+                if pos >= 0:
+                    # Strip chunk-extensions.
+                    i = chunk.find(CHUNK_EXT, 0, pos)
+                    size_b = chunk[:i] if i >= 0 else chunk[:pos]
+                    size_b = size_b.strip()
+
+                    if not re.fullmatch(HEXDIGITS, size_b):
+                        size = trim_bytes_to_string(chunk[:pos])
+                        raise UPnPInvalidHttpError(
+                                    f'Not a chunk size: {size!r} from {url}')
+                    size = int(size_b, 16)
+
+                    chunk = chunk[pos+len(SEP):]
+                    if size == 0:
+                        state = ChunkState.PARSE_MAYBE_TRAILERS
+                    else:
+                        state = ChunkState.PARSE_CHUNKED_CHUNK
+                        chunk_size = size
+                else:
+                    chunk_tail = chunk
+                    break
+
+            # Read the chunk.
+            if state == ChunkState.PARSE_CHUNKED_CHUNK:
+                required = chunk_size
+                chunk_size = max(required - len(chunk), 0)
+                body.write(chunk[:required])
+
+                if chunk_size:
+                    break
+                chunk = chunk[required:]
+                state = ChunkState.PARSE_CHUNKED_CHUNK_EOF
+
+            # Toss the CRLF at the end of the chunk.
+            if state == ChunkState.PARSE_CHUNKED_CHUNK_EOF:
+                if chunk[:len(SEP)] == SEP:
+                    state = ChunkState.PARSE_CHUNKED_SIZE
+                    chunk = chunk[len(SEP):]
+                else:
+                    length = len(chunk)
+                    if length and chunk[0] != SEP[0] or length > 1:
+                        chunk = trim_bytes_to_string(chunk)
+                        raise UPnPInvalidHttpError(
+                            f'Missing CRLF at chunk end: {chunk!r} from {url}')
+                    # Get the CRLF or the missing LF in the next chunk.
+                    chunk_tail = chunk
+                    break
+
+            # If stream does not contain trailer, after 0\r\n
+            # we should get another \r\n otherwise
+            # trailers needs to be skipped until \r\n\r\n.
+            if state == ChunkState.PARSE_MAYBE_TRAILERS:
+                head = chunk[:len(SEP)]
+                if head == SEP:
+                    # End of stream.
+                    break
+                # Both CR and LF, or only LF may not be received yet. It is
+                # expected that CRLF or LF will be shown at the very first
+                # byte next time, otherwise trailers should come. The last
+                # CRLF which marks the end of response might not be
+                # contained in the same TCP segment which delivered the
+                # size indicator.
+                if not head or head == SEP[0]:
+                    chunk_tail = head
+                    break
+                state = ChunkState.PARSE_TRAILERS
+
+            # Read and discard trailer up to the CRLF terminator
+            if state == ChunkState.PARSE_TRAILERS:
+                pos = chunk.find(SEP)
+                if pos >= 0:
+                    chunk = chunk[pos+len(SEP):]
+                    state = ChunkState.PARSE_MAYBE_TRAILERS
+                else:
+                    chunk_tail = chunk
+                    break
+
+    return body.getvalue()
+
 async def http_query(method, url, header='', body=''):
     """An HTTP 1.0 GET or POST request."""
 
@@ -242,9 +373,14 @@ async def http_query(method, url, header='', body=''):
             raise UPnPInvalidHttpError(f'Empty http header from {host}')
 
         header_dict = http_header_as_dict(header[1:])
-        if header_dict.get('TRANSFER-ENCODING') is not None:
-            logger.error(
-                "HTTP 1.0 does not support the 'Transfer-Encoding' header")
+        transfer_encoding = header_dict.get('TRANSFER-ENCODING')
+        if transfer_encoding is not None:
+            if transfer_encoding.lower() == 'chunked':
+                body = await parse_chunked_body(reader, url=url)
+                return header, body, host
+            else:
+                logger.error(f"HTTP 1.0 does not support '{transfer_encoding}'"
+                             f" Transfer-Encoding")
             return header, b'', host
 
         content_length = header_dict.get('CONTENT-LENGTH')

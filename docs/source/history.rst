@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 0.16
+  - **[Sonos]** Accept HTTP 1.1 chunked encoding response to pa-dlna HTTP 1.0
+    requests.
+
 Version 0.15
   - The ``Transfer-Encoding`` HTTP 1.1 header in response to HTTP 1.0 GET
     requests is not supported (issue #47).
@@ -23,8 +27,8 @@ Version 0.14
   - pa-dlna versioning conforms to PEP 440.
   - Exit with an error message when the ``libpulse`` version is older than the
     required one. The required libpulse version is currently ``0.5``.
-  - Fix cannot play on ``upmpdcli`` tracks whose metadata includes the ``&``
-    character (issue #30).
+  - **[Upmpdcli]** Fix cannot play on ``upmpdcli`` tracks whose metadata
+    includes the ``&`` character (issue #30).
   - Add the ``--clients-uuids`` command line option that may be used as a work
     around to Wireplumber issue 511 (issue #15).
 
