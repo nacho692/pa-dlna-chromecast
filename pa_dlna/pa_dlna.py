@@ -32,6 +32,7 @@ IGNORED_SOAPFAULTS = {'701': 'Transition not available',
 # Maximum time before starting a new session while waiting for the second
 # pulse event.
 NEW_SESSION_MAX_DELAY = 1
+ISSUE_48_TIMER = 2
 
 def get_udn(data):
     """Build an UPnP udn."""
@@ -283,11 +284,10 @@ class Renderer:
                         await self.set_nextavtransporturi(action, state)
                     return
                 elif action == 'Stop':
-                    # Do not use the corresponding soap action. Let the
-                    # HTTP 1.1 chunked transfer encoding handles the closing
-                    # of the stream.
-                    log_action(self.name, 'Closing-Stop', state)
-                    await self.stream_sessions.close_session()
+                    index = self.get_sink_input_index()
+                    self.stream_sessions.stream_tasks.create_task(
+                                            self.maybe_stop(index, state),
+                                            name=f'maybe_stop {self.name}')
                     return
             elif isinstance(action, MetaData):
                 await self.set_avtransporturi(action, state)
@@ -295,9 +295,10 @@ class Renderer:
                 await self.play()
                 return
         except UPnPSoapFaultError as e:
-            error_code = e.args[0].errorCode
-            if error_code in IGNORED_SOAPFAULTS:
-                error_msg = IGNORED_SOAPFAULTS[error_code]
+            arg = e.args[0]
+            if (hasattr(arg, 'errorCode') and
+                    arg.errorCode in IGNORED_SOAPFAULTS):
+                error_msg = IGNORED_SOAPFAULTS[arg.errorCode]
                 logger.warning(f"Ignoring SOAP error '{error_msg}'")
             else:
                 raise
@@ -331,7 +332,6 @@ class Renderer:
                 if event == 'exit':
                     self.exit_metadata = self.sink_input_meta(
                                                     self.nullsink.sink_input)
-                self.nullsink.sink_input = None
                 await self.handle_action('Stop')
             return
 
@@ -387,6 +387,9 @@ class Renderer:
         otherwise an instance of the upnp.xml.SoapFault namedtuple defined by
         field names in ('errorCode', 'errorDescription').
         """
+
+        if self.upnp_device.closed:
+            raise UPnPSoapFaultError('UPnPRootDevice is closed')
 
         service = self.upnp_device.serviceList[serviceId]
         return await service.soap_action(action, args, log_debug=False)
@@ -472,6 +475,39 @@ class Renderer:
     async def stop(self):
         args = {'InstanceID': 0}
         await self.soap_action(AVTRANSPORT, 'Stop', args)
+
+    def get_sink_input_index(self):
+        if (self.nullsink is not None and
+                    self.nullsink.sink_input is not None):
+            return self.nullsink.sink_input.index
+
+    @log_unhandled_exception(logger)
+    async def maybe_stop(self, index, state):
+        # Work around for issue #48:
+        #   KDE music players trigger (randomly) 'remove' events upon track
+        #   changes.
+        await asyncio.sleep(ISSUE_48_TIMER)
+
+        cur_index = self.get_sink_input_index()
+        if cur_index is not None and cur_index != index:
+            # A new track is being played.
+            # Ignore the 'remove' event.
+            self.log_pulse_event('remove ignored', self.nullsink.sink_input)
+            return
+
+        self.nullsink.sink_input = None
+
+        # Let the HTTP 1.1 chunked transfer encoding handles the closing of
+        # the stream.
+        log_action(self.name, 'Closing-Stop', state)
+        await self.stream_sessions.close_session()
+
+        # Not really necessary.
+        log_action(self.name, 'Stop', state)
+        try:
+            await self.stop()
+        except UPnPSoapFaultError:
+            pass
 
     def set_current_uri(self):
         self.current_uri = (f'http://{self.root_device.local_ipaddress}'

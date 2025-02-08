@@ -2,6 +2,9 @@ Release history
 ===============
 
 Version 0.16
+  - KDE music players (Juk, Elisa, Strawberry) misbehave by sending ``remove``
+    pulse events just before switching to a next track. A work-around to this
+    problem using a timer is implemented that discards those events (issue #48).
   - **[Sonos]** Accept HTTP 1.1 chunked encoding response to pa-dlna HTTP 1.0
     requests.
 

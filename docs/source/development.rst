@@ -65,6 +65,7 @@ device.
                           |br| Handle UPnP notifications.
 
     pulse                 Monitor pulseaudio sink-input events.
+    *maybe_stop*          Handle a ``remove`` pulse event.
     *http_server*         Serve DLNA HTTP requests, one task per IP address.
                           |br| Start the client_connected tasks.
     **renderers**         Act upon pulseaudio events.

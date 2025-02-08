@@ -463,6 +463,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
 
     async def patch_soap_action(self, event, ctx, transport_state='STOPPED',
                                 track_metadata=True,
+                                timeout=0,
                                 soap_minimum_interval=None):
         async def soap_action(renderer, serviceId, action, args={}):
             if action == 'GetProtocolInfo':
@@ -491,6 +492,10 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
                                                  ctx.sink_input))
             await renderer.handle_pulse_event()
 
+            # Sleep to get the last 'Stop' SOAP action.
+            if timeout:
+                await asyncio.sleep(timeout)
+
         return result, m_logs
 
     async def test_remove_event(self):
@@ -500,10 +505,12 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
         self.assertEqual(ctx.sink_input, None)
 
-        result, logs = await self.patch_soap_action('remove', ctx,
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0):
+            result, logs = await self.patch_soap_action('remove', ctx,
+                                                    timeout=0.2,
                                                     transport_state='PLAYING')
 
-        self.assertEqual(len(result), 0)
+        self.assertEqual(len(result), 1)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
             re.compile(f"'remove' pulse event .* index {index}")))
@@ -511,13 +518,38 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             re.compile(
                 "'Closing-Stop' UPnP action .* device prev state: PLAYING")))
 
+    async def test_ignore_remove_event(self):
+        index = 999
+        ctx = PulseEventContext(prev_sink_input_index=index)
+        self.assertEqual(ctx.sink, None)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
+        self.assertEqual(ctx.sink_input, None)
+
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0.01),\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            result, logs = await self.patch_soap_action('remove', ctx,
+                                                    transport_state='PLAYING')
+            ctx.renderer.nullsink.sink_input.index = 1000
+            await asyncio.sleep(0.5)
+
+        logs = logs.output + m_logs.output
+        self.assertEqual(len(result), 0)
+        self.assertTrue(search_in_logs(logs, 'pa-dlna',
+            re.compile(f"'remove' pulse event .* index {index}")))
+        self.assertTrue(search_in_logs(logs, 'pa-dlna',
+            re.compile(
+                "'remove ignored' .* index 1000")))
+
     async def test_exit_metadata(self):
         ctx = PulseEventContext(prev_sink_input_index=0)
         self.assertEqual(ctx.sink, None)
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
         self.assertEqual(ctx.sink_input, None)
 
-        await self.patch_soap_action('exit', ctx, transport_state='PLAYING')
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0):
+            await self.patch_soap_action('exit', ctx,
+                                                timeout=0.2,
+                                                transport_state='PLAYING')
         self.assertTrue(ctx.renderer.exit_metadata is not None)
 
         ctx.sink = Sink()

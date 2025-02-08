@@ -321,7 +321,9 @@ class UpmpdcliMpd:
         # Stop the stream.
         await proc_terminate(track_proc)
 
-        timeout = 5
+        # The timeout value depends on ISSUE_48_TIMER value.
+        # It has been increased by ISSUE_48_TIMER after the issue #48 fix.
+        timeout = 7
         try:
             await asyncio.wait_for(http_transfer_end(self.renderer), timeout)
         except TimeoutError:
