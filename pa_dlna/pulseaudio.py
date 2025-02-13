@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from libpulse.libpulse import (LibPulse, PA_SUBSCRIPTION_MASK_SINK_INPUT,
-                               LibPulseStateError)
+                               LibPulseStateError, LibPulseOperationError)
 from .upnp.util import NL_INDENT, log_unhandled_exception
 
 logger = logging.getLogger('pulse')
@@ -278,10 +278,13 @@ class Pulse:
             logger.exception(f'Error writing {path}: {e!r}')
 
     async def get_client(self, sink_input):
-        if sink_input is None:
-            return
-        return await self.lib_pulse.pa_context_get_client_info(
+        if sink_input is not None:
+            try:
+                return await self.lib_pulse.pa_context_get_client_info(
                                                         sink_input.client)
+            except LibPulseOperationError as e:
+                logger.warning(
+                        f'Got exception at pulseaudio.get_client(): {e!r}')
 
     async def move_sink_input(self, sink_input, sink):
         await self.lib_pulse.pa_context_move_sink_input_by_index(

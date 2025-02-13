@@ -48,6 +48,7 @@ def use_libpulse_stubs(modules):
 class LibPulseError(Exception): pass
 class LibPulseClosedError(LibPulseError): pass
 class LibPulseStateError(LibPulseError): pass
+class LibPulseOperationError(LibPulseError): pass
 
 class Event:
     def __init__(self, event, proplist={'media.role': 'music'}):
