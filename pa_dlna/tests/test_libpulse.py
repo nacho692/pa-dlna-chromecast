@@ -52,8 +52,8 @@ class LibPulseTests(IsolatedAsyncioTestCase):
             # Get the list of the current clients.
             lp = self.pulse.lib_pulse
             clients = await lp.pa_context_get_client_info_list()
-            logger.debug(f'clients {dict((client.name, client.index) for
-                                                        client in clients)}')
+            logger.debug(f'clients '
+                         f'{dict((cl.name, cl.index) for cl in clients)}')
 
             # Find the last client index.
             max_index = 0
