@@ -11,7 +11,10 @@ from textwrap import dedent
 from signal import SIGINT, SIGTERM
 from contextlib import asynccontextmanager, AsyncExitStack
 from unittest import IsolatedAsyncioTestCase
-from libpulse import libpulse
+try:
+    from libpulse import libpulse
+except ImportError:
+    libpulse = None
 
 from . import requires_resources
 from ..init import parse_args
@@ -30,13 +33,14 @@ DEFAULT_ENCODER = 'L16Encoder'
 TRACK_16 = pathlib.Path(__file__).parent / 'gs-16b-1c-44100hz.mp3'
 
 # Map values to their name.
-SINK_STATES = dict((eval(f'libpulse.{state}'), state) for state in
-                  ('PA_SINK_IDLE',
-                   'PA_SINK_INIT',
-                   'PA_SINK_INVALID_STATE',
-                   'PA_SINK_RUNNING',
-                   'PA_SINK_SUSPENDED',
-                   'PA_SINK_UNLINKED'))
+if libpulse is not None:
+    SINK_STATES = dict((eval(f'libpulse.{state}'), state) for state in
+                            ('PA_SINK_IDLE',
+                             'PA_SINK_INIT',
+                             'PA_SINK_INVALID_STATE',
+                             'PA_SINK_RUNNING',
+                             'PA_SINK_SUSPENDED',
+                             'PA_SINK_UNLINKED'))
 
 class TrackRuntimeError(Exception): pass
 
