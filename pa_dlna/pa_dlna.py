@@ -538,7 +538,9 @@ class Renderer:
             if sink_input is None:
                 sink_input = await pulse.find_sink_input(self.upnp_device.UDN)
                 if sink_input is not None:
-                    await pulse.move_sink_input(sink_input, self.nullsink.sink)
+                    # 'sink_input' is None if move_sink_input() fails.
+                    sink_input = await pulse.move_sink_input(
+                                            sink_input, self.nullsink.sink)
 
             if sink_input is not None:
                 logger.info(f"Streaming '{sink_input.name}' on {self.name}")

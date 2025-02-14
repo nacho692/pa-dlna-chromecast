@@ -7,7 +7,11 @@ import collections.abc
 from unittest import mock
 
 from . import skip_loop_iterations
-from libpulse.libpulse import PA_SUBSCRIPTION_MASK_SINK_INPUT
+
+# The following values are right but only needed to have the pulseaudio module
+# import the current module as a stub.
+PA_SUBSCRIPTION_MASK_SINK_INPUT = 4
+PA_OPERATION_RUNNING = 0
 
 SKIP_LOOP_ITERATIONS = 30
 

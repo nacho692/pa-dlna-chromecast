@@ -14,8 +14,13 @@ from ..pulseaudio import Pulse
 logger = logging.getLogger('libpulse tests')
 
 class SinkInput:
-    def __init__(self, client):
+    def __init__(self, index=None, client=None):
+        self.index = index
         self.client = client
+
+class Sink:
+    def __init__(self, index):
+        self.index = index
 
 class ControlPoint:
     def __init__(self):
@@ -47,25 +52,42 @@ class LibPulseTests(IsolatedAsyncioTestCase):
         # Terminate the self.pulse.run() asyncio task.
         self.control_point.test_end.set_result(True)
 
+    async def get_invalid_index(self, pulse_object):
+        # Get the list of the current 'pulse_object'.
+        list_method = getattr(self.pulse.lib_pulse,
+                              f'pa_context_get_{pulse_object}_info_list')
+        members = await list_method()
+        logger.debug(f'{pulse_object}s '
+                         f'{dict((el.name, el.index) for el in members)}')
+
+        # Find the last pulse_object index.
+        indexes = [member.index for member in members]
+        max_index = max(indexes) if indexes else 0
+        logger.debug(f'max_index: {max_index}')
+
+        return max_index + 10
+
     async def test_get_client(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            # Get the list of the current clients.
-            lp = self.pulse.lib_pulse
-            clients = await lp.pa_context_get_client_info_list()
-            logger.debug(f'clients '
-                         f'{dict((cl.name, cl.index) for cl in clients)}')
-
-            # Find the last client index.
-            max_index = 0
-            indexes = [client.index for client in clients]
-            if indexes:
-                max_index = max(indexes)
-            logger.debug(f'max_index: {max_index}')
+            invalid_index = await self.get_invalid_index('client')
 
             # Use an invalid client index.
-            sink_input = SinkInput(max_index + 10)
+            sink_input = SinkInput(client=invalid_index)
             client = await self.pulse.get_client(sink_input)
             self.assertEqual(client, None)
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
                                     re.compile(r'LibPulseOperationError')))
+
+    async def test_move_sink_input(self):
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            invalid_index = await self.get_invalid_index('sink_input')
+
+            # Use an invalid sink_input index.
+            sink_input = SinkInput(index=invalid_index)
+            sink = Sink(0)
+            sink_input = await self.pulse.move_sink_input(sink_input, sink)
+            self.assertEqual(sink_input, None)
+
+        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
+                                   re.compile(r'PA_OPERATION_RUNNING')))
