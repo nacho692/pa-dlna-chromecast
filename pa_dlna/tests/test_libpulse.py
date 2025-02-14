@@ -3,13 +3,14 @@
 import asyncio
 import logging
 import re
+import uuid
 from unittest import IsolatedAsyncioTestCase
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
 from . import requires_resources, search_in_logs
-from ..pulseaudio import Pulse
+from ..pulseaudio import Pulse, NullSink
 
 logger = logging.getLogger('libpulse tests')
 
@@ -19,8 +20,13 @@ class SinkInput:
         self.client = client
 
 class Sink:
-    def __init__(self, index):
+    def __init__(self, index=None, name=None):
         self.index = index
+        self.name = name
+
+class Renderer:
+    def __init__(self, sink):
+        self.nullsink = NullSink(sink)
 
 class ControlPoint:
     def __init__(self):
@@ -85,9 +91,28 @@ class LibPulseTests(IsolatedAsyncioTestCase):
 
             # Use an invalid sink_input index.
             sink_input = SinkInput(index=invalid_index)
-            sink = Sink(0)
+            sink = Sink(index=0)
             sink_input = await self.pulse.move_sink_input(sink_input, sink)
             self.assertEqual(sink_input, None)
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
                                    re.compile(r'PA_OPERATION_RUNNING')))
+
+    async def test_get_renderer_sink(self):
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            # Use an invalid sink name.
+            sinks = await self.pulse.lib_pulse.pa_context_get_sink_info_list()
+            names = [sink.name for sink in sinks]
+            while True:
+                name = str(uuid.uuid4())
+                if name not in names:
+                    break
+            logger.debug(f'Sink name: {name}')
+
+            sink = Sink(name=name)
+            renderer = Renderer(sink)
+            sink = await self.pulse.get_renderer_sink(renderer)
+            self.assertEqual(sink, None)
+
+        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
+                                    re.compile(r'LibPulseOperationError')))

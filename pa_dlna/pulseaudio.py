@@ -65,7 +65,7 @@ class Pulse:
             logger.info('Close pulse')
             await self.av_control_point.close()
 
-    async def get_sink(self, renderer, module_index, module_name):
+    async def get_sink_by_module(self, renderer, module_index, module_name):
         """Get the sink matching a renderer from 'module_index'."""
 
         for sink in await self.lib_pulse.pa_context_get_sink_info_list():
@@ -108,7 +108,8 @@ class Pulse:
         # Return the NullSink instance.
         exception = None
         try:
-            sink = await self.get_sink(renderer, module_index, module_name)
+            sink = await self.get_sink_by_module(renderer, module_index,
+                                                                module_name)
             if sink:
                 return NullSink(sink)
         except Exception as e:
@@ -136,6 +137,15 @@ class Pulse:
             if sink_input.sink == renderer.nullsink.sink.index:
                 return sink_input
         return None
+
+    async def get_renderer_sink(self, renderer):
+        if renderer is not None and renderer.nullsink.sink is not None:
+            try:
+                return await self.lib_pulse.pa_context_get_sink_info_by_name(
+                                                renderer.nullsink.sink.name)
+            except LibPulseOperationError as e:
+                logger.warning(
+                    f'Got exception at pulseaudio.get_renderer_sink(): {e!r}')
 
     def is_ignored_event(self, sink_input, event):
         index = event.index
@@ -228,8 +238,8 @@ class Pulse:
 
             # 'renderer.nullsink.sink' is the stale sink from the previous
             # event, we need to fetch the 'sink' correponding to this event.
-            sink = await self.lib_pulse.pa_context_get_sink_info_by_name(
-                                                renderer.nullsink.sink.name)
+            sink = await self.get_renderer_sink(renderer)
+
             if sink is not None:
                 if (self.is_ignored_event(sink_input, event) and
                         event.type not in ('new', 'remove')):
