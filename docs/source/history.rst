@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.16
+  - Fix music player on KDE randomly raises exception while switching to next
+    track (issue #49).
   - KDE music players (Juk, Elisa, Strawberry) misbehave by sending ``remove``
     pulse events just before switching to a next track. A work-around to this
     problem using a timer is implemented that discards those events (issue #48).
