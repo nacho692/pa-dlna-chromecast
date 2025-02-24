@@ -31,7 +31,7 @@ def conf_py_setup():
 conf_py_setup()
 
 project = 'pa-dlna'
-copyright = '2024, Xavier de Gaye'
+copyright = '2025, Xavier de Gaye'
 author = ''
 
 # The short X.Y version

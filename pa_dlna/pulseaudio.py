@@ -5,8 +5,8 @@ import logging
 from pathlib import Path
 
 from libpulse.libpulse import (LibPulse, PA_SUBSCRIPTION_MASK_SINK_INPUT,
-                               LibPulseStateError, LibPulseOperationError,
-                               PA_OPERATION_RUNNING)
+                               LibPulseError, LibPulseOperationError,
+                               PA_INVALID_INDEX)
 from .upnp.util import NL_INDENT, log_unhandled_exception
 
 logger = logging.getLogger('pulse')
@@ -101,26 +101,23 @@ class Pulse:
         _description = renderer.description.replace(' ', r'\ ')
 
         module_index = await self.lib_pulse.pa_context_load_module(
-            'module-null-sink',
-            f'sink_name="{module_name}" '
-            f'sink_properties=device.description=' f'"{_description}"')
+                'module-null-sink',
+                f'sink_name="{module_name}" '
+                f'sink_properties=device.description=' f'"{_description}"')
 
-        # Return the NullSink instance.
-        exception = None
-        try:
-            sink = await self.get_sink_by_module(renderer, module_index,
+        if module_index == PA_INVALID_INDEX:
+            logger.error(f'Failed loading {module_name} pulseaudio module')
+            return None
+
+        sink = await self.get_sink_by_module(renderer, module_index,
                                                                 module_name)
-            if sink:
-                return NullSink(sink)
-        except Exception as e:
-            exception = e
+        if sink is None:
+            await self.lib_pulse.pa_context_unload_module(module_index)
+            logger.error(
+                f'Failed getting sink of {module_name} pulseaudio module')
+            return None
 
-        await self.lib_pulse.pa_context_unload_module(module_index)
-        logger.error(
-            f'Failed loading {module_name} pulseaudio module')
-        if exception:
-            raise exception
-        return None
+        return NullSink(sink)
 
     async def unregister(self, nullsink):
         if self.lib_pulse is None:
@@ -299,15 +296,9 @@ class Pulse:
 
     async def move_sink_input(self, sink_input, sink):
         try:
-            res = await self.lib_pulse.pa_context_move_sink_input_by_index(
+            await self.lib_pulse.pa_context_move_sink_input_by_index(
                                                 sink_input.index, sink.index)
-
-            # libpulse 0.6 does not handle PA_OPERATION_RUNNING as an error.
-            if res == PA_OPERATION_RUNNING:
-                raise LibPulseOperationError('PA_OPERATION_RUNNING')
-
             return sink_input
-
         except LibPulseOperationError as e:
             logger.warning(
                     f'Got exception at pulseaudio.move_sink_input(): {e!r}')
@@ -353,7 +344,7 @@ class Pulse:
                 if test_end is not None:
                     await test_end
 
-        except LibPulseStateError as e:
+        except LibPulseError as e:
             logger.error(f'{e!r}')
         finally:
             self.write_applications()

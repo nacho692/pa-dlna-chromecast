@@ -11,7 +11,7 @@ from . import skip_loop_iterations
 # The following values are right but only needed to have the pulseaudio module
 # import the current module as a stub.
 PA_SUBSCRIPTION_MASK_SINK_INPUT = 4
-PA_OPERATION_RUNNING = 0
+PA_INVALID_INDEX = -1
 
 SKIP_LOOP_ITERATIONS = 30
 
@@ -210,7 +210,7 @@ class LibPulse():
     def raise_once(self):
         if self.do_raise_once:
             LibPulse.do_raise_once = False
-            raise LibPulseError
+            raise LibPulseStateError
 
     async def __aenter__(self):
         return self

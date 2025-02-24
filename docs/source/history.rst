@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 0.16
+  - The required libpulse version is now ``0.7`` after the `error handling
+    changes`_ made in the libpulse release.
   - Fix music player on KDE randomly raises exception while switching to next
     track (issue #49).
   - KDE music players (Juk, Elisa, Strawberry) misbehave by sending ``remove``
@@ -159,6 +161,9 @@ Version 0.2
 
 Version 0.1
   - Publish the project on PyPi.
+
+.. _`error handling changes`:
+   https://libpulse.readthedocs.io/en/stable/history.html
 
 .. rubric:: Footnotes
 

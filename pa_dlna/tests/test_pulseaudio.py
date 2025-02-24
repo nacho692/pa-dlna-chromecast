@@ -13,7 +13,8 @@ from . import load_ordered_tests as load_tests
 from . import find_in_logs, search_in_logs
 from .streams import pulseaudio, pa_dlna
 from .libpulse import (SinkInput, Event, LibPulseClosedError, LibPulse,
-                       LibPulseError, PA_SUBSCRIPTION_MASK_SINK_INPUT)
+                       LibPulseError, PA_SUBSCRIPTION_MASK_SINK_INPUT,
+                       PA_INVALID_INDEX)
 from ..pa_dlna import ControlPointAbortError
 
 class Renderer(pa_dlna.DLNATestDevice):
@@ -181,7 +182,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
             await self.pulse.run()
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                    re.compile(r'function Pulse.run\(\):\n * LibPulseError')))
+                    re.compile(r'LibPulseStateError()')))
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_disconnected(self):
@@ -192,7 +193,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
             await self.pulse.run()
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-            re.compile(r'function Pulse.run\(\):\n *LibPulseClosedError')))
+            re.compile(r'LibPulseClosedError')))
         self.assertTrue(find_in_logs(m_logs.output, 'pulse', 'Close pulse'))
 
     async def test_register(self):
@@ -209,7 +210,21 @@ class Pulseaudio(IsolatedAsyncioTestCase):
                                     re.compile('Load null-sink module'
                                     ' DLNATest_mp3-uuid:.*\n.*description=')))
 
-    async def test_register_failure(self):
+    async def test_bad_register(self):
+        renderer = Renderer(self.control_point, 'audio/mp3')
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            LibPulse.add_sink_inputs([])
+            async with LibPulse('pa-dlna') as self.pulse.lib_pulse:
+                with mock.patch.object(self.pulse.lib_pulse,
+                                       'pa_context_load_module') as load:
+                    load.side_effect = [PA_INVALID_INDEX]
+                    sink = await self.pulse.register(renderer)
+                self.assertTrue(sink is None)
+
+        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
+                            re.compile('Failed loading DLNATest_mp3-uuid:')))
+
+    async def test_bad_get_sink_by_module(self):
         renderer = Renderer(self.control_point, 'audio/mp3')
         with self.assertLogs(level=logging.DEBUG) as m_logs:
             LibPulse.add_sink_inputs([])
@@ -220,7 +235,7 @@ class Pulseaudio(IsolatedAsyncioTestCase):
                     await self.pulse.register(renderer)
 
         self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                             re.compile('Failed loading DLNATest_mp3-uuid:')))
+                    re.compile('Failed getting sink of DLNATest_mp3-uuid:')))
 
     async def test_register_twice(self):
         renderer = Renderer(self.control_point, 'audio/mp3')
