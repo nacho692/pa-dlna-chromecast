@@ -47,6 +47,7 @@ import asyncio
 import sys
 import logging
 import time
+import re
 import collections
 import urllib.parse
 from ipaddress import IPv4Interface, IPv4Address
@@ -66,6 +67,7 @@ logger = logging.getLogger('upnp')
 QUEUE_CLOSED = ('closed', None)
 ICON_ELEMENTS = ('mimetype', 'width', 'height', 'depth', 'url')
 SERVICEID_PREFIX = 'urn:upnp-org:serviceId:'
+RE_MAX_AGE = re.compile(r'\s*max-age\s*=\s*(\d+)')
 
 class UPnPClosedControlPointError(UPnPError): pass
 class UPnPClosedDeviceError(UPnPError): pass
@@ -638,10 +640,10 @@ class UPnPControlPoint:
         max_age = None
         cache = header.get('CACHE-CONTROL')
         if cache is not None:
-            age = 'max-age='
-            try:
-                max_age = int(cache[cache.index(age)+len(age):])
-            except ValueError:
+            match = RE_MAX_AGE.match(cache)
+            if match is not None:
+                max_age = int(match.group(1))
+            else:
                 logger.warning(
                     f'Invalid CACHE-CONTROL field in'
                     f' SSDP notify from {peer_ipaddress}:\n{header}')

@@ -1,6 +1,9 @@
 Release history
 ===============
 
+  - Ignore spaces in the ``max-age`` setting of the ``CACHE-CONTROL`` field of
+    SSDP_NOTIFY datagrams (issue #50).
+
 Version 0.16
   - The required libpulse version is now ``0.7`` after the `error handling
     changes`_ made in the libpulse release.

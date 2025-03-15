@@ -204,6 +204,20 @@ class ControlPoint(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
             re.compile(f'Invalid CACHE-CONTROL field.*\n.*max-age={max_age}')))
 
+    async def test_issue_50(self):
+        ssdp_params = { 'url': URL,
+                        'max_age': '1800',
+                        'nts': 'NTS: ssdp:alive',
+                        'udn': UDN
+                       }
+        ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
+        ssdp_alive = ssdp_alive.replace('max-age=', 'max-age = ')
+        with self.assertLogs(level=logging.DEBUG) as m_logs:
+            await self._run_until_patch([ssdp_alive, SSDP_ALIVE,])
+
+        self.assertFalse(search_in_logs(m_logs.output, 'upnp',
+            re.compile(f'Invalid CACHE-CONTROL field')))
+
     async def test_refresh(self):
         ssdp_params = { 'url': URL,
                         'nts': 'NTS: ssdp:alive',
