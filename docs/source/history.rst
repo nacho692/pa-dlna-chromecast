@@ -1,6 +1,7 @@
 Release history
 ===============
 
+Version 1.0
   - Ignore spaces in the ``max-age`` setting of the ``CACHE-CONTROL`` field of
     SSDP_NOTIFY datagrams (issue #50).
 
