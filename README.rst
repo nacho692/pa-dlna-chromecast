@@ -58,7 +58,10 @@ systemd
 """""""
 
 The `python-systemd`_ package is required to run the pa-dlna systemd service
-unit.
+unit. It is packaged by almost all Linux distributions but under different
+names. To install the package from a Linux distribution or from PYPi, see the
+``Installation section`` on the main page of the `python-systemd git
+repository`_.
 
 Encoders
 """"""""
@@ -131,7 +134,7 @@ See the `configuration`_ section of the pa-dlna documentation.
 .. _stable documentation: https://pa-dlna.readthedocs.io/en/stable/
 .. _latest documentation: https://pa-dlna.readthedocs.io/en/latest/
 .. _psutil: https://pypi.org/project/psutil/
-.. _ConnectionManager:3 Service:
+.. _`ConnectionManager:3 Service`:
         http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf
 .. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html
 .. _flac: https://xiph.org/flac/
@@ -141,6 +144,7 @@ See the `configuration`_ section of the pa-dlna documentation.
 .. _libpulse: https://pypi.org/project/libpulse/
 .. _pa-dlna command: https://pa-dlna.readthedocs.io/en/stable/pa-dlna.html
 .. _python-systemd: https://www.freedesktop.org/software/systemd/python-systemd/
+.. _python-systemd git repository: https://github.com/systemd/python-systemd
 
 .. [#] When using PipeWire with the Wireplumber session manager, ``pa-dlna``
        must be started before the audio streams that are routed to DLNA
