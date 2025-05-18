@@ -224,7 +224,12 @@ class Argv(BaseTestCase):
                 redirect_stderr(io.StringIO()) as output,\
                 self.assertRaises(SystemExit) as cm:
 
-            f.write('[foo\n')
+            # emacs hideshow folding is confused by the open bracket.
+            # The hexadecimel ascii value of the open bracket is 5b.
+            # So instead of writing directly '[foo\n', we use a bytes object.
+            x = b'\x5bfoo\n'
+            f.write(x.decode())
+
             f.flush()
             options, _ = parse_args(self.__doc__,
                                     argv=['--clients-uuids', f.name])
