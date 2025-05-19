@@ -20,7 +20,7 @@ from unittest import mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, BaseTestCase
+from . import requires_resources, BaseTestCase, setUpModule
 from ..init import parse_args, padlna_main, UPnPApplication, disable_xonxoff
 from ..encoders import Encoder
 from ..config import user_config_pathname
@@ -103,7 +103,7 @@ class Init(BaseTestCase):
         with self.assertRaises(SystemExit) as cm:
             require_libpulse_version(min_version)
         self.assertRegex(cm.exception.args[0],
-                    f"Error: libpulse version '{min_version}' .* required")
+                    f"libpulse version '{min_version}' .* required")
 
 @requires_resources('os.devnull')
 class Argv(BaseTestCase):

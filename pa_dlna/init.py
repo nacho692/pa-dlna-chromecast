@@ -30,7 +30,7 @@ logger = logging.getLogger('init')
 def require_libpulse_version(version):
     from libpulse.libpulse import __version__ as libpulse_version
     if libpulse_version.startswith('v') or libpulse_version < version:
-        sys.exit(f"Error: libpulse version '{version}' or more recent"
+        sys.exit(f"Error:\nThe libpulse version '{version}' or more recent"
                  f" is required.\n"
                  f"The libpulse installed version is '{libpulse_version}'.")
 
@@ -287,6 +287,7 @@ class CaseConfigParser(configparser.ConfigParser):
         return optionstr
 
 class ControlPointAbortError(Exception): pass
+
 class UPnPApplication:
     """An UPnP application."""
 

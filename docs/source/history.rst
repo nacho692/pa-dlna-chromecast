@@ -1,6 +1,10 @@
 Release history
 ===============
 
+Version 1.1
+  - A run of the test suite aborts and prints a clear error message when the
+    ``libpulse`` version in use is invalid (issue #52).
+
 Version 1.0
   - Ignore spaces in the ``max-age`` setting of the ``CACHE-CONTROL`` field of
     SSDP_NOTIFY datagrams (issue #50).

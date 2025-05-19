@@ -16,7 +16,7 @@ try:
 except ImportError:
     libpulse = None
 
-from . import requires_resources
+from . import requires_resources, setUpModule
 from ..init import parse_args
 from ..config import UserConfig
 from ..pa_dlna import AVControlPoint
