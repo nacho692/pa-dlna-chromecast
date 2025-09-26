@@ -353,10 +353,16 @@ def padlna_main(clazz, doc, argv=sys.argv):
                 if systemd:
                     daemon.notify('READY=1')
                 else:
-                    fd = sys.stdin.fileno()
-                    restore_termios = disable_xonxoff(fd)
-                    if restore_termios is not None:
-                        atexit.register(restore_termios)
+                    try:
+                        fd = sys.stdin.fileno()
+                    except OSError as e:
+                        # 'stdin is pseudofile, has no fileno()' when run by
+                        # pytest
+                        pass
+                    else:
+                        restore_termios = disable_xonxoff(fd)
+                        if restore_termios is not None:
+                            atexit.register(restore_termios)
                 exit_code = asyncio.run(app.run_control_point())
             finally:
                 if systemd:

@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 1.1
+  - Fix the ``test_main`` failure and the warning about ``TestEncoder`` when the
+    test suite is run by ``pytest``.
   - A run of the test suite aborts and prints a clear error message when the
     ``libpulse`` version in use is invalid (issue #52).
 

@@ -16,7 +16,7 @@ UDN = 'uuid:ffffffff-ffff-ffff-ffff-ffffffffffff'
 
 class Encoder:
     def __init__(self):
-        self.selection = ['TestEncoder']
+        self.selection = ['SomeEncoder']
         self.args = None
         self.option = 1
 
@@ -33,7 +33,7 @@ class StandAloneEncoder(Encoder):
     def __init__(self):
         super().__init__()
 
-class TestEncoder(StandAloneEncoder):
+class SomeEncoder(StandAloneEncoder):
     def __init__(self):
         StandAloneEncoder.__init__(self)
 
@@ -41,9 +41,9 @@ class TestEncoder(StandAloneEncoder):
         self.args = f'command line: {self.option}'
 
 class encoders_module:
-    def __init__(self, root=Encoder, encoder=TestEncoder):
+    def __init__(self, root=Encoder, encoder=SomeEncoder):
         self.ROOT_ENCODER = root
-        self.TestEncoder = encoder
+        self.SomeEncoder = encoder
 
 @requires_resources('os.devnull')
 class DefaultConfig(BaseTestCase):
@@ -72,7 +72,7 @@ class UserConfigTests(BaseTestCase):
     def test_invalid_value(self):
         value = 'string'
         pa_dlna_conf = f"""
-        [TestEncoder]
+        [SomeEncoder]
           option = {value}
         """
 
@@ -84,12 +84,12 @@ class UserConfigTests(BaseTestCase):
             UserConfig()
 
         self.assertRegex(cm.exception.args[0],
-                         f"TestEncoder.option: invalid .*'{value}'")
+                         f"SomeEncoder.option: invalid .*'{value}'")
 
     def test_option_negative_value(self):
         value = -1
         pa_dlna_conf = f"""
-        [TestEncoder]
+        [SomeEncoder]
           option = {value}
         """
 
@@ -101,11 +101,11 @@ class UserConfigTests(BaseTestCase):
             UserConfig()
 
         self.assertRegex(cm.exception.args[0],
-                         f'TestEncoder.option: {value} is negative')
+                         f'SomeEncoder.option: {value} is negative')
 
     def test_invalid_option(self):
         pa_dlna_conf = """
-        [TestEncoder]
+        [SomeEncoder]
           invalid = 1
         """
 
@@ -117,7 +117,7 @@ class UserConfigTests(BaseTestCase):
             UserConfig()
 
         self.assertEqual(cm.exception.args[0],
-                         "Unknown option 'TestEncoder.invalid'")
+                         "Unknown option 'SomeEncoder.invalid'")
 
     def test_default_conf(self):
         with mock.patch('pa_dlna.config.encoders_module',
@@ -126,12 +126,12 @@ class UserConfigTests(BaseTestCase):
             m_open.side_effect = FileNotFoundError()
             cfg = UserConfig()
 
-        self.assertEqual(cfg.encoders['TestEncoder'].__dict__,
+        self.assertEqual(cfg.encoders['SomeEncoder'].__dict__,
                          {'args': 'command line: 1', 'option': 1})
 
     def test_user_conf(self):
         pa_dlna_conf = """
-        [TestEncoder]
+        [SomeEncoder]
           option = 2
         """
 
@@ -141,7 +141,7 @@ class UserConfigTests(BaseTestCase):
                     read_data=pa_dlna_conf)):
             cfg = UserConfig()
 
-        self.assertEqual(cfg.encoders['TestEncoder'].__dict__,
+        self.assertEqual(cfg.encoders['SomeEncoder'].__dict__,
                          {'args': 'command line: 2', 'option': 2})
 
     def test_customize_args_option(self):
@@ -246,7 +246,7 @@ class UserConfigTests(BaseTestCase):
 
     def test_invalid_section(self):
         pa_dlna_conf = """
-        [TestEncoder.]
+        [SomeEncoder.]
         """
 
         with mock.patch('pa_dlna.config.encoders_module',
@@ -257,7 +257,7 @@ class UserConfigTests(BaseTestCase):
             UserConfig()
 
         self.assertEqual(cm.exception.args[0],
-                         "'TestEncoder.' is not a valid section")
+                         "'SomeEncoder.' is not a valid section")
 
     def test_not_exists(self):
         pa_dlna_conf = """
@@ -294,7 +294,7 @@ class UserConfigTests(BaseTestCase):
 
     def test_udn_section(self):
         pa_dlna_conf = f"""
-        [TestEncoder.{UDN}]
+        [SomeEncoder.{UDN}]
         """
 
         with mock.patch('pa_dlna.config.encoders_module',
@@ -304,7 +304,7 @@ class UserConfigTests(BaseTestCase):
                 redirect_stdout(io.StringIO()) as output:
             UserConfig().print_internal_config()
 
-        self.assertIn(f"{{'{UDN}': {{'_encoder': 'TestEncoder'",
+        self.assertIn(f"{{'{UDN}': {{'_encoder': 'SomeEncoder'",
                       output.getvalue())
 
     def test_update_args_option(self):
