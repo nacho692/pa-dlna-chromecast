@@ -57,6 +57,7 @@ class Pulse:
         self.applications = av_control_point.applications
         self.closing = False
         self.lib_pulse = None
+        self.pa_dlna_clients_count = None
         self.sink_input_events = {}
 
     async def close(self):
@@ -321,10 +322,10 @@ class Pulse:
         try:
             async with LibPulse('pa-dlna') as self.lib_pulse:
                 # Only one instance of pa-dlna is allowed to run.
-                n = len([client for client in
+                self.pa_dlna_clients_count = len([client for client in
                         await self.lib_pulse.pa_context_get_client_info_list()
                                                 if client.name == 'pa-dlna'])
-                if n > 1:
+                if self.pa_dlna_clients_count > 1:
                     logger.warning(
                         'There is already one instance of pa-dlna running')
                     return
@@ -340,7 +341,7 @@ class Pulse:
                     await self.dispatch_event(event)
 
                 # Wait until end of test.
-                test_end = self.av_control_point.test_end
+                test_end = getattr(self.av_control_point, 'test_end', None)
                 if test_end is not None:
                     await test_end
 

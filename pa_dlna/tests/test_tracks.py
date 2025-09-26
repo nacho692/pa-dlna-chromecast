@@ -90,8 +90,10 @@ async def create_config_home(encoder, sink_name):
 async def run_control_point(config_home, loglevel):
     async def cp_connected():
         # Wait for the connection to LibPulse.
-        while cp.pulse is None or cp.pulse.lib_pulse is None:
+        while cp.pulse is None or cp.pulse.pa_dlna_clients_count is None:
             await asyncio.sleep(0)
+        if cp.pulse.pa_dlna_clients_count > 1:
+            raise TrackRuntimeError('a pa-dlna instance is already running')
         logger.debug('Connected to libpulse')
         return  cp
 
@@ -204,8 +206,9 @@ class UpmpdcliMpd:
     UpmpdcliMpd must be instantiated in an 'async with' statement.
     """
 
-    def __init__(self, encoder=DEFAULT_ENCODER, mpd_sink_name='MPD-sink',
-                                                            loglevel='error'):
+    def __init__(self, testcase, encoder=DEFAULT_ENCODER,
+                                mpd_sink_name='MPD-sink', loglevel='error'):
+        self.testcase = testcase
         self.encoder = encoder
         self.mpd_sink_name = mpd_sink_name
         self.loglevel = loglevel
@@ -377,7 +380,7 @@ class UpmpdcliMpd:
         except Exception as e:
             await self.exit_stack.aclose()
             if isinstance(e, TrackRuntimeError):
-                sys.exit(f'*** error: {e}')
+                self.testcase.skipTest(e)
             else:
                 raise
 
@@ -416,11 +419,11 @@ class PlayTracks(IsolatedAsyncioTestCase):
                 self.fail('The test has been cancelled')
 
     async def test_play_track_aac(self):
-        async with UpmpdcliMpd(encoder='FFMpegAacEncoder') as upmpdcli:
+        async with UpmpdcliMpd(self, encoder='FFMpegAacEncoder') as upmpdcli:
             await self.play_track(upmpdcli)
 
     async def test_play_track_l16(self):
-        async with UpmpdcliMpd(encoder='L16Encoder') as upmpdcli:
+        async with UpmpdcliMpd(self, encoder='L16Encoder') as upmpdcli:
             await self.play_track(upmpdcli)
 
 async def main():

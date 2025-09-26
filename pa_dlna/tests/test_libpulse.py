@@ -38,7 +38,7 @@ class ControlPoint:
         self.test_end = loop.create_future()
 
     async def close(self):
-        pass
+        self.start_event.set()
 
     async def dispatch_event(self, event):
         pass
@@ -53,6 +53,8 @@ class LibPulseTests(IsolatedAsyncioTestCase):
 
         # Wait for the connection to PulseAudio/Pipewire to be ready.
         await self.control_point.start_event.wait()
+        if self.pulse.closing:
+            self.skipTest('Cannot connect to libpulse')
 
     async def asyncTearDown(self):
         # Terminate the self.pulse.run() asyncio task.

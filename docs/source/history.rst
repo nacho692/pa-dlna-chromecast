@@ -2,6 +2,8 @@ Release history
 ===============
 
 Version 1.1
+  - Fix the ``test_libpulse`` deadlock in ``pytest`` when another pa-dlna
+    instance is already running. The corresponding test cases are skipped.
   - Fix the ``test_main`` failure and the warning about ``TestEncoder`` when the
     test suite is run by ``pytest``.
   - A run of the test suite aborts and prints a clear error message when the
