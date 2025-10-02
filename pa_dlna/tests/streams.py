@@ -226,10 +226,10 @@ class Renderer(pa_dlna.DLNATestDevice):
             self.encoder.command = [sys.executable, '-m',
                                     'pa_dlna.tests.encoder']
 
-    async def disable_for(self, *, period):
+    async def disable_root_device(self):
         pass
 
-    async def disable_root_device(self):
+    async def close(self):
         pass
 
 class ControlPoint(pa_dlna.AVControlPoint):

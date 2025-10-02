@@ -172,26 +172,6 @@ class Renderer:
         except AttributeError:
             return getattr(self.root_device, name)
 
-    async def disable_for(self, *, period):
-        """Disable the renderer for 'period' seconds."""
-
-        # Unload the null-sink module, sleep 'period' seconds and load a new
-        # module. During  the sleep period, the stream that was routed to this
-        # null-sink is routed to the default sink instead of being silently
-        # discarded by the null-sink. After loading the new null-sink module,
-        # the renderer receives a 'change' pulse event and starts a new stream
-        # session.
-        await self.pulse_unregister()
-
-        if period:
-            logger.info(f'Wait {period} seconds before'
-                        f' re-enabling {self.name}')
-            await asyncio.sleep(period)
-
-        if not await self.pulse_register():
-            logger.error(f'Cannot load new null-sink module for {self.name}')
-            await self.close()
-
     async def disable_root_device(self):
         """Close the renderer and disable its root device."""
 
@@ -558,13 +538,11 @@ class Renderer:
             test_end = self.control_point.test_end
             while test_end is None or not test_end.done():
                 await self.handle_pulse_event()
-            await self.close()
 
         except asyncio.CancelledError:
             pass
         except UPnPSoapFaultError as e:
             logger.error(f'{e!r}')
-            await self.disable_root_device()
         except (OSError, UPnPClosedDeviceError, ControlPointAbortError) as e:
             logger.error(f'{e!r}')
         except Exception:

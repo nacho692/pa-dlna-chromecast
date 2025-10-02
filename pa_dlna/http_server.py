@@ -69,11 +69,12 @@ class Track:
         self.writer = None
 
         try:
-            # Write the last chunk.
-            if not writer.is_closing():
-                writer.write('0\r\n\r\n'.encode())
-            await writer.drain()
             try:
+                # Write the last chunk.
+                if not writer.is_closing():
+                    writer.write('0\r\n\r\n'.encode())
+                await writer.drain()
+
                 writer.close()
                 await writer.wait_closed()
             except ConnectionError:
@@ -148,8 +149,7 @@ class Track:
         except ConnectionError as e:
             logger.error(f'{self.task_name} HTTP socket is closed: {e!r}')
             await self.session.close_session(shutdown_coro=True)
-            # This will cause a new stream session to start.
-            await renderer.disable_for(period=0)
+            await renderer.close()
         except Exception:
             await self.session.close_session(shutdown_coro=True)
             raise

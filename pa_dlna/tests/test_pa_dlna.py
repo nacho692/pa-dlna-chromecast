@@ -498,6 +498,29 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
 
         return result, m_logs
 
+    @staticmethod
+    def set_renderer_to_run(sink_input_name):
+        # Test that streaming starts when pa-dlna is started while the track
+        # is already playing.
+        sink_input = LibPulseSinkInput(sink_input_name, [])
+        sink_input.proplist = PROPLIST
+        upnp_control_point, control_point = get_control_point([sink_input])
+        set_control_point(control_point)
+
+        # Ensure that Renderer.run() does not run the loop over calls to
+        # handle_pulse_event().
+        control_point.test_end.set_result(True)
+
+        root_device = RootDevice(upnp_control_point)
+        renderers_list = RenderersList(control_point, root_device)
+
+        # Note that renderer is not appended to renderers_list as this is
+        # not needed.
+        renderer = Renderer(control_point, root_device, renderers_list)
+        renderer.encoder = Encoder()
+
+        return renderer, sink_input
+
     async def test_remove_event(self):
         index = 999
         ctx = PulseEventContext(prev_sink_input_index=index)
@@ -725,7 +748,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
                                                     soap_minimum_interval=5)
         sleep.assert_called_once()
 
-    async def test_soap_fault(self):
+    async def test_soap_fault_ignored(self):
         ctx = PulseEventContext(sink=Sink(), sink_input_index=0)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
 
@@ -738,26 +761,22 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
             re.compile("Ignoring SOAP error 'Transition not available'")))
 
+    async def test_soap_fault_renderer(self):
+        renderer, _ = self.set_renderer_to_run('some renderer')
+
+        with mock.patch.object(Renderer, 'select_encoder') as select_encoder,\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            renderer.upnp_device._closed = True
+            select_encoder.return_value = True
+            await renderer.pulse_register()
+            await renderer.run()
+
+        self.assertTrue(search_in_logs(m_logs.output, 'pa-dlna',
+            re.compile(fr"UPnPSoapFaultError.'UPnPRootDevice is closed'")))
+
     async def test_start_streaming(self):
-        # Test that streaming starts when pa-dlna is started while the track
-        # is already playing.
         sink_input_name = 'Orcas Ibericas'
-        sink_input = LibPulseSinkInput(sink_input_name, [])
-        sink_input.proplist = PROPLIST
-        upnp_control_point, control_point = get_control_point([sink_input])
-        set_control_point(control_point)
-
-        # Ensure that Renderer.run() does not run the loop over calls to
-        # handle_pulse_event().
-        control_point.test_end.set_result(True)
-
-        root_device = RootDevice(upnp_control_point)
-        renderers_list = RenderersList(control_point, root_device)
-
-        # Note that renderer is not appended to renderers_list as this is
-        # not needed.
-        renderer = Renderer(control_point, root_device, renderers_list)
-        renderer.encoder = Encoder()
+        renderer, sink_input = self.set_renderer_to_run(sink_input_name)
 
         with mock.patch.object(Renderer, 'handle_action') as handle_action,\
                 mock.patch.object(Renderer,

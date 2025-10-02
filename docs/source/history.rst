@@ -1,6 +1,12 @@
 Release history
 ===============
 
+Version 1.2
+  - The UPnP device is now closed instead of being permanently disabled after a
+    connection error ocurring while pa-dlna is streaming a track. It will be
+    discovered again by the next SSDP_NOTIFY or SSDP_MSEARCH udp datagram after
+    the connection is up again (issue #55).
+
 Version 1.1
   - Fix the ``test_libpulse`` deadlock in ``pytest`` when another pa-dlna
     instance is already running. The corresponding test cases are skipped.
