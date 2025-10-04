@@ -2,6 +2,9 @@ Release history
 ===============
 
 Version 1.2
+  - Fix a crash upon a race condition that occurs when the DLNA device is about
+    to be closed and is simultaneously discovered again by an SSDP
+    notify/msearch datagram.
   - The UPnP device is now closed instead of being permanently disabled after a
     connection error ocurring while pa-dlna is streaming a track. It will be
     discovered again by the next SSDP_NOTIFY or SSDP_MSEARCH udp datagram after

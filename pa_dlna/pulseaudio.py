@@ -82,12 +82,11 @@ class Pulse:
                     # Pulseaudio has added a '.n' suffix because there exists
                     # another null-sink with the same name.
                     await self.lib_pulse.pa_context_unload_module(module_index)
+
+                    # AVControlPoint.abort() raises an exception.
                     renderer.control_point.abort(
                         f'Two DLNA devices registered with the same name:'
                         f'{NL_INDENT}{module_name}')
-
-                    # AVControlPoint.abort() raises an exception.
-                    assert False, 'Statement never reached'
 
                 return sink
 

@@ -145,9 +145,6 @@ class Renderer:
                                                                 logging.INFO)
             logger.log(level, f"Closing '{self.name}' renderer")
 
-            # Close the root device and all of its renderers.
-            await self.renderers_list.close()
-
             # Handle the race condition where the Renderer.run() task
             # has been created but not yet started.
             if self.nullsink is not None:
@@ -162,8 +159,18 @@ class Renderer:
             if (self.curtask is not None and
                     asyncio.current_task() != self.curtask):
                 self.curtask.cancel()
-            await self.pulse_unregister()
+
             await self.stream_sessions.close_session()
+
+            # Close the root device and all of its renderers.
+            # The pulse module is unregistered in renderers_list.close() to
+            # ensure that it is unregistered before self.root_device is
+            # removed from the control_point.root_devices dictionary. This
+            # avoids a race condition where the upnp device may be registered
+            # again with the same name (i.e. uuid) by pulse following an ssdp
+            # discovery (and therefore causing a crash) while the module is
+            # still registered.
+            await self.renderers_list.close()
 
     def getattr(self, name):
         """Falling back to root device when upn_device attribute missing."""
@@ -627,6 +634,7 @@ class RenderersList(UserList):
             for renderer in self.data:
                 try:
                     await renderer.close()
+                    await renderer.pulse_unregister()
                 except Exception as e:
                     logger.error(f'Got exception closing {renderer.name}:'
                                  f' {e!r}')
@@ -694,6 +702,8 @@ class AVControlPoint(UPnPApplication):
     def abort(self, msg):
         """Abort the whole program from a non-main task."""
 
+        # Should be called instead of 'assert False' when there is a
+        # programatic error.
         self.cp_tasks.create_task(self.close(msg), name='abort')
         raise ControlPointAbortError(msg)
 
