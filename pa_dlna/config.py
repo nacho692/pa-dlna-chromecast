@@ -17,7 +17,11 @@ BOOLEAN_PARSE = {'yes': True, 'no': False}
 # Encoders configuration.
 def new_cfg_parser(**kwargs):
     # 'allow_no_value' to write comments as fake options.
-    parser = ConfigParser(allow_no_value=True, **kwargs)
+    # Add the 'delimiters' option to fix in Python 3.14:
+    #    configparser.InvalidWriteError: Cannot write key that contains the
+    #    ':' delimiter. See
+    #    https://github.com/python/cpython/pull/129270
+    parser = ConfigParser(allow_no_value=True, delimiters=('=',), **kwargs)
     # Do not convert option names to lower case in interpolations.
     parser.optionxform = str
     parser.BOOLEAN_STATES = BOOLEAN_PARSE

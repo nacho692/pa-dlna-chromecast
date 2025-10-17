@@ -39,7 +39,7 @@ default:
     - python -m coverage report --show-missing
 
 pipwire-tests:
-    image: python:3.11
+    image: python:3.14
     stage: test
     script:
         - *pipewire
@@ -84,6 +84,13 @@ py312:
 
 py313:
     image: python:3.13
+    stage: test
+    script:
+        - *pulseaudio
+        - *unittest-scripts
+
+py314:
+    image: python:3.14
     stage: test
     script:
         - *pulseaudio

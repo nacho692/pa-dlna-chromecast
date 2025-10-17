@@ -325,7 +325,8 @@ def parec_py():
         return_code = 1
     finally:
         stdout.close()
-        return return_code
+
+    return return_code
 
 def encoder_py():
     """Write for ever 'count' bytes read from stdin to stdout."""
@@ -333,6 +334,7 @@ def encoder_py():
     print('encoder stub starting', file=sys.stderr)
     stdin = io.BufferedReader(io.FileIO(STDIN_FILENO, mode='r'))
     stdout = io.BufferedWriter(io.FileIO(STDOUT_FILENO, mode='w'))
+    return_code = 0
 
     try:
         socket_path = os.environ[ENCODER_PATH_ENV]
@@ -367,7 +369,8 @@ def encoder_py():
         stdin.close()
         stdout.close()
         print(f'encoder stub return_code: {return_code}', file=sys.stderr)
-        return return_code
+
+    return return_code
 
 def main():
     processes = {

@@ -2,6 +2,15 @@ Release history
 ===============
 
 Version 1.2
+  - Support Python version 3.14:
+
+    + Fix warnings upon return/break/continue that exit a finally block (`PEP
+      765`_).
+    + Restrict the delimiters set to ``=`` in configuration files to fix the
+      check (made starting with Python 3.14) that triggers
+      configparser.InvalidWriteError: *Cannot write key that contains the* ``:``
+      *delimiter*, see `Cpython PR #129270`_.
+
   - Fix a crash upon a race condition that occurs when the DLNA device is about
     to be closed and is simultaneously discovered again by an SSDP
     notify/msearch datagram.
@@ -77,7 +86,7 @@ Version 0.12
 
 Version 0.11
   - Import the libpulse package from Pypi.
-  - Support Python version 3.12 - fix some network mock tests by forcing the
+  - Support Python version 3.12 - Fix some network mock tests by forcing the
     release of control to the asyncio loop.
 
 Version 0.10
@@ -183,6 +192,8 @@ Version 0.2
 Version 0.1
   - Publish the project on PyPi.
 
+.. _`PEP 765`: https://peps.python.org/pep-0765/
+.. _`Cpython PR #129270`: https://github.com/python/cpython/pull/129270
 .. _`error handling changes`:
    https://libpulse.readthedocs.io/en/stable/history.html
 

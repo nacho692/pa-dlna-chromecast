@@ -225,8 +225,10 @@ Releasing
 * Update ``__version__`` in pa_dlna/__init__.py.
 *  When this new release depends on a more recent libpulse release than
    previously:
+
   + Update ``MIN_LIBPULSE_VERSION`` in pa_dlna/__init__.py.
   + Update the minimum required libpulse version in pyproject.toml.
+
 * Update docs/source/history.rst if needed.
 * Build locally the documentation, see one of the previous sections.
 * Commit the changes::

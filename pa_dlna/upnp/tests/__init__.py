@@ -2,6 +2,7 @@ import sys
 import socket
 import asyncio
 import unittest
+import inspect
 from unittest import mock
 
 from ..upnp import UPnPControlPoint
@@ -110,7 +111,7 @@ async def loopback_datagrams(datagrams, patch_method=None, setup=None):
             if mock.called:
                 return True
 
-    if asyncio.iscoroutinefunction(datagrams):
+    if inspect.iscoroutinefunction(datagrams):
         coro = datagrams
     else:
         coro = send_datagrams

@@ -320,7 +320,7 @@ class UpmpdcliMpd:
                              f" after {TRACK_TIMEOUT} seconds")
             finally:
                 await self.stop_track(track_proc)
-                return
+                track_proc = None
 
         return track_proc
 
