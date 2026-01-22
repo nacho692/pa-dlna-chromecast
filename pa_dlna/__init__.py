@@ -3,7 +3,7 @@
 import sys
 import logging
 
-__version__ = '1.1.post2'
+__version__ = '1.2'
 MIN_PYTHON_VERSION = (3, 8)
 MIN_LIBPULSE_VERSION = '0.7'
 
