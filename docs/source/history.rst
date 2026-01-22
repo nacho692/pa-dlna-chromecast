@@ -6,10 +6,10 @@ Version 1.2
 
     + Fix warnings upon return/break/continue that exit a finally block (`PEP
       765`_).
-    + Restrict the delimiters set to ``=`` in configuration files to fix the
-      check (made starting with Python 3.14) that triggers
-      configparser.InvalidWriteError: *Cannot write key that contains the* ``:``
-      *delimiter*, see `Cpython PR #129270`_.
+    + Restrict the configparser delimiters set to ``'='`` when writing the
+      default configuration file to fix the check (made starting with Python
+      3.14) that triggers configparser.InvalidWriteError: *Cannot write key that
+      contains the* ``':'`` *delimiter*. See `Cpython PR #129270`_.
 
   - Fix a crash upon a race condition that occurs when the DLNA device is about
     to be closed and is simultaneously discovered again by an SSDP

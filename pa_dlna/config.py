@@ -17,11 +17,8 @@ BOOLEAN_PARSE = {'yes': True, 'no': False}
 # Encoders configuration.
 def new_cfg_parser(**kwargs):
     # 'allow_no_value' to write comments as fake options.
-    # Add the 'delimiters' option to fix in Python 3.14:
-    #    configparser.InvalidWriteError: Cannot write key that contains the
-    #    ':' delimiter. See
-    #    https://github.com/python/cpython/pull/129270
-    parser = ConfigParser(allow_no_value=True, delimiters=('=',), **kwargs)
+    parser = ConfigParser(allow_no_value=True, **kwargs)
+
     # Do not convert option names to lower case in interpolations.
     parser.optionxform = str
     parser.BOOLEAN_STATES = BOOLEAN_PARSE
@@ -50,7 +47,7 @@ def set_args_in_parser(encoder, section, parser):
 class DefaultConfig:
     """The default built-in configuration as a dict."""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.root_class = encoders_module.ROOT_ENCODER
         self.parser = None
         self.empty_comment_cnt = 0
@@ -64,7 +61,7 @@ class DefaultConfig:
                                 issubclass(obj, self.root_class) and
                                 obj.__mro__.index(self.root_class) != 1 and
                                 not obj.__subclasses__())
-        self.default_config()
+        self._default_config(**kwargs)
 
     def write_empty_comment(self, section):
         # Make ConfigParser believe that we are adding each time
@@ -72,7 +69,7 @@ class DefaultConfig:
         self.parser.set(section, "#" + self.empty_comment_cnt * ' ')
         self.empty_comment_cnt += 1
 
-    def default_config(self):
+    def _default_config(self, **kwargs):
         """Build a parser holding the built-in default configuration."""
 
         def convert_boolean(obj, attr):
@@ -88,7 +85,9 @@ class DefaultConfig:
             if attr != 'selection' and not attr.startswith('_'):
                 val = convert_boolean(root, attr)
                 defaults[attr] = val
-        self.parser = new_cfg_parser(defaults=defaults)
+        kwargs['defaults'] = defaults
+
+        self.parser = new_cfg_parser(**kwargs)
 
         for section in sorted(sections):
             if section not in self.leaves:
@@ -164,7 +163,7 @@ class DefaultConfig:
         if default_args == encoder.args:
             encoder.set_args()
 
-    def write(self, fileobject):
+    def write_parser(self, fileobject):
         """Write the configuration to a text file object."""
 
         for comment in comments_from_doc(self.root_class.__doc__):

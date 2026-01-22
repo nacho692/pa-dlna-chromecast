@@ -328,8 +328,12 @@ def padlna_main(clazz, doc, argv=sys.argv):
     if pa_dlna:
         # Get the encoders configuration.
         try:
+            # Add the 'delimiters' option to fix in Python 3.14:
+            #    configparser.InvalidWriteError: Cannot write key that
+            #    contains the ':' delimiter.
+            # See https://github.com/python/cpython/pull/129270
             if options['dump_default']:
-                DefaultConfig().write(sys.stdout)
+                DefaultConfig(delimiters=('=',)).write_parser(sys.stdout)
                 sys.exit(0)
 
             config = UserConfig(systemd=systemd)
