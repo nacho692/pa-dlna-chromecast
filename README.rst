@@ -1,4 +1,4 @@
-This is a fork from `pa-dlna` with chromecast support added just because I wanted a replacement of pulseaudio-dlna for pipewire.
+This is a fork from `pa-dlna`_ with chromecast support added just because I wanted a replacement of pulseaudio-dlna for pipewire.
 It is coded in a terrible way just to make it work.
 
 .. image:: images/coverage.png
