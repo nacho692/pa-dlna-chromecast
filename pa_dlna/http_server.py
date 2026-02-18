@@ -44,6 +44,18 @@ async def write_http_ok(writer, renderer):
     writer.write('\r\n'.join(query).encode('latin-1'))
     await writer.drain()
 
+
+async def write_http_blob(writer, body, content_type, head=False):
+    query = ['HTTP/1.1 200 OK',
+             'Content-type: ' + content_type,
+             f'Content-Length: {len(body)}',
+             'Connection: close',
+             '', '']
+    writer.write('\r\n'.join(query).encode('latin-1'))
+    if not head:
+        writer.write(body)
+    await writer.drain()
+
 class Track:
     """An HTTP socket connected to a subprocess stdout.
 
@@ -481,6 +493,28 @@ class HTTPServer:
             # BaseHTTPRequestHandler has decoded the received bytes as
             # 'iso-8859-1' encoded, now unquote the uri path.
             uri_path = urllib.parse.unquote(handler.path)
+
+            # Serve artwork requests bound to a known renderer.
+            for renderer in self.control_point.renderers():
+                if not renderer.match_artwork(uri_path):
+                    continue
+
+                if handler.command not in ('GET', 'HEAD'):
+                    handler.send_error(HTTPStatus.METHOD_NOT_ALLOWED,
+                                       f'Cannot handle {handler.command}')
+                    await writer.drain()
+                    return
+
+                data, content_type = renderer.get_artwork_blob()
+                if data is None:
+                    handler.send_error(HTTPStatus.NOT_FOUND,
+                                       f'Artwork not found for {renderer.name}')
+                    await writer.drain()
+                    return
+
+                await write_http_blob(writer, data, content_type,
+                                      head=(handler.command == 'HEAD'))
+                return
 
             for renderer in self.control_point.renderers():
                 if not renderer.match(uri_path):

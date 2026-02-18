@@ -1,10 +1,10 @@
-"""Forward pulseaudio streams to DLNA devices."""
+"""Forward pulseaudio streams to DLNA and Chromecast devices."""
 
 import sys
 import logging
 
 __version__ = '1.2'
-MIN_PYTHON_VERSION = (3, 8)
+MIN_PYTHON_VERSION = (3, 11)
 MIN_LIBPULSE_VERSION = '0.7'
 
 # Systemd log level set between WARNING and ERROR.

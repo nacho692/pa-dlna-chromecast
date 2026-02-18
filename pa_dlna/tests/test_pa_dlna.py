@@ -31,7 +31,9 @@ with use_libpulse_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
 
 AVControlPoint = pa_dlna.AVControlPoint
 Renderer = pa_dlna.Renderer
+CastRenderer = pa_dlna.CastRenderer
 RenderersList = pa_dlna.RenderersList
+CastRenderersList = pa_dlna.CastRenderersList
 PROPLIST = { 'application.name': 'Strawberry',
              'media.artist': 'Ziggy Stardust',
              'media.title': 'Amarok',
@@ -402,6 +404,297 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                                 re.compile('Ignore disabled UPnPRootDevice')))
 
+
+class CastNotificationTests(IsolatedAsyncioTestCase):
+    class CastRootDevice:
+        source = 'chromecast'
+
+        def __init__(self):
+            self.modelName = 'Chromecast'
+            self.friendlyName = 'Living room'
+            self.UDN = 'uuid:cast-device'
+            self.udn = self.UDN
+            self.peer_ipaddress = '127.0.0.1'
+            self.local_ipaddress = '127.0.0.1'
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+        def __str__(self):
+            return "CastRootDevice('Living room')"
+
+    class CastProvider:
+        def __init__(self, notifications, disabled=False):
+            self.notifications = list(notifications)
+            self.disabled = disabled
+
+        async def get_notification(self):
+            return self.notifications.pop(0)
+
+        def is_disabled(self, root_device):
+            return self.disabled
+
+        def disable_root_device(self, root_device, name=None):
+            root_device.close()
+
+    def setUp(self):
+        self.upnp_control_point, self.control_point = get_control_point([])
+        _set_control_point(self.control_point)
+
+    async def test_alive_and_byebye(self):
+        root_device = self.CastRootDevice()
+        notifications = [('alive', root_device),
+                         ('byebye', root_device),
+                         pa_dlna.QUEUE_CLOSED]
+        self.control_point.cast_provider = self.CastProvider(notifications)
+
+        registered = []
+
+        async def register(control_point, renderer):
+            registered.append(renderer)
+
+        with mock.patch.object(AVControlPoint, 'register', register),\
+                self.assertLogs(level=logging.DEBUG) as logs:
+            await self.control_point.handle_cast_notifications()
+
+        self.assertEqual(len(registered), 1)
+        self.assertTrue(isinstance(registered[0], CastRenderer))
+        self.assertEqual(len(self.control_point.root_devices), 0)
+        self.assertTrue(root_device.closed)
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                re.compile("Got 'alive' notification for CastRootDevice")))
+
+    async def test_ignore_disabled(self):
+        root_device = self.CastRootDevice()
+        notifications = [('alive', root_device),
+                         pa_dlna.QUEUE_CLOSED]
+        self.control_point.cast_provider = self.CastProvider(notifications,
+                                                             disabled=True)
+
+        with self.assertLogs(level=logging.DEBUG) as logs:
+            await self.control_point.handle_cast_notifications()
+
+        self.assertEqual(len(self.control_point.root_devices), 0)
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                                re.compile('Ignore disabled CastRootDevice')))
+
+
+class CastRendererTests(IsolatedAsyncioTestCase):
+    def setUp(self):
+        upnp_control_point, control_point = get_control_point([])
+        _set_control_point(control_point)
+        self.control_point = control_point
+        self.root_device = RootDevice(upnp_control_point)
+        self.root_device.source = 'chromecast'
+        self.renderers_list = CastRenderersList(control_point, self.root_device)
+
+    async def test_select_encoder(self):
+        renderer = CastRenderer(self.control_point, self.root_device,
+                                self.renderers_list)
+        self.assertTrue(await renderer.select_encoder(self.root_device.udn))
+        self.assertTrue(renderer._encoder_candidates)
+        self.assertTrue(renderer.encoder is not None)
+        self.assertTrue(renderer.mime_type is not None)
+
+    async def test_load_media_fallback(self):
+        renderer = CastRenderer(self.control_point, self.root_device,
+                                self.renderers_list)
+        self.assertTrue(await renderer.select_encoder(self.root_device.udn))
+        if len(renderer._encoder_candidates) < 2:
+            self.skipTest('The test requires at least two encoder candidates')
+
+        renderer.set_current_uri()
+        metadata = pa_dlna.MetaData('player', 'artist', 'track')
+        with mock.patch.object(renderer, '_load_media_once',
+                               new_callable=mock.AsyncMock) as load_once:
+            load_once.side_effect = [OSError('boom'), None]
+            await renderer._load_media(metadata, 'STOPPED',
+                                       'SetAVTransportURI')
+            self.assertEqual(load_once.call_count, 2)
+            self.assertEqual(renderer._encoder_idx, 1)
+
+    async def test_handle_action_no_second_play(self):
+        renderer = CastRenderer(self.control_point, self.root_device,
+                                self.renderers_list)
+        self.assertTrue(await renderer.select_encoder(self.root_device.udn))
+        renderer.encoder.soap_minimum_interval = 0
+
+        metadata = pa_dlna.MetaData('player', 'artist', 'track')
+        with mock.patch.object(CastRenderer, 'get_transport_state',
+                               new_callable=mock.AsyncMock,
+                               return_value='STOPPED'),\
+                mock.patch.object(CastRenderer, 'set_avtransporturi',
+                                  new_callable=mock.AsyncMock) as set_uri,\
+                mock.patch.object(CastRenderer, 'play',
+                                  new_callable=mock.AsyncMock) as play:
+            await renderer.handle_action(metadata)
+            set_uri.assert_awaited_once_with(metadata, 'STOPPED')
+            play.assert_not_called()
+
+    async def test_load_media_uses_live_stream_with_music_metadata(self):
+        class MediaController:
+            def __init__(self):
+                self.calls = []
+
+            def play_media(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
+
+            def block_until_active(self, timeout):
+                return
+
+            def play(self):
+                return
+
+        renderer = CastRenderer(self.control_point, self.root_device,
+                                self.renderers_list)
+        self.assertTrue(await renderer.select_encoder(self.root_device.udn))
+        renderer.set_current_uri()
+        metadata = pa_dlna.MetaData('player', 'artist', 'track')
+        media_controller = MediaController()
+
+        with mock.patch.object(renderer, '_media_controller',
+                               new_callable=mock.AsyncMock,
+                               return_value=media_controller):
+            await renderer._load_media_once(metadata)
+
+        self.assertEqual(len(media_controller.calls), 1)
+        _, kwargs = media_controller.calls[0]
+        self.assertEqual(kwargs.get('stream_type'), 'LIVE')
+        self.assertTrue('metadata' in kwargs)
+        self.assertEqual(kwargs['metadata'].get('metadataType'), 3)
+        self.assertEqual(kwargs['metadata'].get('title'), 'track')
+        self.assertEqual(kwargs['metadata'].get('artist'), 'artist')
+        self.assertEqual(kwargs['metadata'].get('albumName'), 'player')
+
+    async def test_load_media_switches_to_default_media_receiver(self):
+        class MediaController:
+            supporting_app_id = 'CC1AD845'
+
+            def __init__(self):
+                self.calls = []
+
+            def play_media(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
+
+            def block_until_active(self, timeout):
+                return
+
+        class Cast:
+            class Status:
+                app_id = '233637DE'
+
+            def __init__(self):
+                self.status = self.Status()
+                self.media_controller = MediaController()
+                self.start_calls = []
+
+            def start_app(self, app_id, force_launch=False, timeout=10):
+                self.start_calls.append((app_id, force_launch, timeout))
+
+        class CastProvider:
+            def __init__(self, cast):
+                self.cast = cast
+
+            async def get_chromecast(self, root_device):
+                root_device.cast = self.cast
+                return self.cast
+
+        renderer = CastRenderer(self.control_point, self.root_device,
+                                self.renderers_list)
+        self.assertTrue(await renderer.select_encoder(self.root_device.udn))
+        renderer.set_current_uri()
+        metadata = pa_dlna.MetaData('player', 'artist', 'track')
+        cast = Cast()
+        self.control_point.cast_provider = CastProvider(cast)
+
+        await renderer._load_media_once(metadata)
+
+        self.assertEqual(len(cast.start_calls), 1)
+        app_id, force_launch, _ = cast.start_calls[0]
+        self.assertEqual(app_id, 'CC1AD845')
+        self.assertTrue(force_launch)
+        self.assertEqual(len(cast.media_controller.calls), 1)
+
+    async def test_load_media_force_launches_even_if_app_matches(self):
+        class MediaController:
+            supporting_app_id = 'CC1AD845'
+
+            def __init__(self):
+                self.calls = []
+
+            def play_media(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
+
+            def block_until_active(self, timeout):
+                return
+
+        class Cast:
+            class Status:
+                app_id = 'CC1AD845'
+
+            def __init__(self):
+                self.status = self.Status()
+                self.media_controller = MediaController()
+                self.start_calls = []
+
+            def start_app(self, app_id, force_launch=False, timeout=10):
+                self.start_calls.append((app_id, force_launch, timeout))
+
+        class CastProvider:
+            def __init__(self, cast):
+                self.cast = cast
+
+            async def get_chromecast(self, root_device):
+                root_device.cast = self.cast
+                return self.cast
+
+        renderer = CastRenderer(self.control_point, self.root_device,
+                                self.renderers_list)
+        self.assertTrue(await renderer.select_encoder(self.root_device.udn))
+        renderer.set_current_uri()
+        metadata = pa_dlna.MetaData('player', 'artist', 'track')
+        cast = Cast()
+        self.control_point.cast_provider = CastProvider(cast)
+
+        await renderer._load_media_once(metadata)
+
+        self.assertEqual(len(cast.start_calls), 1)
+        app_id, force_launch, _ = cast.start_calls[0]
+        self.assertEqual(app_id, 'CC1AD845')
+        self.assertTrue(force_launch)
+        self.assertEqual(len(cast.media_controller.calls), 1)
+
+    async def test_load_media_omits_thumb_even_when_artwork_is_available(self):
+        class MediaController:
+            def __init__(self):
+                self.calls = []
+
+            def play_media(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
+
+            def block_until_active(self, timeout):
+                return
+
+        renderer = CastRenderer(self.control_point, self.root_device,
+                                self.renderers_list)
+        self.assertTrue(await renderer.select_encoder(self.root_device.udn))
+        renderer.set_current_uri()
+        renderer.current_art_uri = 'http://example.org/cover.jpg'
+        metadata = pa_dlna.MetaData('player', 'artist', 'track')
+        media_controller = MediaController()
+
+        with mock.patch.object(renderer, '_media_controller',
+                               new_callable=mock.AsyncMock,
+                               return_value=media_controller):
+            await renderer._load_media_once(metadata)
+
+        self.assertEqual(len(media_controller.calls), 1)
+        _, kwargs = media_controller.calls[0]
+        self.assertTrue('thumb' not in kwargs['metadata'])
+        self.assertTrue('images' not in kwargs['metadata'])
+
+
 class PulseEventContext:
     """The context set before running handle_pulse_event() tests.
 
@@ -599,6 +892,24 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile(r"MetaData\(.*artist='Ziggy Stardust'")))
 
+    async def test_didl_lite_album_art_uri(self):
+        with tempfile.NamedTemporaryFile(suffix='.jpg') as f:
+            proplist = PROPLIST.copy()
+            proplist['mpris:artUrl'] = f'file://{f.name}'
+            ctx = PulseEventContext(sink=Sink(), sink_input_index=0,
+                                    sink_input_proplist=proplist)
+
+            await self.patch_soap_action('new', ctx)
+            result, logs = await self.patch_soap_action('change', ctx)
+
+            didl_lite = result[0][2]['CurrentURIMetaData']
+            port = getattr(ctx.renderer.control_point, 'port', 8080)
+            expected_url = (f'http://{ctx.renderer.root_device.local_ipaddress}'
+                            f':{port}'
+                            f'/artwork/{ctx.renderer.upnp_device.UDN}')
+            self.assertIn('<upnp:albumArtURI>', didl_lite)
+            self.assertIn(expected_url, didl_lite)
+
     async def test_clients_uuids(self):
         class Client:
             def __init__(self, proplist):
@@ -664,6 +975,50 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(result[1][1], 'Play')
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile(fr"MetaData\(.*, title='{application_name}'\)")))
+
+    async def test_media_name_title_fallback(self):
+        proplist = PROPLIST.copy()
+        proplist['media.title'] = ''
+        proplist['media.name'] = 'Wonderwall'
+        ctx = PulseEventContext(sink=Sink(), sink_input_index=0,
+                                sink_input_proplist=proplist)
+        ctx.renderer.encoder = Encoder()
+
+        metadata = ctx.renderer.sink_input_meta(ctx.sink_input)
+        self.assertEqual(metadata.title, 'Wonderwall')
+
+    async def test_stream_name_title_fallback(self):
+        proplist = {'application.name': 'supersonic'}
+        ctx = PulseEventContext(sink=Sink(), sink_input_index=0,
+                                sink_input_proplist=proplist)
+        ctx.renderer.encoder = Encoder()
+        ctx.sink_input.name = 'supersonic : Wonderwall - mpv on'
+
+        metadata = ctx.renderer.sink_input_meta(ctx.sink_input)
+        self.assertEqual(metadata.title, 'Wonderwall - mpv on')
+
+    async def test_next_track_media_name(self):
+        index = 999
+        proplist = PROPLIST.copy()
+        del proplist['media.title']
+        proplist['media.name'] = 'Sticky Fingers'
+        ctx = PulseEventContext(sink=Sink(),
+                                prev_sink_input_index=0,
+                                sink_input_index=index,
+                                sink_input_proplist=proplist)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
+
+        result, logs = await self.patch_soap_action('change', ctx,
+                                                    transport_state='PLAYING')
+
+        self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
+        self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][1], 'SetNextAVTransportURI')
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+            re.compile(f'change.* event .* sink-input index {index}')))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+                re.compile(r"MetaData\(.* title='Sticky Fingers'\)")))
 
     async def test_no_track_metadata(self):
         # Ignore change event when:

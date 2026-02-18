@@ -85,6 +85,60 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         self.assertTrue(results[0] == ('new', renderer.nullsink.sink,
                                        sink_input))
 
+    async def test_dispatch_event_ignores_mpris_errors(self):
+        results = []
+        renderer = self.new_renderer('mp3', results)
+        sink_input = SinkInput('source', [Event('new')])
+        LibPulse.add_sink_inputs([sink_input])
+
+        async with LibPulse('pa-dlna') as self.pulse.lib_pulse:
+            renderer.nullsink = await self.pulse.register(renderer)
+            with mock.patch.object(self.pulse,
+                                   'enrich_sink_input_metadata') as enrich:
+                enrich.side_effect = RuntimeError('boom')
+                await self.pulse.lib_pulse.pa_context_subscribe(
+                                        PA_SUBSCRIPTION_MASK_SINK_INPUT)
+                iterator = self.pulse.lib_pulse.get_events_iterator()
+                async for event in iterator:
+                    await self.pulse.dispatch_event(event)
+                    await asyncio.sleep(0)
+
+        self.assertTrue(results[0] == ('new', renderer.nullsink.sink,
+                                       sink_input))
+
+    def test_mpris_provider_disabled_without_tools(self):
+        with mock.patch.object(pulseaudio.shutil, 'which',
+                               return_value=None):
+            provider = pulseaudio.MPRISMetadataProvider()
+        self.assertFalse(provider.enabled)
+
+    async def test_mpris_provider_fuzzy_title_match(self):
+        provider = pulseaudio.MPRISMetadataProvider()
+        provider.enabled = True
+
+        async def list_players():
+            return ['Supersonic']
+
+        async def players_by_pid_map():
+            return {}
+
+        async def metadata_for_player(player):
+            return {'title': '¿Qué ves?',
+                    'artist': 'Divididos',
+                    'album': 'La era de la boludez',
+                    'art_url': 'file:///cover.jpg'}
+
+        with mock.patch.object(provider, '_list_players',
+                               side_effect=list_players),\
+                mock.patch.object(provider, '_players_by_pid_map',
+                                  side_effect=players_by_pid_map),\
+                mock.patch.object(provider, '_metadata_for_player',
+                                  side_effect=metadata_for_player):
+            mdata = await provider.metadata(pid=None, app_names=('unknown',),
+                                            title_hint='¿Qué ves? - mpv')
+
+        self.assertEqual(mdata['art_url'], 'file:///cover.jpg')
+
     async def test_clients_uuids(self):
         class Client:
             def __init__(self, proplist):
@@ -292,6 +346,16 @@ class Pulseaudio(IsolatedAsyncioTestCase):
         self.assertTrue(results[0] == ('new', mp3_renderer.nullsink.sink, sink_input))
         self.assertTrue(results[1] == ('new', mpeg_renderer.nullsink.sink, sink_input))
         self.assertTrue(results[2] == ('exit', None, None))
+
+    def test_not_ignored_when_stream_name_changes(self):
+        sink_input = SinkInput('source', [])
+        sink_input.proplist = {'media.role': 'music'}
+        event = Event('change')
+        event.index = sink_input.index
+
+        self.assertFalse(self.pulse.is_ignored_event(sink_input, event))
+        sink_input.name = 'source : New Track'
+        self.assertFalse(self.pulse.is_ignored_event(sink_input, event))
 
 
 if __name__ == '__main__':

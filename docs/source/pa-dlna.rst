@@ -11,6 +11,8 @@ Synopsis
 UPnP discovery is run on all the networks (except the loopbak interface ``lo``)
 when the ``--ip-addresses`` and ``--nics`` command line arguments are not used
 or empty. Otherwise both arguments may be used indifferently or even jointly.
+Chromecast discovery also runs automatically when the ``pychromecast``
+dependency is available.
 
 Options
 -------
@@ -66,15 +68,15 @@ Options
 .. option::  --clients-uuids PATH
 
    PATH is the name of the file where are stored the associations between client
-   applications and their DLNA device uuid. This is used to work around
-   `Wireplumber issue 511`_ on Pipewire.
+   applications and their device uuid (DLNA or Chromecast). This is used to
+   work around `Wireplumber issue 511`_ on Pipewire.
 
    Client applications names that play an audio stream are written by pa-dlna to
-   PATH with the uuid of the DLNA device. In a next pa-dlna session and upon
-   discovering a DLNA device, the list of the playback streams currently being
-   currently run by the sound server  is inspected by pa-dlna and if one of the
-   client applications names matches an entry in PATH that maps to this DLNA
-   device, then the playback stream is moved to the DLNA device by pa-dlna.
+   PATH with the uuid of the selected device. In a next pa-dlna session and upon
+   discovering a device, the list of the playback streams currently being
+   run by the sound server is inspected by pa-dlna and if one of the
+   client applications names matches an entry in PATH that maps to this device,
+   then the playback stream is moved to that device by pa-dlna.
 
    These associations can be removed from PATH or commented out by the user upon
    becoming irrelevant.

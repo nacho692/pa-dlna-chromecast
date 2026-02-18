@@ -16,6 +16,7 @@ from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
 from .test_network import snicaddr, snicstats
 from .device_resps import device_description, scpd, soap_response, soap_fault
 from ..util import HTTPRequestHandler, shorten
+from ..network import UPnPInvalidHttpError
 from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                     UPnPSoapFaultError, UPnPClosedDeviceError)
 from ..xml import UPnPXMLError
@@ -363,6 +364,19 @@ class RootDevice(IsolatedAsyncioTestCase):
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
                         re.compile("Missing 'device' subelement in root"
                                    ' device description')))
+
+    async def test_invalid_http_description(self):
+        exc = UPnPInvalidHttpError(f'Empty http header from {HOST}')
+        with mock.patch('pa_dlna.upnp.upnp.http_get') as http_get,\
+                self.assertLogs(level=logging.INFO) as m_logs:
+            http_get.side_effect = exc
+            await self.root_device._run()
+
+        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+                        re.compile(r'Ignore UPnPRootDevice .*'
+                                   r'UPnPInvalidHttpError')))
+        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+            re.compile('Disable the UPnPRootDevice .* device permanently')))
 
     async def test_age_device(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:

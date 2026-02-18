@@ -1,7 +1,7 @@
 .. image:: images/coverage.png
    :alt: [pa-dlna test coverage]
 
-`pa-dlna`_ forwards audio streams to DLNA devices.
+`pa-dlna`_ forwards audio streams to DLNA and Chromecast devices.
 
 A Python project based on `asyncio`_, that uses `ctypes`_ to interface with the
 ``libpulse`` library and supports the PulseAudio and PipeWire [#]_ sound
@@ -9,7 +9,8 @@ servers.
 
 `pa-dlna`_ is composed of the following components:
 
- * The ``pa-dlna`` program forwards PulseAudio streams to DLNA devices.
+ * The ``pa-dlna`` program forwards PulseAudio streams to DLNA and Chromecast
+   devices.
  * The ``upnp-cmd`` is an interactive command line tool for introspection and
    control of UPnP devices [#]_.
  * The UPnP Python sub-package is used by both commands.
@@ -26,7 +27,7 @@ versions and to select the corresponding pdf document.
 Requirements
 ------------
 
-Python version 3.8 or more recent.
+Python version 3.11 or more recent.
 
 psutil
 """"""
@@ -44,6 +45,13 @@ libpulse
 ``libpulse`` library. It was a sub-package of ``pa-dlna`` and has become a
 full-fledged package on PyPi. It will be installed by ``pip`` as a dependency of
 ``pa-dlna``.
+
+pychromecast
+""""""""""""
+
+The `pychromecast`_ package is required to auto-discover Chromecast devices and
+to control playback on those devices. When this dependency is missing,
+``pa-dlna`` keeps running with DLNA support only and logs a warning.
 
 parec
 """""
@@ -81,7 +89,7 @@ pavucontrol
 """""""""""
 
 Optionally, one may install the ``pavucontrol`` package for easier management of
-associations between sound sources and DLNA devices.
+associations between sound sources and DLNA/Chromecast devices.
 
 Installation
 ------------
@@ -139,6 +147,7 @@ See the `configuration`_ section of the pa-dlna documentation.
 .. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html
 .. _flac: https://xiph.org/flac/
 .. _lame: https://lame.sourceforge.io/
+.. _pychromecast: https://pypi.org/project/PyChromecast/
 .. _configuration: https://pa-dlna.readthedocs.io/en/stable/configuration.html
 .. _pipewire-pulse: https://docs.pipewire.org/page_man_pipewire_pulse_1.html
 .. _libpulse: https://pypi.org/project/libpulse/

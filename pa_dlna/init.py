@@ -227,7 +227,7 @@ def parse_args(doc, pa_dlna=True, argv=sys.argv[1:]):
         parser.add_argument('--clients-uuids', metavar='PATH',
                             help='PATH name of a file where are stored the'
                             ' associations between client applications and'
-                            ' their DLNA device uuid'
+                            ' their device uuid'
                             )
         parser.add_argument('--loglevel', '-l',
                             choices=('debug', 'info', 'warning', 'error'),

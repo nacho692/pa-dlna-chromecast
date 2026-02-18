@@ -56,7 +56,7 @@ from signal import SIGINT, SIGTERM, strsignal
 from . import UPnPError, TEST_LOGLEVEL
 from .util import NL_INDENT, shorten, log_unhandled_exception, AsyncioTasks
 from .network import (ipaddr_from_nics, parse_ssdp, msearch, send_mcast,
-                      Notify, http_get, http_soap)
+                      Notify, http_get, http_soap, UPnPInvalidHttpError)
 from .xml import (upnp_org_etree, build_etree, xml_of_subelement,
                   findall_childless, scpd_actionlist, scpd_servicestatetable,
                   dict_to_xml, parse_soap_response, parse_soap_fault,
@@ -489,6 +489,9 @@ class UPnPRootDevice(UPnPDevice):
             await self._age_root_device()
         except asyncio.CancelledError:
             self.close()
+        except UPnPInvalidHttpError as e:
+            logger.info(f'Ignore {self}: {e!r}')
+            self.close(exc=e)
         except OSError as e:
             logger.error(f'UPnPRootDevice._run(): {e!r}')
             self.close(exc=e)

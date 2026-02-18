@@ -1,12 +1,16 @@
-"An UPnP control point forwarding PulseAudio/Pipewire streams to DLNA devices."
+"An UPnP control point forwarding PulseAudio/Pipewire streams to DLNA and Chromecast devices."
 
 import sys
+import os
 import shutil
 import asyncio
 import logging
 import re
+import ast
+import mimetypes
 import hashlib
 import time
+import urllib.parse
 from signal import SIGINT, SIGTERM
 from collections import namedtuple, UserList
 
@@ -15,6 +19,7 @@ from .init import padlna_main, UPnPApplication, ControlPointAbortError
 from .pulseaudio import Pulse
 from .http_server import StreamSessions, HTTPServer
 from .encoders import select_encoder
+from .chromecast import ChromecastProvider, CHROMECAST_MIME_TYPES
 from .upnp import (UPnPControlPoint, UPnPDevice, UPnPClosedDeviceError,
                    UPnPSoapFaultError, NL_INDENT, shorten,
                    log_unhandled_exception, AsyncioTasks, QUEUE_CLOSED,
@@ -23,6 +28,7 @@ from .upnp import (UPnPControlPoint, UPnPDevice, UPnPClosedDeviceError,
 logger = logging.getLogger('pa-dlna')
 
 AUDIO_URI_PREFIX = '/audio-content'
+ARTWORK_URI_PREFIX = '/artwork'
 MEDIARENDERER = 'urn:schemas-upnp-org:device:MediaRenderer:'
 AVTRANSPORT = 'urn:upnp-org:serviceId:AVTransport'
 RENDERINGCONTROL = 'urn:upnp-org:serviceId:RenderingControl'
@@ -74,6 +80,28 @@ def normalize_xml(xml):
         prev_end = line[-1]
         lines.append(line)
     return ''.join(lines)
+
+
+def normalize_stream_value(value):
+    if value is None:
+        return ''
+    if isinstance(value, bytes):
+        value = value.decode(errors='ignore')
+    elif isinstance(value, (list, tuple)):
+        value = ', '.join(str(item).strip() for item in value if item)
+    else:
+        value = str(value).strip()
+
+    if value.startswith('[') and value.endswith(']'):
+        # Some clients export list-like strings (for example "['Artist']").
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            pass
+        else:
+            if isinstance(parsed, (list, tuple)):
+                value = ', '.join(str(item).strip() for item in parsed if item)
+    return value.strip()
 
 def shorten_udn(udn):
     span = 5
@@ -133,6 +161,9 @@ class Renderer:
         self.mime_type = None
         self.protocol_info = None
         self.current_uri = None
+        self.current_art_uri = ''
+        self.artwork_path = None
+        self.artwork_mime_type = ''
         self.new_pulse_session = False
         self.suspended_state = False
         self.stream_sessions = StreamSessions(self)
@@ -202,6 +233,80 @@ class Renderer:
     def match(self, uri_path):
         return uri_path == f'{AUDIO_URI_PREFIX}/{self.upnp_device.UDN}'
 
+    def match_artwork(self, uri_path):
+        return uri_path == f'{ARTWORK_URI_PREFIX}/{self.upnp_device.UDN}'
+
+    def get_artwork_blob(self):
+        if not self.artwork_path:
+            return None, None
+        try:
+            with open(self.artwork_path, 'rb') as f:
+                data = f.read()
+        except OSError:
+            return None, None
+        content_type = self.artwork_mime_type
+        if not content_type:
+            content_type = 'application/octet-stream'
+        return data, content_type
+
+    def sink_input_art_url(self, sink_input):
+        if sink_input is None:
+            return ''
+        proplist = getattr(sink_input, 'proplist', None)
+        if not isinstance(proplist, dict):
+            return ''
+        for key in ('mpris:artUrl', 'xesam:artUrl', 'media.art.url',
+                    'art.url'):
+            value = normalize_stream_value(proplist.get(key))
+            if value:
+                return value
+        return ''
+
+    def update_track_artwork(self, sink_input):
+        if sink_input is None:
+            # Keep last artwork so delayed Chromecast fetches after LOAD do not
+            # fail with 404 during track transitions.
+            return
+
+        self.current_art_uri = ''
+        self.artwork_path = None
+        self.artwork_mime_type = ''
+
+        art_url = self.sink_input_art_url(sink_input)
+        if not art_url:
+            logger.debug(f'No artwork URL available for {self.name}')
+            return
+
+        parsed = urllib.parse.urlparse(art_url)
+        if parsed.scheme in ('http', 'https'):
+            self.current_art_uri = art_url
+            logger.debug(f'Using remote artwork URL on {self.name}: {art_url}')
+            return
+
+        path = ''
+        if parsed.scheme == 'file':
+            path = urllib.parse.unquote(parsed.path)
+        elif not parsed.scheme:
+            path = art_url
+
+        if not path:
+            logger.debug(f'Unsupported artwork URL on {self.name}: {art_url!r}')
+            return
+        if not os.path.isfile(path):
+            logger.debug(f'Artwork file is missing on {self.name}: {path!r}')
+            return
+
+        self.artwork_path = path
+        self.artwork_mime_type = (mimetypes.guess_type(path)[0] or
+                                  'application/octet-stream')
+        ip_address = getattr(self.root_device, 'local_ipaddress', '127.0.0.1')
+        port = getattr(self.control_point, 'port', 8080)
+        self.current_art_uri = (f'http://{ip_address}'
+                                f':{port}'
+                                f'{ARTWORK_URI_PREFIX}/{self.upnp_device.UDN}')
+        logger.debug(f'Using proxied artwork URL on {self.name}:'
+                     f' {self.current_art_uri}')
+
     async def add_application(self):
         # Map the application name to the uuid.
         pulse = self.control_point.pulse
@@ -238,10 +343,70 @@ class Renderer:
         if sink_input is None:
             return None
 
+        def get_first(proplist, keys):
+            for key in keys:
+                value = normalize_stream_value(proplist.get(key))
+                if value:
+                    return value
+            return ''
+
+        def get_values(proplist, keys):
+            values = []
+            for key in keys:
+                value = normalize_stream_value(proplist.get(key))
+                if value and value not in values:
+                    values.append(value)
+            return values
+
+        def same(left, right):
+            return bool(left and right and left.casefold() == right.casefold())
+
+        def title_from_stream_name(stream_name, publisher):
+            if not stream_name:
+                return ''
+
+            # Pulse/PipeWire can expose "<app> : <track>" as stream name.
+            if publisher:
+                match = re.match(
+                    rf'^{re.escape(publisher)}\s*:\s*(?P<title>.+)$',
+                    stream_name, flags=re.IGNORECASE)
+                if match:
+                    title = normalize_stream_value(match.group('title'))
+                    if title:
+                        return title
+
+            if ' : ' in stream_name:
+                _, title = stream_name.split(' : ', 1)
+                title = normalize_stream_value(title)
+                if title:
+                    return title
+
+            return stream_name
+
         proplist = sink_input.proplist
-        publisher = proplist.get('application.name', '')
-        artist = proplist.get('media.artist', '')
-        title = proplist.get('media.title', '')
+        publisher = get_first(proplist, ('application.name',
+                                         'application.process.binary'))
+        artist = get_first(proplist, ('media.artist', 'xesam:artist'))
+        stream_name = normalize_stream_value(getattr(sink_input, 'name', None))
+        stream_title = title_from_stream_name(stream_name, publisher)
+
+        title = ''
+        title_candidates = get_values(proplist, ('media.title', 'media.name',
+                                                 'xesam:title',
+                                                 'window.title',
+                                                 'node.description',
+                                                 'node.nick'))
+        if title_candidates:
+            # Prefer a value that is not just the app name.
+            for value in title_candidates:
+                if not same(value, publisher):
+                    title = value
+                    break
+            if not title:
+                title = title_candidates[0]
+
+        if stream_title and (not title or same(title, publisher)):
+            title = stream_title
 
         if not self.encoder.track_metadata:
             title = publisher
@@ -316,6 +481,7 @@ class Renderer:
         # Process the event and set the new attributes values of nullsink.
         if event in ('remove', 'exit'):
             if self.nullsink.sink_input is not None:
+                self.update_track_artwork(None)
                 if event == 'exit':
                     self.exit_metadata = self.sink_input_meta(
                                                     self.nullsink.sink_input)
@@ -349,16 +515,19 @@ class Renderer:
                 if not cur_metadata.title:
                     cur_metadata = cur_metadata._replace(
                                             title=cur_metadata.publisher)
+                self.update_track_artwork(sink_input)
                 await self.handle_action(cur_metadata)
 
             # A new track.
-            elif 'media.title' in sink_input.proplist:
+            else:
                 prev_metadata = self.sink_input_meta(self.nullsink.sink_input)
                 # Note that if self.encoder.track_metadata is false, then
                 # cur_metadata.title == prev_metadata.title since 'title'
                 # value is 'publisher' value.
                 if (prev_metadata is not None and
-                        cur_metadata.title != prev_metadata.title):
+                        cur_metadata.title and
+                        cur_metadata != prev_metadata):
+                    self.update_track_artwork(sink_input)
                     await self.handle_action(cur_metadata)
 
         finally:
@@ -403,6 +572,12 @@ class Renderer:
         The returned string is built with ../tools/build_didl_lite.py.
         """
 
+        album_art = ''
+        if self.current_art_uri:
+            album_art = ('<upnp:albumArtURI>'
+                         f'{xml_escape(self.current_art_uri)}'
+                         '</upnp:albumArtURI>')
+
         didl_lite = (
           f'''
         <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
@@ -413,6 +588,7 @@ class Renderer:
           <upnp:class>object.item.audioItem.musicTrack</upnp:class>
           <dc:publisher>{xml_escape(metadata.publisher)}</dc:publisher>
           <upnp:artist>{xml_escape(metadata.artist)}</upnp:artist>
+          {album_art}
           <res protocolInfo="{self.protocol_info}">
             {self.current_uri}</res>
         </item></DIDL-Lite>
@@ -536,6 +712,7 @@ class Renderer:
                 if not cur_metadata.title:
                     cur_metadata = cur_metadata._replace(
                                             title=cur_metadata.publisher)
+                self.update_track_artwork(sink_input)
                 # Trigger 'SetAVTransportURI' and 'Play' soap actions.
                 await self.handle_action(cur_metadata)
 
@@ -557,6 +734,214 @@ class Renderer:
             raise
         finally:
             await self.close()
+
+
+class CastRenderer(Renderer):
+    """A Chromecast renderer."""
+
+    def __init__(self, control_point, upnp_device, renderers_list):
+        super().__init__(control_point, upnp_device, renderers_list)
+        self.description = (f'Chromecast: {self.getattr("friendlyName")} - '
+                            f'{shorten_udn(upnp_device.UDN)}')
+        self.name = self.description
+        self._encoder_candidates = []
+        self._encoder_idx = 0
+        self._state = 'STOPPED'
+
+    def _set_encoder_candidate(self, idx):
+        encoder, mime_type, protocol_info = self._encoder_candidates[idx]
+        self._encoder_idx = idx
+        self.encoder = encoder
+        self.mime_type = mime_type
+        self.protocol_info = protocol_info
+        self.soap_spacer = SoapSpacer(self.encoder.soap_minimum_interval)
+
+    async def _run_cast(self, func):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, func)
+
+    async def _media_controller(self):
+        provider = self.control_point.cast_provider
+        if provider is None:
+            raise RuntimeError('Missing Chromecast provider')
+        cast = await provider.get_chromecast(self.root_device)
+        media_controller = getattr(cast, 'media_controller', None)
+        if media_controller is None:
+            raise RuntimeError('Missing Chromecast media controller')
+        return media_controller
+
+    def _build_encoder_candidates(self, udn):
+        protocol_infos = [f'http-get:*:{mtype}:*' for mtype in
+                          CHROMECAST_MIME_TYPES]
+        remaining = list(protocol_infos)
+        candidates = []
+        seen = set()
+        while remaining:
+            pinfo = {'Sink': ','.join(remaining)}
+            result = select_encoder(self.control_point.config, self.name,
+                                    pinfo, udn)
+            if result is None:
+                break
+            encoder, mime_type, protocol_info = result
+            key = (id(encoder), mime_type.lower())
+            if key in seen:
+                break
+            seen.add(key)
+            candidates.append((encoder, mime_type, protocol_info))
+            remaining = [p for p in remaining if p != protocol_info]
+        return candidates
+
+    async def select_encoder(self, udn):
+        self._encoder_candidates = self._build_encoder_candidates(udn)
+        if not self._encoder_candidates:
+            logger.error(f'Cannot find an encoder matching the {self.name}'
+                         f' supported mime types')
+            await self.disable_root_device()
+            return False
+
+        self._set_encoder_candidate(0)
+        return True
+
+    async def handle_action(self, action):
+        """Handle pulse actions for Chromecast without a second play call.
+
+        play_media() already starts playback, so calling media_controller.play()
+        afterwards can fail on some devices.
+        """
+
+        state = await self.get_transport_state()
+
+        if self.encoder.soap_minimum_interval != 0:
+            await self.soap_spacer.wait()
+
+        if state not in ('STOPPED', 'NO_MEDIA_PRESENT'):
+            if isinstance(action, MetaData):
+                if self.encoder.track_metadata:
+                    await self.set_nextavtransporturi(action, state)
+                return
+            elif action == 'Stop':
+                index = self.get_sink_input_index()
+                self.stream_sessions.stream_tasks.create_task(
+                                        self.maybe_stop(index, state),
+                                        name=f'maybe_stop {self.name}')
+                return
+        elif isinstance(action, MetaData):
+            await self.set_avtransporturi(action, state)
+            return
+
+        log_action(self.name, action, state, ignored=True)
+
+    async def _load_media_once(self, metadata):
+        media_controller = await self._media_controller()
+        cast = getattr(self.root_device, 'cast', None)
+        if cast is None and self.control_point.cast_provider is not None:
+            cast = await self.control_point.cast_provider.get_chromecast(
+                self.root_device)
+
+        def play_media():
+            if cast is not None:
+                desired_app_id = getattr(media_controller, 'supporting_app_id',
+                                         None)
+                if desired_app_id:
+                    current_app_id = getattr(getattr(cast, 'status', None),
+                                             'app_id', None)
+                    logger.info(f'Ensure Chromecast app on {self.name}:'
+                                f' {current_app_id!r} -> {desired_app_id!r}')
+                    # Some Cast built-in devices keep media UI in background
+                    # unless we explicitly restart the receiver app.
+                    if (current_app_id == desired_app_id and
+                            hasattr(cast, 'quit_app')):
+                        try:
+                            cast.quit_app(timeout=3)
+                        except Exception as e:
+                            logger.debug(f'Ignoring quit_app() on {self.name}:'
+                                         f' {e!r}')
+                    cast.start_app(desired_app_id, force_launch=True, timeout=5)
+            media_metadata = {
+                'metadataType': 3,  # MusicTrackMediaMetadata
+                'title': metadata.title
+            }
+            if metadata.artist:
+                media_metadata['artist'] = metadata.artist
+            if metadata.publisher:
+                media_metadata['albumName'] = metadata.publisher
+            kwargs = {
+                'stream_type': 'LIVE',
+                'metadata': media_metadata
+            }
+            media_controller.play_media(self.current_uri, self.mime_type,
+                                        **kwargs)
+            if hasattr(media_controller, 'block_until_active'):
+                media_controller.block_until_active(5)
+
+        await self._run_cast(play_media)
+        self._state = 'PLAYING'
+
+    async def _load_media(self, metadata, state, action):
+        err = None
+        for idx in range(self._encoder_idx, len(self._encoder_candidates)):
+            if idx != self._encoder_idx:
+                self._set_encoder_candidate(idx)
+                logger.warning(f'Retry {action} on {self.name} with'
+                               f' {self.encoder} handling'
+                               f" '{self.mime_type}'")
+            try:
+                await self._load_media_once(metadata)
+                logger.info(f'{metadata}'
+                            f'{NL_INDENT}URL: {self.current_uri}')
+                log_action(self.name, action, state)
+                return
+            except Exception as e:
+                err = e
+                logger.warning(f'Chromecast playback failed on {self.name}'
+                               f' with {self.encoder} handling'
+                               f" '{self.mime_type}': {e!r}")
+
+        if err is not None:
+            raise err
+
+    async def set_avtransporturi(self, metadata, state):
+        await self.add_application()
+        await self._load_media(metadata, state, 'SetAVTransportURI')
+
+    async def set_nextavtransporturi(self, metadata, state):
+        await self.stream_sessions.stop_track()
+        await self._load_media(metadata, state, 'SetNextAVTransportURI')
+
+    async def get_transport_state(self):
+        try:
+            media_controller = await self._media_controller()
+            player_state = getattr(media_controller.status, 'player_state',
+                                   None)
+        except Exception:
+            return 'STOPPED'
+
+        if player_state in ('PLAYING', 'BUFFERING'):
+            return 'PLAYING'
+        if player_state in ('STOPPED', 'PAUSED'):
+            return 'STOPPED'
+        if player_state in ('IDLE', None):
+            return 'NO_MEDIA_PRESENT'
+        return 'STOPPED'
+
+    async def play(self, speed=1):
+        media_controller = await self._media_controller()
+
+        def play():
+            media_controller.play()
+
+        await self._run_cast(play)
+        self._state = 'PLAYING'
+
+    async def stop(self):
+        media_controller = await self._media_controller()
+
+        def stop():
+            media_controller.stop()
+
+        await self._run_cast(stop)
+        self._state = 'STOPPED'
+
 
 class DLNATestDevice(Renderer):
     """Non UPnP Renderer to be used for testing."""
@@ -643,10 +1028,19 @@ class RenderersList(UserList):
                 del self.control_point.root_devices[self.root_device]
             self.root_device.close()
 
+
+class CastRenderersList(RenderersList):
+    """The list of Chromecast renderers of a root device."""
+
+    def build_list(self):
+        self.data.append(CastRenderer(self.control_point, self.root_device,
+                                      self))
+
+
 class AVControlPoint(UPnPApplication):
     """Control point with Content.
 
-    Manage PulseAudio and the DLNA MediaRenderer devices.
+    Manage PulseAudio and the DLNA/Chromecast renderer devices.
     See section 6.6 of "UPnP AV Architecture:2".
     """
 
@@ -658,6 +1052,7 @@ class AVControlPoint(UPnPApplication):
         self.pulse = None           # Pulse instance
         self.start_event = None
         self.upnp_control_point = None
+        self.cast_provider = None
         self.http_servers = {}          # {IPv4 address: http server instance}
         self.register_sem = asyncio.Semaphore()
         self.cp_tasks = AsyncioTasks()
@@ -681,6 +1076,10 @@ class AVControlPoint(UPnPApplication):
         # This coroutine may be run as a task by AVControlPoint.abort().
         if not self.closing:
             self.closing = True
+
+            if self.cast_provider is not None:
+                await self.cast_provider.close()
+                self.cast_provider = None
 
             # The semaphore prevents a race condition where a new Renderer
             # is awaiting the registration of a sink with pulseaudio while
@@ -708,7 +1107,11 @@ class AVControlPoint(UPnPApplication):
         raise ControlPointAbortError(msg)
 
     def disable_root_device(self, root_device, name=None):
-        self.upnp_control_point.disable_root_device(root_device, name=name)
+        if getattr(root_device, 'source', None) == 'chromecast':
+            if self.cast_provider is not None:
+                self.cast_provider.disable_root_device(root_device, name=name)
+        else:
+            self.upnp_control_point.disable_root_device(root_device, name=name)
 
     async def register(self, renderer):
         """Load the null-sink module.
@@ -791,6 +1194,32 @@ class AVControlPoint(UPnPApplication):
             else:
                 raise RuntimeError('Error: Unknown notification')
 
+    async def handle_cast_notifications(self):
+        while True:
+            notif, root_device = await self.cast_provider.get_notification()
+            if (notif, root_device) == QUEUE_CLOSED:
+                logger.debug('Chromecast queue is closed')
+                return
+
+            logger.info(f"Got '{notif}' notification for {root_device}")
+
+            renderers_list = CastRenderersList(self, root_device)
+            renderers_list.build_list()
+            is_new_renderer_list = root_device not in self.root_devices
+            if notif == 'alive':
+                if self.cast_provider.is_disabled(root_device):
+                    logger.debug(f'Ignore disabled {root_device}')
+                elif is_new_renderer_list:
+                    if root_device.local_ipaddress is not None:
+                        self.root_devices[root_device] = renderers_list
+                        for renderer in renderers_list:
+                            await self.register(renderer)
+            elif notif == 'byebye':
+                if not is_new_renderer_list:
+                    await self.root_devices[root_device].close()
+            else:
+                raise RuntimeError('Error: Unknown notification')
+
     @log_unhandled_exception(logger)
     async def run_control_point(self):
         try:
@@ -829,6 +1258,11 @@ class AVControlPoint(UPnPApplication):
                 for mtype in self.test_devices:
                     rndr = DLNATestDevice(self, mtype)
                     await self.register(rndr)
+
+                self.cast_provider = ChromecastProvider(self)
+                if await self.cast_provider.start():
+                    self.cp_tasks.create_task(self.handle_cast_notifications(),
+                                              name='chromecast')
 
                 # Handle UPnP notifications for ever.
                 await self.handle_upnp_notifications()

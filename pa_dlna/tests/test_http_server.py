@@ -3,6 +3,7 @@
 import re
 import asyncio
 import logging
+import tempfile
 from unittest import IsolatedAsyncioTestCase, mock
 
 # Load the tests in the order they are declared.
@@ -315,6 +316,23 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.assertNotEqual(length, 0)
         self.assertTrue(find_in_logs(m_logs.output, 'util',
                                      'HTTP/1.1 HEAD request from 127.0.0.1'))
+
+    async def test_artwork_proxy(self):
+        with tempfile.NamedTemporaryFile(suffix='.png') as f:
+            f.write(b'xyz')
+            f.flush()
+            renderer = await start_http_server()
+            renderer.artwork_path = f.name
+            renderer.artwork_mime_type = 'image/png'
+            url = (f'http://{renderer.root_device.local_ipaddress}'
+                   f':{renderer.control_point.port}'
+                   f'/artwork/{renderer.upnp_device.UDN}')
+
+            curl_task = asyncio.create_task(run_curl(url))
+            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+
+        self.assertEqual(returncode, 0)
+        self.assertEqual(length, 3)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
